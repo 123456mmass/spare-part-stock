@@ -256,12 +256,10 @@ async function enrichRowsWithAi(rows: AiPart[], imageMap: Map<number, Buffer>) {
       const enriched = await enrichRowBatchWithAi(batch, categories, imageMap);
       enrichedRows.push(...enriched.rows);
       aiUsed = true;
-    } catch (error) {
+    } catch {
       enrichedRows.push(...batch);
       errors.push(
-        `AI batch rows ${batch[0]?.rowNum ?? "?"}-${batch.at(-1)?.rowNum ?? "?"} fallback: ${
-          error instanceof Error ? error.message : "unknown error"
-        }`
+        `AI batch rows ${batch[0]?.rowNum ?? "?"}-${batch.at(-1)?.rowNum ?? "?"} fallback`
       );
     }
   }
@@ -296,87 +294,104 @@ export async function importPartsFromExcelWithAi(
       rows = enriched.rows;
       result.aiUsed = enriched.aiUsed;
       result.errors.push(...(enriched.errors ?? []));
-    } catch (error) {
-      result.errors.push(`AI fallback used: ${error instanceof Error ? error.message : "unknown error"}`);
+    } catch {
+      result.errors.push("AI processing unavailable, using raw Excel data");
     }
 
-    for (const row of rows) {
-      let categoryId: string | undefined;
-      if (row.category) {
-        const category = await prisma.category.upsert({
-          where: { name: row.category },
-          create: { name: row.category },
-          update: {},
-        });
-        categoryId = category.id;
-      }
+    // Queue image and QR updates for after transaction (like regular Excel import)
+    const imageUpdates: { partId: string; partNumber: string; rowNum: number }[] = [];
+    const qrUpdates: { partId: string; partNumber: string }[] = [];
 
-      const existing = await prisma.part.findUnique({ where: { partNumber: row.partNumber } });
-      let partId: string;
+    await prisma.$transaction(async (tx) => {
+      for (const row of rows) {
+        let categoryId: string | undefined;
+        if (row.category) {
+          const category = await tx.category.upsert({
+            where: { name: row.category },
+            create: { name: row.category },
+            update: {},
+          });
+          categoryId = category.id;
+        }
 
-      if (existing) {
-        const newQuantity = existing.quantity + row.quantity;
-        await prisma.part.update({
-          where: { id: existing.id },
-          data: {
-            partName: row.partName,
-            description: row.description,
-            categoryId,
-            location: row.location,
-            quantity: newQuantity,
-            minimumQuantity: row.minimumQuantity,
-            unit: row.unit || "pcs",
-            barcodeValue: row.barcodeValue || generatePartBarcodeValue(row.partNumber),
-          },
-        });
-        partId = existing.id;
-        result.updated++;
-      } else {
-        const created = await prisma.part.create({
-          data: {
-            partNumber: row.partNumber,
-            partName: row.partName,
-            description: row.description,
-            categoryId,
-            location: row.location,
-            quantity: row.quantity,
-            minimumQuantity: row.minimumQuantity,
-            unit: row.unit || "pcs",
-            barcodeValue: row.barcodeValue || generatePartBarcodeValue(row.partNumber),
-          },
-        });
-        partId = created.id;
-        result.imported++;
-      }
+        const existing = await tx.part.findUnique({ where: { partNumber: row.partNumber } });
+        let partId: string;
 
-      if (row.quantity > 0) {
-        await prisma.stockMovement.create({
-          data: {
-            partId,
-            userId,
-            type: "STOCK_IN",
-            quantityBefore: existing?.quantity ?? 0,
-            quantityAfter: (existing?.quantity ?? 0) + row.quantity,
-            quantityChange: row.quantity,
-            note: result.aiUsed ? "AI Excel import" : "Excel import",
-          },
-        });
-      }
+        if (existing) {
+          const newQuantity = existing.quantity + row.quantity;
+          await tx.part.update({
+            where: { id: existing.id },
+            data: {
+              partName: row.partName,
+              description: row.description,
+              categoryId,
+              location: row.location,
+              quantity: newQuantity,
+              minimumQuantity: row.minimumQuantity,
+              unit: row.unit || "pcs",
+              barcodeValue: row.barcodeValue || generatePartBarcodeValue(row.partNumber),
+            },
+          });
+          partId = existing.id;
+          result.updated++;
+        } else {
+          const created = await tx.part.create({
+            data: {
+              partNumber: row.partNumber,
+              partName: row.partName,
+              description: row.description,
+              categoryId,
+              location: row.location,
+              quantity: row.quantity,
+              minimumQuantity: row.minimumQuantity,
+              unit: row.unit || "pcs",
+              barcodeValue: row.barcodeValue || generatePartBarcodeValue(row.partNumber),
+            },
+          });
+          partId = created.id;
+          result.imported++;
+        }
 
-      if (row.rowNum && imageMap.has(row.rowNum)) {
-        const imageUrl = await processAndSaveImage(imageMap.get(row.rowNum)!, row.partNumber);
-        if (imageUrl) {
-          await prisma.part.update({ where: { id: partId }, data: { imageUrl } });
+        if (row.quantity > 0) {
+          await tx.stockMovement.create({
+            data: {
+              partId,
+              userId,
+              type: "STOCK_IN",
+              quantityBefore: existing?.quantity ?? 0,
+              quantityAfter: (existing?.quantity ?? 0) + row.quantity,
+              quantityChange: row.quantity,
+              note: result.aiUsed ? "AI Excel import" : "Excel import",
+            },
+          });
+        }
+
+        qrUpdates.push({ partId, partNumber: row.partNumber });
+        if (row.rowNum && imageMap.has(row.rowNum)) {
+          imageUpdates.push({ partId, partNumber: row.partNumber, rowNum: row.rowNum });
         }
       }
+    });
 
-      const qrCodeUrl = await generateQRCode(partId, row.partNumber);
-      await prisma.part.update({ where: { id: partId }, data: { qrCodeUrl } });
+    // Process images and QR codes after transaction commits
+    for (const img of imageUpdates) {
+      const imageBuffer = imageMap.get(img.rowNum);
+      if (imageBuffer) {
+        const imageUrl = await processAndSaveImage(imageBuffer, img.partNumber);
+        if (imageUrl) {
+          await prisma.part.update({ where: { id: img.partId }, data: { imageUrl } });
+        }
+      }
+    }
+
+    for (const qr of qrUpdates) {
+      const qrCodeUrl = await generateQRCode(qr.partId, qr.partNumber);
+      await prisma.part.update({ where: { id: qr.partId }, data: { qrCodeUrl } });
     }
 
     result.success = result.errors.length === 0 || result.imported + result.updated > 0;
-  } catch (error) {
-    result.errors.push(error instanceof Error ? error.message : "AI Excel import failed");
+  } catch {
+    result.errors.push("AI Excel import failed");
   }
 
   return result;

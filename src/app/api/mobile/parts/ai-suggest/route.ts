@@ -33,7 +33,7 @@ export const POST = withCors(async (request: Request) => {
 
     console.error("Mobile part AI suggestion error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "AI suggestion failed" },
+      { error: "AI suggestion failed" },
       { status: 500 }
     );
   }

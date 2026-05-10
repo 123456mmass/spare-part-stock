@@ -26,7 +26,7 @@ export async function POST(request: Request) {
 
     console.error("Part AI suggestion error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "AI suggestion failed" },
+      { error: "AI suggestion failed" },
       { status: 500 }
     );
   }

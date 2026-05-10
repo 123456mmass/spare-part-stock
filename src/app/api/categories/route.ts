@@ -5,6 +5,7 @@ import { requireAuth } from "@/lib/auth";
 
 export async function GET() {
   try {
+    await requireAuth();
     const categories = await prisma.category.findMany({
       orderBy: { name: "asc" },
       include: { _count: { select: { parts: true } } },
@@ -12,6 +13,9 @@ export async function GET() {
 
     return NextResponse.json(categories);
   } catch (error) {
+    if (error instanceof Error && error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     console.error("Error fetching categories:", error);
     return NextResponse.json(
       { error: "เกิดข้อผิดพลาดในการดึงข้อมูล" },

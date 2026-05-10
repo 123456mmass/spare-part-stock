@@ -345,8 +345,8 @@ export async function importPartsFromExcel(
 
     result.success = result.errors.length === 0;
 
-  } catch (error) {
-    result.errors.push(`การอ่านไฟล์ Excel ล้มเหลว: ${error instanceof Error ? error.message : "Unknown error"}`);
+  } catch {
+    result.errors.push("การอ่านไฟล์ Excel ล้มเหลว กรุณาตรวจสอบรูปแบบไฟล์");
   }
 
   return result;
@@ -354,6 +354,7 @@ export async function importPartsFromExcel(
 
 export async function exportPartsToExcel(): Promise<Buffer> {
   const parts = await prisma.part.findMany({
+    where: { isActive: true },
     include: {
       category: true,
     },

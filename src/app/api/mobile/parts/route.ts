@@ -119,10 +119,6 @@ export const POST = withCors(async (request: Request) => {
   try {
     const user = await requireAuthFromRequest(request);
 
-    if (user.role !== "ADMIN") {
-      return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 });
-    }
-
     const body = await request.json();
     const parsed = partSchema.safeParse(body);
 

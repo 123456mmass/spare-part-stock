@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { importPartsFromExcel } from "@/lib/excel";
-import { requireRole } from "@/lib/auth";
+import { requireAuth, requireRole } from "@/lib/auth";
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 const ALLOWED_TYPES = [
@@ -61,14 +61,24 @@ export async function POST(request: Request) {
 }
 
 export async function GET() {
-  const template = `Part Number,Part Name,Description,Category,Location,Quantity,Minimum Quantity,Unit
+  try {
+    await requireAuth();
+
+    const template = `Part Number,Part Name,Description,Category,Location,Quantity,Minimum Quantity,Unit
 SP-001,ช้างเปลี่ยนถ่ายน้ำมันเครื่อง,ช้างเปลี่ยนถ่ายน้ำมันเครื่อง ขนาด 10 ตัน,อะไหล่เครื่องจักร,ชั้น A-1,10,5,pcs
 SP-002,สายพานลำเลียง,สายพานลำเลียง ยาว 5 เมตร,สายพาน,ชั้น B-2,20,10,pcs`;
 
-  return new NextResponse(template, {
-    headers: {
-      "Content-Type": "text/csv",
-      "Content-Disposition": "attachment; filename=template.csv",
-    },
-  });
+    return new NextResponse(template, {
+      headers: {
+        "Content-Type": "text/csv",
+        "Content-Disposition": "attachment; filename=template.csv",
+      },
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    console.error("Template download error:", error);
+    return NextResponse.json({ error: "เกิดข้อผิดพลาด" }, { status: 500 });
+  }
 }

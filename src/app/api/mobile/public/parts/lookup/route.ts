@@ -48,6 +48,7 @@ export const GET = withCors(async (request: Request) => {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    throw error;
+    console.error("Public lookup error:", error);
+    return NextResponse.json({ error: "เกิดข้อผิดพลาด" }, { status: 500 });
   }
 });

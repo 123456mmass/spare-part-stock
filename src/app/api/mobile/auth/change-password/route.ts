@@ -36,7 +36,7 @@ export const POST = withCors(async (request: Request) => {
       );
     }
 
-    const hashed = await bcrypt.hash(newPassword, 10);
+    const hashed = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({
       where: { id: user.id },
       data: { password: hashed, mustChangePassword: false },

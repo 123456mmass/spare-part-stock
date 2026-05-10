@@ -17,13 +17,29 @@ export const GET = withCors(async (request: Request) => {
 
     const users = await prisma.user.findMany({
       orderBy: { createdAt: "desc" },
-      include: { _count: { select: { movements: true } } },
+      select: {
+        id: true,
+        username: true,
+        name: true,
+        role: true,
+        isActive: true,
+        mustChangePassword: true,
+        createdAt: true,
+        updatedAt: true,
+        _count: { select: { movements: true } },
+      },
     });
 
     return NextResponse.json(users);
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (error instanceof Error && error.message === "PASSWORD_CHANGE_REQUIRED") {
+      return NextResponse.json(
+        { error: "PASSWORD_CHANGE_REQUIRED", code: "PASSWORD_CHANGE_REQUIRED", message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน" },
+        { status: 403 }
+      );
     }
     console.error("Mobile admin users error:", error);
     return NextResponse.json({ error: "เกิดข้อผิดพลาด" }, { status: 500 });
@@ -51,11 +67,12 @@ export const POST = withCors(async (request: Request) => {
 
     const existing = await prisma.user.findUnique({ where: { username } });
     if (existing) {
-      return NextResponse.json({ error: "ชื่อผู้ใช้นี้มีอยู่แล้ว" }, { status: 400 });
+      // Security: Use generic error message to prevent username enumeration
+      return NextResponse.json({ error: "เกิดข้อผิดพลาดในการสร้างผู้ใช้" }, { status: 400 });
     }
 
     const tempPassword = generateTempPassword();
-    const hashed = await bcrypt.hash(tempPassword, 10);
+    const hashed = await bcrypt.hash(tempPassword, 12);
 
     const newUser = await prisma.user.create({
       data: {
@@ -65,15 +82,26 @@ export const POST = withCors(async (request: Request) => {
         password: hashed,
         mustChangePassword: true,
       },
+      select: {
+        id: true,
+        username: true,
+        name: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+      },
     });
 
-    return NextResponse.json(
-      { ...newUser, tempPassword },
-      { status: 201 }
-    );
+    return NextResponse.json({ ...newUser, tempPassword }, { status: 201 });
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (error instanceof Error && error.message === "PASSWORD_CHANGE_REQUIRED") {
+      return NextResponse.json(
+        { error: "PASSWORD_CHANGE_REQUIRED", code: "PASSWORD_CHANGE_REQUIRED", message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน" },
+        { status: 403 }
+      );
     }
     console.error("Mobile create user error:", error);
     return NextResponse.json({ error: "เกิดข้อผิดพลาด" }, { status: 500 });

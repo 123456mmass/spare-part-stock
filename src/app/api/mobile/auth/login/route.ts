@@ -3,11 +3,13 @@ import { loginSchema } from "@/lib/validators";
 import { verifyCredentials, verifyMobileApiKey, AuthError } from "@/lib/auth";
 import { signSessionToken } from "@/lib/session";
 import { corsOptions, withCors } from "@/lib/cors";
+import { rateLimit, RateLimitError } from "@/lib/rate-limit";
 
 export const OPTIONS = corsOptions();
 
 export const POST = withCors(async (request: Request) => {
   try {
+    rateLimit(request, { name: "login-mobile", maxRequests: 5, windowSeconds: 900 });
     verifyMobileApiKey(request);
     const body = await request.json();
     const parsed = loginSchema.safeParse(body);
@@ -23,6 +25,8 @@ export const POST = withCors(async (request: Request) => {
     const user = await verifyCredentials(username, password);
 
     if (!user) {
+      // Security: Add delay to mitigate brute-force attacks
+      await new Promise((resolve) => setTimeout(resolve, 1500));
       return NextResponse.json(
         { error: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" },
         { status: 401 }
@@ -43,6 +47,12 @@ export const POST = withCors(async (request: Request) => {
       },
     });
   } catch (error) {
+    if (error instanceof RateLimitError) {
+      return NextResponse.json(
+        { error: "มีการพยายามเข้าสู่ระบบมากเกินไป กรุณาลองใหม่ในภายหลัง" },
+        { status: 429, headers: { "Retry-After": String(error.retryAfter) } }
+      );
+    }
     if (error instanceof AuthError) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

@@ -12,8 +12,7 @@ export async function POST(
 
     const { id } = await params;
 
-    // Check part exists
-    const part = await prisma.part.findUnique({ where: { id } });
+    const part = await prisma.part.findFirst({ where: { id, isActive: true } });
     if (!part) {
       return NextResponse.json({ error: "ไม่พบอะไหล่นี้" }, { status: 404 });
     }
@@ -77,7 +76,7 @@ export async function POST(
     }
     console.error("Image upload error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "เกิดข้อผิดพลาดในการอัปโหลด" },
+      { error: "เกิดข้อผิดพลาดในการอัปโหลด" },
       { status: 500 }
     );
   }

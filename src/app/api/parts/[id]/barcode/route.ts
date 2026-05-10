@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireAuth } from "@/lib/auth";
 import { generateBarcodePng } from "@/lib/barcode";
 
 export async function GET(
@@ -7,10 +8,11 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await requireAuth();
     const { id } = await params;
 
-    const part = await prisma.part.findUnique({
-      where: { id },
+    const part = await prisma.part.findFirst({
+      where: { id, isActive: true },
       select: { barcodeValue: true },
     });
 
@@ -26,6 +28,9 @@ export async function GET(
       },
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     console.error("Barcode generation error:", error);
     return NextResponse.json({ error: "เกิดข้อผิดพลาดในการสร้างบาร์โค้ด" }, { status: 500 });
   }

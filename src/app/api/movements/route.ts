@@ -7,6 +7,7 @@ import { exportMovementsToExcel } from "@/lib/excel";
 
 export async function GET(request: Request) {
   try {
+    await requireAuth();
     const { searchParams } = new URL(request.url);
     const partId = searchParams.get("partId");
     const type = searchParams.get("type");
@@ -45,6 +46,9 @@ export async function GET(request: Request) {
 
     return NextResponse.json(movements);
   } catch (error) {
+    if (error instanceof Error && error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     console.error("Error fetching movements:", error);
     return NextResponse.json(
       { error: "เกิดข้อผิดพลาดในการดึงข้อมูล" },

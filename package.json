@@ -11,6 +11,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "admin:create": "tsx scripts/create-admin.ts",
     "db:reset-admin": "tsx scripts/reset-db-admin.ts",
+    "mobile:gen-key": "tsx scripts/generate-mobile-key.ts",
     "db:studio": "prisma studio"
   },
   "prisma": {

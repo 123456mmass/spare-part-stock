@@ -19,7 +19,7 @@ export const POST = withCors(async (
 
     const { id } = await params;
 
-    const part = await prisma.part.findUnique({ where: { id } });
+    const part = await prisma.part.findFirst({ where: { id, isActive: true } });
     if (!part) {
       return NextResponse.json({ error: "ไม่พบอะไหล่นี้" }, { status: 404 });
     }

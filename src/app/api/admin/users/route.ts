@@ -56,14 +56,15 @@ export async function POST(request: Request) {
 
     const existing = await prisma.user.findUnique({ where: { username } });
     if (existing) {
+      // Security: Use generic error message to prevent username enumeration
       return NextResponse.json(
-        { error: "ชื่อผู้ใช้นี้มีอยู่แล้ว" },
+        { error: "เกิดข้อผิดพลาดในการสร้างผู้ใช้" },
         { status: 400 }
       );
     }
 
     const tempPassword = generateTempPassword();
-    const hashed = await bcrypt.hash(tempPassword, 10);
+    const hashed = await bcrypt.hash(tempPassword, 12);
     const user = await prisma.user.create({
       data: { username, name, role, password: hashed, mustChangePassword: true },
       select: {

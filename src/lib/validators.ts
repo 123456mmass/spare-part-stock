@@ -8,14 +8,14 @@ export const loginSchema = z.object({
 export type LoginInput = z.infer<typeof loginSchema>;
 
 export const partSchema = z.object({
-  partNumber: z.string().min(1, "กรุณากรอกรหัสอะไหล่"),
-  partName: z.string().min(1, "กรุณากรอกชื่ออะไหล่"),
-  description: z.string().optional(),
+  partNumber: z.string().min(1, "กรุณากรอกรหัสอะไหล่").regex(/^[^<>]+$/, "ห้ามมีตัวอักษรพิเศษ < หรือ >"),
+  partName: z.string().min(1, "กรุณากรอกชื่ออะไหล่").regex(/^[^<>]+$/, "ห้ามมีตัวอักษรพิเศษ < หรือ >"),
+  description: z.string().regex(/^[^<>]*$/, "ห้ามมีตัวอักษรพิเศษ < หรือ >").optional(),
   categoryId: z.string().nullable().transform(v => v === "" || v === null ? null : v).optional(),
-  location: z.string().optional(),
+  location: z.string().regex(/^[^<>]*$/, "ห้ามมีตัวอักษรพิเศษ < หรือ >").optional(),
   quantity: z.coerce.number().min(0, "จำนวนต้องเป็น 0 ขึ้นไป"),
   minimumQuantity: z.coerce.number().min(0, "จำนวนขั้นต่ำต้องเป็น 0 ขึ้นไป"),
-  unit: z.string().min(1, "กรุณากรอกหน่วย"),
+  unit: z.string().min(1, "กรุณากรอกหน่วย").regex(/^[^<>]+$/, "ห้ามมีตัวอักษรพิเศษ < หรือ >"),
   barcodeValue: z
     .union([z.string().trim(), z.null(), z.literal("")])
     .transform(v => (v === "" || v === null ? null : v))
@@ -54,7 +54,7 @@ export const stockMovementSchema = z.object({
 export type StockMovementInput = z.infer<typeof stockMovementSchema>;
 
 export const categorySchema = z.object({
-  name: z.string().min(1, "กรุณากรอกชื่อหมวดหมู่"),
+  name: z.string().min(1, "กรุณากรอกชื่อหมวดหมู่").regex(/^[^<>]+$/, "ห้ามมีตัวอักษรพิเศษ < หรือ >"),
 });
 
 export type CategoryInput = z.infer<typeof categorySchema>;

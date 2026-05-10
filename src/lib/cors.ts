@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 const ALLOWED_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
-const ALLOWED_HEADERS = "Content-Type, Authorization";
+const ALLOWED_HEADERS = "Content-Type, Authorization, X-API-Key";
 const MAX_AGE = "86400";
 
 function isLocalOrigin(origin: string | null): boolean {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, AuthError } from "@/lib/auth";
 
 export async function GET() {
   try {
@@ -53,6 +53,9 @@ export async function GET() {
       lowStockParts: lowStockFiltered.slice(0, 5),
     });
   } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     console.error("Dashboard stats error:", error);
     return NextResponse.json(
       { error: "เกิดข้อผิดพลาด" },

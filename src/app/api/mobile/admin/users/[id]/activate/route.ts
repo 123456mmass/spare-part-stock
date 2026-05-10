@@ -36,6 +36,12 @@ export const POST = withCors(async (
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    if (error instanceof Error && error.message === "PASSWORD_CHANGE_REQUIRED") {
+      return NextResponse.json(
+        { error: "PASSWORD_CHANGE_REQUIRED", code: "PASSWORD_CHANGE_REQUIRED", message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน" },
+        { status: 403 }
+      );
+    }
     console.error("Mobile activate user error:", error);
     return NextResponse.json({ error: "เกิดข้อผิดพลาด" }, { status: 500 });
   }

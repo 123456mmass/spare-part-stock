@@ -61,27 +61,26 @@ export async function createStockMovement(params: {
       throw new StockError("NEGATIVE_STOCK");
     }
 
-    const [movement] = await Promise.all([
-      tx.stockMovement.create({
-        data: {
-          partId,
-          userId,
-          type,
-          quantityBefore,
-          quantityAfter,
-          quantityChange,
-          note,
-        },
-        include: {
-          part: { select: { partNumber: true, partName: true, quantity: true } },
-          user: { select: { name: true } },
-        },
-      }),
-      tx.part.update({
-        where: { id: partId },
-        data: { quantity: quantityAfter },
-      }),
-    ]);
+    await tx.part.update({
+      where: { id: partId },
+      data: { quantity: quantityAfter },
+    });
+
+    const movement = await tx.stockMovement.create({
+      data: {
+        partId,
+        userId,
+        type,
+        quantityBefore,
+        quantityAfter,
+        quantityChange,
+        note,
+      },
+      include: {
+        part: { select: { partNumber: true, partName: true, quantity: true } },
+        user: { select: { name: true } },
+      },
+    });
 
     return movement as StockMovementResult;
   });

@@ -3,7 +3,7 @@ class AppConfig {
   // For iOS simulator: use localhost or the actual IP
   // For real device or web: use the host machine's actual IP (e.g., http://192.168.x.x:3000)
   static const String defaultBaseUrl = 'https://spare.birdsphichitchai.dev';
-  static const String defaultApiKey = 'd3dbe09f74dd9bc0cd7f3bc444d0eb4b18aeda0ea2c1c70ffe7152f114656f97';
+  static const String defaultApiKey = '20557da01a920d06d2d64f880d888746abdea9a0c428f6487f114efb2e9b88ac';
 
   static String get baseUrl {
     const fromDefine = String.fromEnvironment('API_BASE_URL');

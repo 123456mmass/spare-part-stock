@@ -1,6 +1,8 @@
 import { prisma } from "./prisma";
 import bcrypt from "bcryptjs";
 import { getSession, getSessionFromRequest } from "./session";
+import { headers } from "next/headers";
+import { rateLimit, rateLimitWeb, RateLimitError } from "./rate-limit";
 
 export class AuthError extends Error {
   constructor(message: "Unauthorized" | "Forbidden" | "PASSWORD_CHANGE_REQUIRED") {
@@ -22,11 +24,41 @@ export async function getUserById(id: string) {
   return prisma.user.findUnique({ where: { id } });
 }
 
+export async function verifyApiKey() {
+  try {
+    await rateLimitWeb({ name: "api-web", maxRequests: 100, windowSeconds: 60 });
+  } catch (e) {
+    if (e instanceof RateLimitError) throw new AuthError("Unauthorized");
+    throw e;
+  }
+  const headerList = await headers();
+  const apiKey = headerList.get("X-API-Key");
+  const expectedKey = process.env.NEXT_PUBLIC_API_KEY;
+
+  if (!expectedKey) {
+    console.error("CRITICAL: NEXT_PUBLIC_API_KEY is not set in environment variables");
+    throw new AuthError("Unauthorized");
+  }
+
+  if (apiKey !== expectedKey) {
+    throw new AuthError("Unauthorized");
+  }
+}
+
 export function verifyMobileApiKey(request: Request) {
+  try {
+    rateLimit(request, { name: "api-mobile", maxRequests: 100, windowSeconds: 60 });
+  } catch (e) {
+    if (e instanceof RateLimitError) throw new AuthError("Unauthorized");
+    throw e;
+  }
   const apiKey = request.headers.get("X-API-Key");
   const expectedKey = process.env.MOBILE_API_KEY;
 
-  if (!expectedKey) return;
+  if (!expectedKey) {
+    console.error("CRITICAL: MOBILE_API_KEY is not set in environment variables");
+    throw new AuthError("Unauthorized");
+  }
 
   if (apiKey !== expectedKey) {
     throw new AuthError("Unauthorized");
@@ -34,6 +66,7 @@ export function verifyMobileApiKey(request: Request) {
 }
 
 export async function requireAuth() {
+  await verifyApiKey();
   const session = await getSession();
   if (!session) throw new AuthError("Unauthorized");
   const user = await getUserById(session.userId);

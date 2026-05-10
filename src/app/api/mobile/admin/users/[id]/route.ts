@@ -52,12 +52,28 @@ export const PATCH = withCors(async (
     const user = await prisma.user.update({
       where: { id },
       data: updateData,
+      select: {
+        id: true,
+        username: true,
+        name: true,
+        role: true,
+        isActive: true,
+        mustChangePassword: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
     return NextResponse.json(user);
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (error instanceof Error && error.message === "PASSWORD_CHANGE_REQUIRED") {
+      return NextResponse.json(
+        { error: "PASSWORD_CHANGE_REQUIRED", code: "PASSWORD_CHANGE_REQUIRED", message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน" },
+        { status: 403 }
+      );
     }
     console.error("Mobile update user error:", error);
     return NextResponse.json({ error: "เกิดข้อผิดพลาด" }, { status: 500 });
@@ -96,6 +112,12 @@ export const DELETE = withCors(async (
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (error instanceof Error && error.message === "PASSWORD_CHANGE_REQUIRED") {
+      return NextResponse.json(
+        { error: "PASSWORD_CHANGE_REQUIRED", code: "PASSWORD_CHANGE_REQUIRED", message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน" },
+        { status: 403 }
+      );
     }
     console.error("Mobile delete user error:", error);
     return NextResponse.json({ error: "เกิดข้อผิดพลาด" }, { status: 500 });

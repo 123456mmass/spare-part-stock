@@ -15,13 +15,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     const tempPassword = generateTempPassword();
-    const hashed = await bcrypt.hash(tempPassword, 10);
+    const hashed = await bcrypt.hash(tempPassword, 12);
     await prisma.user.update({
       where: { id },
       data: { password: hashed, mustChangePassword: true },
     });
 
-    return NextResponse.json({ success: true, tempPassword });
+    return NextResponse.json({ success: true, message: "รีเซ็ตรหัสผ่านสำเร็จ", tempPassword });
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

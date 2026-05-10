@@ -29,16 +29,22 @@ export const POST = withCors(async (
     }
 
     const tempPassword = generateTempPassword();
-    const hashed = await bcrypt.hash(tempPassword, 10);
+    const hashed = await bcrypt.hash(tempPassword, 12);
     await prisma.user.update({
       where: { id },
       data: { password: hashed, mustChangePassword: true },
     });
 
-    return NextResponse.json({ success: true, tempPassword });
+    return NextResponse.json({ success: true, message: "รีเซ็ตรหัสผ่านสำเร็จ", tempPassword });
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (error instanceof Error && error.message === "PASSWORD_CHANGE_REQUIRED") {
+      return NextResponse.json(
+        { error: "PASSWORD_CHANGE_REQUIRED", code: "PASSWORD_CHANGE_REQUIRED", message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน" },
+        { status: 403 }
+      );
     }
     console.error("Mobile reset password error:", error);
     return NextResponse.json({ error: "เกิดข้อผิดพลาด" }, { status: 500 });

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, ReactNode } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import { fetchWithAuth as fetch } from "@/lib/api";
 import { Sidebar, BottomNav } from "@/components/layout";
 
 interface User {
