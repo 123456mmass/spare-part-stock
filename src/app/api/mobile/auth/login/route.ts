@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { loginSchema } from "@/lib/validators";
-import { verifyCredentials } from "@/lib/auth";
+import { verifyCredentials, verifyMobileApiKey, AuthError } from "@/lib/auth";
 import { signSessionToken } from "@/lib/session";
 import { corsOptions, withCors } from "@/lib/cors";
 
@@ -8,6 +8,7 @@ export const OPTIONS = corsOptions();
 
 export const POST = withCors(async (request: Request) => {
   try {
+    verifyMobileApiKey(request);
     const body = await request.json();
     const parsed = loginSchema.safeParse(body);
 
@@ -42,6 +43,9 @@ export const POST = withCors(async (request: Request) => {
       },
     });
   } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     console.error("Mobile login error:", error);
     return NextResponse.json(
       { error: "เกิดข้อผิดพลาดในการเข้าสู่ระบบ" },
