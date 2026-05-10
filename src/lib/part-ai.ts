@@ -7,17 +7,17 @@ const MAX_AI_IMAGE_SIZE = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 const aiSuggestionSchema = z.object({
-  partNumber: z.string().trim().optional().default(""),
-  partName: z.string().trim().optional().default(""),
-  description: z.string().trim().optional().default(""),
-  categoryName: z.string().trim().optional().default(""),
-  location: z.string().trim().optional().default(""),
-  quantity: z.coerce.number().int().min(0).optional().default(0),
-  minimumQuantity: z.coerce.number().int().min(0).optional().default(0),
-  unit: z.string().trim().optional().default("pcs"),
+  partNumber: z.string().trim().nullable().optional().default(null),
+  partName: z.string().trim().nullable().optional().default(null),
+  description: z.string().trim().nullable().optional().default(null),
+  categoryName: z.string().trim().nullable().optional().default(null),
+  location: z.string().trim().nullable().optional().default(null),
+  quantity: z.coerce.number().int().min(0).nullable().optional().default(null),
+  minimumQuantity: z.coerce.number().int().min(0).nullable().optional().default(null),
+  unit: z.string().trim().nullable().optional().default(null),
   barcodeValue: z.string().trim().nullable().optional().default(null),
-  confidence: z.coerce.number().min(0).max(1).optional().default(0),
-  notes: z.string().trim().optional().default(""),
+  confidence: z.coerce.number().min(0).max(1).nullable().optional().default(null),
+  notes: z.string().trim().nullable().optional().default(null),
 });
 
 export type PartAiSuggestion = z.infer<typeof aiSuggestionSchema> & {
@@ -193,9 +193,9 @@ export async function suggestPartFromImage(file: File): Promise<PartAiSuggestion
 
   const text = extractTextFromAnthropic(await response.json());
   const parsed = aiSuggestionSchema.parse(parseJsonObject(text));
-  const resolved = await resolveCategory(parsed.categoryName);
+  const resolved = await resolveCategory(parsed.categoryName ?? "");
 
-  const barcodeValue = parsed.barcodeValue?.trim() || generatePartBarcodeValue(parsed.partNumber || parsed.partName);
+  const barcodeValue = parsed.barcodeValue?.trim() || generatePartBarcodeValue(parsed.partNumber ?? parsed.partName ?? "");
 
   return {
     ...parsed,

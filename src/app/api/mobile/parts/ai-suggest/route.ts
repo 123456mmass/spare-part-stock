@@ -7,10 +7,7 @@ export const OPTIONS = corsOptions();
 
 export const POST = withCors(async (request: Request) => {
   try {
-    const user = await requireAuthFromRequest(request);
-    if (user.role !== "ADMIN") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    await requireAuthFromRequest(request);
 
     const formData = await request.formData();
     const file = formData.get("file");

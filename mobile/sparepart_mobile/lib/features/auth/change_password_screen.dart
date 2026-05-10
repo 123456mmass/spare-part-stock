@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../core/auth/auth_store.dart';
 
@@ -38,7 +39,15 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     if (!mounted) return;
     setState(() => _isLoading = false);
 
-    if (!ok && auth.error != null) {
+    if (ok) {
+      // Navigate to dashboard after successful password change
+      if (mounted) {
+        context.go('/home');
+      }
+      return;
+    }
+
+    if (auth.error != null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(auth.error!),

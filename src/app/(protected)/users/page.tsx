@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toaster";
-import { Plus, Edit2, KeyRound, Trash2, PowerOff, Power, Copy, Check } from "lucide-react";
+import { Plus, Edit2, KeyRound, Trash2, PowerOff, Power, Copy, Check, AlertTriangle } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -82,6 +82,12 @@ export default function UsersPage() {
   // Delete dialog
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
+
+  // Clear DB dialog
+  const [clearDbOpen, setClearDbOpen] = useState(false);
+  const [clearDbData, setClearDbData] = useState({ categories: false, parts: false, movements: false, users: false });
+  const [clearDbConfirm, setClearDbConfirm] = useState("");
+  const [clearDbSubmitting, setClearDbSubmitting] = useState(false);
 
   const fetchUsers = async () => {
     try {
@@ -291,6 +297,36 @@ export default function UsersPage() {
     }
   };
 
+  // Clear DB
+  const handleClearDb = async () => {
+    if (clearDbConfirm !== "ยืนยัน") {
+      toast({ title: "กรุณาพิมพ์ ยืนยัน เพื่อยืนยันการลบข้อมูล", variant: "destructive" });
+      return;
+    }
+    setClearDbSubmitting(true);
+    try {
+      const res = await fetch("/api/admin/clear-db", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(clearDbData),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        toast({ title: data.error || "เกิดข้อผิดพลาด", variant: "destructive" });
+        return;
+      }
+      setClearDbOpen(false);
+      setClearDbData({ categories: false, parts: false, movements: false, users: false });
+      setClearDbConfirm("");
+      fetchUsers();
+      toast({ title: "ล้างฐานข้อมูลสำเร็จ" });
+    } catch {
+      toast({ title: "เกิดข้อผิดพลาด", variant: "destructive" });
+    } finally {
+      setClearDbSubmitting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -299,10 +335,16 @@ export default function UsersPage() {
           <h1 className="text-2xl font-bold text-gray-900">จัดการผู้ใช้</h1>
           <p className="text-gray-500">จำนวน {users.length} คน</p>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          เพิ่มผู้ใช้
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="destructive" onClick={() => setClearDbOpen(true)}>
+            <AlertTriangle className="h-4 w-4 mr-2" />
+            ล้างฐานข้อมูล
+          </Button>
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            เพิ่มผู้ใช้
+          </Button>
+        </div>
       </div>
 
       {/* Users Table */}
@@ -548,6 +590,82 @@ export default function UsersPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteOpen(false)}>ยกเลิก</Button>
             <Button variant="destructive" onClick={handleDelete} disabled={submitting}>ลบ</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Clear DB Dialog */}
+      <Dialog open={clearDbOpen} onOpenChange={setClearDbOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />
+              ล้างฐานข้อมูล
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              เลือกข้อมูลที่ต้องการลบ (ไม่สามารถเลิกได้):
+            </p>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={clearDbData.categories}
+                  onChange={(e) => setClearDbData({ ...clearDbData, categories: e.target.checked })}
+                  className="w-4 h-4"
+                />
+                <span>หมวดหมู่ (Categories)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={clearDbData.parts}
+                  onChange={(e) => setClearDbData({ ...clearDbData, parts: e.target.checked })}
+                  className="w-4 h-4"
+                />
+                <span>อะไหล่ (Parts)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={clearDbData.movements}
+                  onChange={(e) => setClearDbData({ ...clearDbData, movements: e.target.checked })}
+                  className="w-4 h-4"
+                />
+                <span>การเคลื่อนไหว (Movements)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={clearDbData.users}
+                  onChange={(e) => setClearDbData({ ...clearDbData, users: e.target.checked })}
+                  className="w-4 h-4"
+                />
+                <span>ผู้ใช้ (Users) — ยกเว้นบัญชีคุณ</span>
+              </label>
+            </div>
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-700">
+                พิมพ์ <strong>ยืนยัน</strong> เพื่อยืนยันการลบข้อมูล
+              </p>
+              <Input
+                value={clearDbConfirm}
+                onChange={(e) => setClearDbConfirm(e.target.value)}
+                placeholder="ยืนยัน"
+                className="mt-2"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setClearDbOpen(false); setClearDbConfirm(""); }}>ยกเลิก</Button>
+            <Button
+              variant="destructive"
+              onClick={handleClearDb}
+              disabled={clearDbSubmitting || clearDbConfirm !== "ยืนยัน"}
+            >
+              {clearDbSubmitting ? "กำลังลบ..." : "ล้างฐานข้อมูล"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

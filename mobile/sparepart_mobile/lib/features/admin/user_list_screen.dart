@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/api_error.dart';
@@ -145,8 +146,10 @@ class _UserListScreenState extends State<UserListScreen> {
                   IconButton(
                     icon: const Icon(Icons.copy),
                     onPressed: () {
-                      // Flutter doesn't have clipboard by default in this context
-                      // The user can manually copy
+                      Clipboard.setData(ClipboardData(text: tempPassword));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('คัดลอกแล้ว'), duration: Duration(seconds: 2)),
+                      );
                     },
                   ),
                 ],

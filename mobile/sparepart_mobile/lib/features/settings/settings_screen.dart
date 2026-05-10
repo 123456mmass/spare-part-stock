@@ -29,6 +29,149 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.dispose();
   }
 
+  Future<void> _showClearDbDialog(BuildContext context) async {
+    final clearData = <String, bool>{'categories': false, 'parts': false, 'movements': false, 'users': false};
+    final confirmController = TextEditingController();
+    final isClearing = ValueNotifier(false);
+
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber, color: Colors.red),
+            SizedBox(width: 8),
+            Text('ล้างฐานข้อมูล'),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('เลือกข้อมูลที่ต้องการลบ (ไม่สามารถเลิกได้):'),
+              const SizedBox(height: 12),
+              ValueListenableBuilder(
+                valueListenable: isClearing,
+                builder: (_, clearing, __) {
+                  return Column(
+                    children: [
+                      CheckboxListTile(
+                        value: clearData['categories']!,
+                        onChanged: clearing ? null : (v) => clearData['categories'] = v ?? false,
+                        title: const Text('หมวดหมู่'),
+                        dense: true,
+                      ),
+                      CheckboxListTile(
+                        value: clearData['parts']!,
+                        onChanged: clearing ? null : (v) => clearData['parts'] = v ?? false,
+                        title: const Text('อะไหล่'),
+                        dense: true,
+                      ),
+                      CheckboxListTile(
+                        value: clearData['movements']!,
+                        onChanged: clearing ? null : (v) => clearData['movements'] = v ?? false,
+                        title: const Text('การเคลื่อนไหว'),
+                        dense: true,
+                      ),
+                      CheckboxListTile(
+                        value: clearData['users']!,
+                        onChanged: clearing ? null : (v) => clearData['users'] = v ?? false,
+                        title: const Text('ผู้ใช้ (ยกเว้นบัญชีคุณ)'),
+                        dense: true,
+                      ),
+                    ],
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red[200]!),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('พิมพ์ "ยืนยัน" เพื่อยืนยันการลบ:', style: TextStyle(color: Colors.red[700])),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: confirmController,
+                      decoration: const InputDecoration(
+                        hintText: 'ยืนยัน',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('ยกเลิก'),
+          ),
+          ValueListenableBuilder(
+            valueListenable: isClearing,
+            builder: (_, clearing, __) {
+              return FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: clearing
+                    ? null
+                    : () async {
+                        if (confirmController.text != 'ยืนยัน') {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('กรุณาพิมพ์ ยืนยัน เพื่อยืนยัน')),
+                          );
+                          return;
+                        }
+                        isClearing.value = true;
+                        try {
+                          final api = context.read<ApiClient>();
+                          await api.clearDatabase(
+                            categories: clearData['categories']!,
+                            parts: clearData['parts']!,
+                            movements: clearData['movements']!,
+                            users: clearData['users']!,
+                          );
+                          if (ctx.mounted) Navigator.of(ctx).pop(true);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('ล้างฐานข้อมูลสำเร็จ')),
+                            );
+                          }
+                        } on ApiError catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+                            );
+                          }
+                        } finally {
+                          isClearing.value = false;
+                        }
+                      },
+                child: clearing
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Text('ล้างฐานข้อมูล'),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _changePassword() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() {
@@ -137,6 +280,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: const Text('นำเข้าอะไหล่จากไฟล์ หรือส่งออกข้อมูล'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => context.push('/import-export'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.warning_amber, color: Colors.red),
+                  title: const Text('ล้างฐานข้อมูล', style: TextStyle(color: Colors.red)),
+                  subtitle: const Text('ลบข้อมูลที่เลือกอย่างถาวร'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _showClearDbDialog(context),
                 ),
               ),
               const SizedBox(height: 8),

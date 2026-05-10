@@ -422,6 +422,28 @@ class ApiClient {
     }
   }
 
+  Future<void> clearDatabase({
+    bool categories = false,
+    bool parts = false,
+    bool movements = false,
+    bool users = false,
+  }) async {
+    try {
+      await _dio.post(
+        '/mobile/admin/clear-db',
+        data: {
+          'categories': categories,
+          'parts': parts,
+          'movements': movements,
+          'users': users,
+        },
+        options: Options(headers: _authHeaders),
+      );
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
   // --- Import/Export ---
 
   Future<Map<String, dynamic>> importExcel(String filePath) async {
