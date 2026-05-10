@@ -1,0 +1,78 @@
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { requireAuthFromRequest } from "@/lib/auth";
+import { savePartImage } from "@/lib/uploads";
+import { corsOptions, withCors } from "@/lib/cors";
+
+export const OPTIONS = corsOptions();
+
+export const POST = withCors(async (
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) => {
+  try {
+    const user = await requireAuthFromRequest(request);
+
+    if (user.role !== "ADMIN") {
+      return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 });
+    }
+
+    const { id } = await params;
+
+    const part = await prisma.part.findUnique({ where: { id } });
+    if (!part) {
+      return NextResponse.json({ error: "ไม่พบอะไหล่นี้" }, { status: 404 });
+    }
+
+    const formData = await request.formData();
+    const file = formData.get("file") as File | null;
+
+    if (!file) {
+      return NextResponse.json({ error: "ไม่พบไฟล์" }, { status: 400 });
+    }
+
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+    if (!allowedTypes.includes(file.type)) {
+      return NextResponse.json(
+        { error: "ไฟล์ต้องเป็น JPG, PNG, หรือ WebP เท่านั้น" },
+        { status: 400 }
+      );
+    }
+
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    if (!["jpg", "jpeg", "png", "webp"].includes(ext || "")) {
+      return NextResponse.json({ error: "นามสกุลไฟล์ไม่ถูกต้อง" }, { status: 400 });
+    }
+
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    if (buffer.length > 5 * 1024 * 1024) {
+      return NextResponse.json({ error: "ไฟล์ต้องมีขนาดไม่เกิน 5MB" }, { status: 400 });
+    }
+
+    const imageUrl = await savePartImage(buffer, file.name, id);
+
+    await prisma.part.update({
+      where: { id },
+      data: { imageUrl },
+    });
+
+    return NextResponse.json({ imageUrl });
+  } catch (error) {
+    if (error instanceof Error && error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (error instanceof Error && error.message === "PASSWORD_CHANGE_REQUIRED") {
+      return NextResponse.json(
+        { error: "PASSWORD_CHANGE_REQUIRED", code: "PASSWORD_CHANGE_REQUIRED", message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน" },
+        { status: 403 }
+      );
+    }
+    console.error("Mobile image upload error:", error);
+    return NextResponse.json(
+      { error: "เกิดข้อผิดพลาดในการอัปโหลดรูป" },
+      { status: 500 }
+    );
+  }
+});

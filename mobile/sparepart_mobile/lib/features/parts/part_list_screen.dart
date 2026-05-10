@@ -6,7 +6,6 @@ import '../../core/api/api_error.dart';
 import '../../core/auth/auth_store.dart';
 import '../../core/models/part.dart';
 import '../scanner/scanner_entry.dart';
-import '../stock/stock_movement_sheet.dart';
 
 class PartListScreen extends StatefulWidget {
   const PartListScreen({super.key});
@@ -67,38 +66,6 @@ class _PartListScreenState extends State<PartListScreen> {
 
   Future<void> _onRefresh() => _fetchParts(page: _currentPage, status: _stockStatusFilter);
 
-  void _showMovementSheet(Part part, String type) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => StockMovementSheet(
-        part: part,
-        movementType: type,
-        onDone: (newQty) {
-          setState(() {
-            final idx = _parts.indexWhere((p) => p.id == part.id);
-            if (idx != -1) {
-              _parts[idx] = Part(
-                id: part.id,
-                partNumber: part.partNumber,
-                partName: part.partName,
-                description: part.description,
-                quantity: newQty,
-                minimumQuantity: part.minimumQuantity,
-                unit: part.unit,
-                location: part.location,
-                imageUrl: part.imageUrl,
-                qrCodeUrl: part.qrCodeUrl,
-                barcodeValue: part.barcodeValue,
-                category: part.category,
-              );
-            }
-          });
-        },
-      ),
-    );
-  }
-
   Color _statusColor(String status) {
     switch (status) {
       case 'IN_STOCK': return Colors.green;
@@ -140,20 +107,32 @@ class _PartListScreenState extends State<PartListScreen> {
               padding: const EdgeInsets.all(12),
               child: Column(
                 children: [
-                  TextField(
-                    controller: _searchController,
-                    decoration: InputDecoration(
-                      hintText: 'ค้นหารหัสอะไหล่ ชื่อ...',
-                      prefixIcon: const Icon(Icons.search),
-                      border: const OutlineInputBorder(),
-                      isDense: true,
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.search),
-                        onPressed: () => _fetchParts(page: 1),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _searchController,
+                          decoration: InputDecoration(
+                            hintText: 'ค้นหารหัสอะไหล่ ชื่อ...',
+                            prefixIcon: const Icon(Icons.search),
+                            border: const OutlineInputBorder(),
+                            isDense: true,
+                            suffixIcon: IconButton(
+                              icon: const Icon(Icons.search),
+                              onPressed: () => _fetchParts(page: 1),
+                            ),
+                          ),
+                          textInputAction: TextInputAction.search,
+                          onSubmitted: (_) => _fetchParts(page: 1),
+                        ),
                       ),
-                    ),
-                    textInputAction: TextInputAction.search,
-                    onSubmitted: (_) => _fetchParts(page: 1),
+                      const SizedBox(width: 8),
+                      IconButton.filled(
+                        icon: const Icon(Icons.add),
+                        tooltip: 'เพิ่มอะไหล่',
+                        onPressed: () => context.push('/parts/new'),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 8),
                   SingleChildScrollView(
@@ -207,10 +186,7 @@ class _PartListScreenState extends State<PartListScreen> {
                               return Card(
                                 margin: const EdgeInsets.only(bottom: 8),
                                 child: InkWell(
-                                  onTap: () {
-                                    // Quick actions from list
-                                    _showMovementSheet(part, 'STOCK_IN');
-                                  },
+                                  onTap: () => context.push('/parts/${part.id}', extra: part),
                                   child: Padding(
                                     padding: const EdgeInsets.all(12),
                                     child: Row(

@@ -1,0 +1,87 @@
+generator client {
+  provider        = "prisma-client-js"
+  engineType      = "library"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  password  String
+  name      String
+  role      Role     @default(STAFF)
+  isActive           Boolean  @default(true)
+  mustChangePassword Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  movements StockMovement[]
+}
+
+enum Role {
+  ADMIN
+  STAFF
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  parts Part[]
+}
+
+model Part {
+  id              String   @id @default(cuid())
+  partNumber      String   @unique
+  partName        String
+  description     String?
+  categoryId      String?
+  category        Category? @relation(fields: [categoryId], references: [id])
+  location        String?
+  quantity        Int      @default(0)
+  minimumQuantity Int      @default(0)
+  unit            String   @default("pcs")
+  imageUrl        String?
+  qrCodeUrl       String?
+  barcodeValue    String?   @unique
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  movements StockMovement[]
+
+  @@index([partNumber])
+  @@index([categoryId])
+  @@index([location])
+  @@index([partName])
+}
+
+model StockMovement {
+  id              String       @id @default(cuid())
+  partId          String
+  part            Part         @relation(fields: [partId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User         @relation(fields: [userId], references: [id])
+  type            MovementType
+  quantityBefore  Int
+  quantityAfter   Int
+  quantityChange  Int
+  note            String?
+  createdAt       DateTime     @default(now())
+
+  @@index([partId])
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+enum MovementType {
+  STOCK_IN
+  STOCK_OUT
+  ADJUSTMENT
+}
