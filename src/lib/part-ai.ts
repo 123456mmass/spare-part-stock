@@ -7,17 +7,17 @@ const MAX_AI_IMAGE_SIZE = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 const aiSuggestionSchema = z.object({
-  partNumber: z.string().trim().nullable().optional().default(null),
-  partName: z.string().trim().nullable().optional().default(null),
-  description: z.string().trim().nullable().optional().default(null),
-  categoryName: z.string().trim().nullable().optional().default(null),
-  location: z.string().trim().nullable().optional().default(null),
-  quantity: z.coerce.number().int().min(0).nullable().optional().default(null),
-  minimumQuantity: z.coerce.number().int().min(0).nullable().optional().default(null),
-  unit: z.string().trim().nullable().optional().default(null),
-  barcodeValue: z.string().trim().nullable().optional().default(null),
-  confidence: z.coerce.number().min(0).max(1).nullable().optional().default(null),
-  notes: z.string().trim().nullable().optional().default(null),
+  partNumber: z.string().trim().nullable().optional().transform(v => v || ""),
+  partName: z.string().trim().nullable().optional().transform(v => v || ""),
+  description: z.string().trim().nullable().optional().transform(v => v || ""),
+  categoryName: z.string().trim().nullable().optional().transform(v => v || ""),
+  location: z.string().trim().nullable().optional().transform(v => v || ""),
+  quantity: z.coerce.number().int().min(0).nullable().optional().transform(v => v || 0),
+  minimumQuantity: z.coerce.number().int().min(0).nullable().optional().transform(v => v || 0),
+  unit: z.string().trim().nullable().optional().transform(v => v || "pcs"),
+  barcodeValue: z.string().trim().nullable().optional().transform(v => v || null),
+  confidence: z.coerce.number().min(0).max(1).nullable().optional().transform(v => v || 0.8),
+  notes: z.string().trim().nullable().optional().transform(v => v || ""),
 });
 
 export type PartAiSuggestion = z.infer<typeof aiSuggestionSchema> & {

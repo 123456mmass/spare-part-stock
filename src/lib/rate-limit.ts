@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 
+const MAX_STORE_SIZE = 10000;
 const windows = new Map<string, Map<string, { count: number; resetAt: number }>>();
 
 function getIpFromHeaders(h: Headers): string {
@@ -26,6 +27,7 @@ interface RateLimitOptions {
   windowSeconds: number;
 }
 
+// MAX_STORE_SIZE moved out
 function checkRateLimit(ip: string, opts: RateLimitOptions): void {
   const now = Date.now();
   const windowMs = opts.windowSeconds * 1000;

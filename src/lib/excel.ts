@@ -67,7 +67,7 @@ export async function extractImagesFromWorkbook(
       // ImageRange has 'tl' (top-left) with row/col properties
       // Note: row can be fractional (e.g. 2.028) because image top may be mid-row, so use Math.round
       const imageRange = range as { tl?: { row?: number } };
-      const rowIndex = Math.round(imageRange.tl?.row ?? 1); // Keep 1-based (Excel row number)
+      const rowIndex = Math.round(imageRange.tl?.row ?? 1) + 1; // imageRange is 0-indexed, but our row parsing starts at row 2 for data
       images.push({ buffer, rowIndex });
     }
   }

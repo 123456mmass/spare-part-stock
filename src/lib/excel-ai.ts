@@ -6,17 +6,17 @@ import { generateQRCode } from "./qrcode";
 import { extractImagesFromWorkbook, processAndSaveImage } from "./excel";
 import { generatePartBarcodeValue } from "./barcode";
 
-const MAX_AI_IMPORT_ROWS = 300;
+const MAX_AI_IMPORT_ROWS = 100; // Reduced from 300 to prevent OOM / API exhaustion
 
 const aiPartSchema = z.object({
   partNumber: z.string().trim().min(1),
   partName: z.string().trim().min(1),
-  description: z.string().trim().optional().default(""),
-  category: z.string().trim().optional().default(""),
-  location: z.string().trim().optional().default(""),
-  quantity: z.coerce.number().int().min(0).optional().default(0),
-  minimumQuantity: z.coerce.number().int().min(0).optional().default(0),
-  unit: z.string().trim().optional().default("pcs"),
+  description: z.string().trim().nullable().optional().transform(v => v || ""),
+  category: z.string().trim().nullable().optional().transform(v => v || ""),
+  location: z.string().trim().nullable().optional().transform(v => v || ""),
+  quantity: z.coerce.number().int().min(0).nullable().optional().transform(v => v || 0),
+  minimumQuantity: z.coerce.number().int().min(0).nullable().optional().transform(v => v || 0),
+  unit: z.string().trim().nullable().optional().transform(v => v || "pcs"),
   barcodeValue: z.string().trim().nullable().optional().default(null),
 });
 
@@ -256,7 +256,8 @@ async function enrichRowsWithAi(rows: AiPart[], imageMap: Map<number, Buffer>) {
       const enriched = await enrichRowBatchWithAi(batch, categories, imageMap);
       enrichedRows.push(...enriched.rows);
       aiUsed = true;
-    } catch {
+    } catch (err) {
+      console.error("AI Enrichment Error:", err);
       enrichedRows.push(...batch);
       errors.push(
         `AI batch rows ${batch[0]?.rowNum ?? "?"}-${batch.at(-1)?.rowNum ?? "?"} fallback`
@@ -294,7 +295,8 @@ export async function importPartsFromExcelWithAi(
       rows = enriched.rows;
       result.aiUsed = enriched.aiUsed;
       result.errors.push(...(enriched.errors ?? []));
-    } catch {
+    } catch (err) {
+      console.error("AI Enrichment Error:", err);
       result.errors.push("AI processing unavailable, using raw Excel data");
     }
 
@@ -390,7 +392,8 @@ export async function importPartsFromExcelWithAi(
     }
 
     result.success = result.errors.length === 0 || result.imported + result.updated > 0;
-  } catch {
+  } catch (err) {
+      console.error("AI Enrichment Error:", err);
     result.errors.push("AI Excel import failed");
   }
 
