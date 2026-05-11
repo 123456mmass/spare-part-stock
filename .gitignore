@@ -61,3 +61,4 @@ test-results/
 /mobile/sparepart_mobile/.metadata
 /mobile/sparepart_mobile/android/.gradle/
 /mobile/sparepart_mobile/android/app/build/
+secrets.zip
