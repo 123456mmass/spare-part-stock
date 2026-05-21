@@ -1,137 +1,163 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { fetchWithAuth as fetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toaster";
-import { Scan as ScanIcon, Camera, AlertCircle } from "lucide-react";
+import { Search, Camera, XCircle } from "lucide-react";
 
 export default function ScanPage() {
+  const router = useRouter();
   const { toast } = useToast();
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [isScanning, setIsScanning] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [manualCode, setManualCode] = useState("");
+  const [error, setError] = useState("");
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const checkCameraPermission = async () => {
+  const stopCamera = useCallback(() => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    setScanning(false);
+  }, []);
+
+  const searchByCode = useCallback(async (code: string) => {
+    stopCamera();
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      stream.getTracks().forEach((track) => track.stop());
-      setHasPermission(true);
+      const res = await fetch(`/api/parts?search=${encodeURIComponent(code)}`);
+      if (res.ok) {
+        const parts = await res.json();
+        if (parts.length > 0) {
+          router.push(`/parts/${parts[0].id}`);
+          return;
+        }
+      }
+      toast({ title: "ไม่พบอะไหล่", description: `รหัส: ${code}`, variant: "destructive" });
     } catch {
-      setHasPermission(false);
+      toast({ title: "เกิดข้อผิดพลาด", variant: "destructive" });
+    }
+  }, [router, toast, stopCamera]);
+
+  const startCamera = async () => {
+    setError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      streamRef.current = stream;
+      setScanning(true);
+
+      // Wait for video element to be ready
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play();
+          startDetection();
+        }
+      }, 100);
+    } catch (err) {
+      setError("ไม่สามารถเปิดกล้องได้ กรุณาอนุญาตการใช้กล้องในเบราว์เซอร์");
     }
   };
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    checkCameraPermission();
-  }, []);
+  const startDetection = () => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
 
-  const simulateScan = () => {
-    setIsScanning(true);
-    setTimeout(() => {
-      setIsScanning(false);
-      toast({
-        title: "สแกน QR Code",
-        description: "กรุณาใช้งานบนมือถือเพื่อสแกน QR Code จริง",
-      });
-    }, 1500);
+    intervalRef.current = setInterval(async () => {
+      if (!videoRef.current || videoRef.current.readyState < 2) return;
+
+      try {
+        // Try native BarcodeDetector first
+        if ("BarcodeDetector" in window) {
+          const detector = new (window as any).BarcodeDetector({
+            formats: ["qr_code", "ean_13", "ean_8", "code_128", "code_39", "itf"]
+          });
+          const barcodes = await detector.detect(videoRef.current);
+          if (barcodes.length > 0) {
+            searchByCode(barcodes[0].rawValue);
+            return;
+          }
+        }
+      } catch {
+        // BarcodeDetector not supported, just keep scanning
+      }
+    }, 500);
   };
 
+  useEffect(() => {
+    return () => stopCamera();
+  }, [stopCamera]);
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="space-y-6 max-w-lg mx-auto">
       <div className="text-center">
-        <h1 className="text-2xl font-bold text-gray-900">สแกน QR Code</h1>
-        <p className="text-gray-500">สแกน QR Code ที่ติดอยู่กับอะไหล่เพื่อดูข้อมูล</p>
+        <h1 className="text-2xl font-bold text-gray-900">สแกนบาร์โค้ด / QR Code</h1>
+        <p className="text-gray-500">เล็งกล้องไปที่บาร์โค้ดหรือ QR Code ของอะไหล่</p>
       </div>
 
-      {/* Scanner Area */}
-      <Card className="overflow-hidden">
-        <CardContent className="p-0">
-          <div className="relative aspect-square bg-gray-900 flex items-center justify-center">
-            {hasPermission === false ? (
-              <div className="text-center p-8">
-                <AlertCircle className="h-16 w-16 text-amber-500 mx-auto mb-4" />
-                <p className="text-white text-lg mb-2">ไม่สามารถเข้าถึงกล้องได้</p>
-                <p className="text-gray-400 text-sm mb-4">
-                  กรุณาอนุญาตการเข้าถึงกล้องในการตั้งค่าเบราว์เซอร์
-                </p>
-                <Button variant="secondary" onClick={checkCameraPermission}>
-                  ลองอีกครั้ง
-                </Button>
-              </div>
-            ) : (
-              <div className="text-center p-8">
-                <div className="w-48 h-48 border-2 border-dashed border-gray-600 rounded-lg mx-auto mb-6 flex items-center justify-center">
-                  <ScanIcon className="h-20 w-20 text-gray-600" />
-                </div>
-                <p className="text-gray-400 mb-4">
-                  {isScanning ? "กำลังสแกน..." : "เล็งกล้องไปที่ QR Code"}
-                </p>
-                <div className="flex flex-col gap-3">
-                  <Button onClick={simulateScan} size="lg" className="w-full">
-                    <Camera className="h-5 w-5 mr-2" />
-                    เปิดกล้อง
-                  </Button>
-                  <p className="text-xs text-gray-500">
-                    หรือเลือกรูป QR Code จากอัลบั้ม
-                  </p>
-                </div>
+      {!scanning && (
+        <Card>
+          <CardContent className="p-8 text-center">
+            <Camera className="h-16 w-16 text-blue-500 mx-auto mb-4" />
+            <Button size="lg" onClick={startCamera} className="w-full">
+              เปิดกล้องสแกน
+            </Button>
+            {error && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2">
+                <XCircle className="h-4 w-4 flex-shrink-0" />
+                {error}
               </div>
             )}
+          </CardContent>
+        </Card>
+      )}
 
-            {/* Scanning frame overlay */}
-            <div className="absolute inset-0 pointer-events-none">
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64">
-                <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-blue-500 rounded-tl-lg" />
-                <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-blue-500 rounded-tr-lg" />
-                <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-blue-500 rounded-bl-lg" />
-                <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-blue-500 rounded-br-lg" />
+      {scanning && (
+        <Card className="overflow-hidden">
+          <CardContent className="p-0">
+            <div className="relative aspect-[4/3] bg-black">
+              <video
+                ref={videoRef}
+                className="w-full h-full object-cover"
+                playsInline
+                muted
+                autoPlay
+              />
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="w-64 h-48 border-2 border-blue-400 rounded-lg" />
               </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+            <div className="p-3 text-center">
+              <Button variant="outline" size="sm" onClick={stopCamera}>หยุดสแกน</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-      {/* Instructions */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">วิธีใช้งาน</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                <span className="text-blue-600 font-bold">1</span>
-              </div>
-              <div>
-                <p className="font-medium">เปิดกล้องมือถือ</p>
-                <p className="text-sm text-gray-500">กดปุ่ม &quot;เปิดกล้อง&quot; เพื่อเริ่มสแกน</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                <span className="text-blue-600 font-bold">2</span>
-              </div>
-              <div>
-                <p className="font-medium">เล็ง QR Code</p>
-                <p className="text-sm text-gray-500">จัดวาง QR Code ภายในกรอบสี่เหลี่ยม</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                <span className="text-blue-600 font-bold">3</span>
-              </div>
-              <div>
-                <p className="font-medium">ดูข้อมูลอะไหล่</p>
-                <p className="text-sm text-gray-500">ระบบจะนำคุณไปยังหน้าข้อมูลอะไหล่โดยอัตโนมัติ</p>
-              </div>
-            </div>
+        <CardContent className="p-4">
+          <p className="text-sm text-gray-500 mb-2">หรือพิมพ์รหัสอะไหล่/บาร์โค้ด:</p>
+          <div className="flex gap-2">
+            <Input
+              value={manualCode}
+              onChange={(e) => setManualCode(e.target.value)}
+              placeholder="พิมพ์รหัส..."
+              onKeyDown={(e) => e.key === "Enter" && searchByCode(manualCode.trim())}
+            />
+            <Button onClick={() => searchByCode(manualCode.trim())}>
+              <Search className="h-4 w-4" />
+            </Button>
           </div>
         </CardContent>
       </Card>
 
-      {/* Mobile bottom padding */}
       <div className="h-20 md:hidden" />
     </div>
   );

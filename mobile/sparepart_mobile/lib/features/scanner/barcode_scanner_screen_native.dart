@@ -59,6 +59,54 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
             controller: _controller,
             onDetect: null,
           ),
+          // Scan frame overlay
+          Center(
+            child: Container(
+              width: 260,
+              height: 260,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.blue, width: 3),
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+          // Dark overlay outside frame
+          ColorFiltered(
+            colorFilter: const ColorFilter.mode(Colors.black54, BlendMode.srcOut),
+            child: Stack(
+              children: [
+                Container(decoration: const BoxDecoration(color: Colors.black, backgroundBlendMode: BlendMode.dstOut)),
+                Center(
+                  child: Container(
+                    width: 260,
+                    height: 260,
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Instruction text
+          Positioned(
+            top: 40,
+            left: 16,
+            right: 16,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Text(
+                'เล็งกล้องไปที่บาร์โค้ดหรือ QR Code',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white, fontSize: 14),
+              ),
+            ),
+          ),
           Positioned(
             bottom: 24,
             left: 16,
