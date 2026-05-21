@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { partSchema } from "@/lib/validators";
 import { requireAuthFromRequest } from "@/lib/auth";
 import { corsOptions, withCors } from "@/lib/cors";
 import { exportPartsToExcel } from "@/lib/excel";
 import { generatePartBarcodeValue } from "@/lib/barcode";
+import { createStockMovement } from "@/lib/stock";
 
 export const OPTIONS = corsOptions();
 
@@ -45,7 +47,7 @@ export const GET = withCors(async (request: Request) => {
 
     const { search, categoryId, stockStatus, page, limit } = parsed.data;
 
-    const where: Record<string, unknown> = { isActive: true };
+    const where: Prisma.PartWhereInput = { isActive: true };
 
     if (search) {
       where.OR = [
@@ -64,9 +66,16 @@ export const GET = withCors(async (request: Request) => {
       where.quantity = 0;
     } else if (stockStatus === "low-stock") {
       where.quantity = { gt: 0 };
-      where.minimumQuantity = { gt: 0 };
+      where.AND = [{ quantity: { lte: prisma.part.fields.minimumQuantity } }];
     } else if (stockStatus === "in-stock") {
-      where.quantity = { gt: 0 };
+      where.AND = [
+        {
+          OR: [
+            { quantity: { gt: prisma.part.fields.minimumQuantity } },
+            { minimumQuantity: 0, quantity: { gt: 0 } },
+          ],
+        },
+      ];
     }
 
     const [total, parts] = await Promise.all([
@@ -80,18 +89,10 @@ export const GET = withCors(async (request: Request) => {
       }),
     ]);
 
-    // Filter low-stock server-side (field-to-field comparison not supported in Prisma where)
-    let filteredParts = parts;
-    if (stockStatus === "low-stock") {
-      filteredParts = parts.filter(p => p.quantity <= p.minimumQuantity);
-    } else if (stockStatus === "in-stock") {
-      filteredParts = parts.filter(p => p.quantity > p.minimumQuantity || p.minimumQuantity === 0);
-    }
-
     const totalPages = Math.ceil(total / limit);
 
     return NextResponse.json({
-      parts: filteredParts,
+      parts,
       total,
       page,
       limit,
@@ -129,35 +130,31 @@ export const POST = withCors(async (request: Request) => {
       );
     }
 
-    const { partNumber, partName, description, categoryId, location, quantity, minimumQuantity, unit, barcodeValue } = parsed.data;
+    const { partNumber, partName, description, categoryId, categoryName, subcategory, plant, location, quantity, minimumQuantity, unit, barcodeValue } = parsed.data;
     const finalBarcodeValue = barcodeValue || generatePartBarcodeValue(partNumber);
 
-    const existing = await prisma.part.findUnique({
-      where: { partNumber },
-    });
-
-    if (existing) {
-      return NextResponse.json({ error: "รหัสอะไหล่นี้มีอยู่แล้ว" }, { status: 400 });
-    }
-
-    if (finalBarcodeValue) {
-      const barcodeDup = await prisma.part.findUnique({
-        where: { barcodeValue: finalBarcodeValue },
-      });
-      if (barcodeDup) {
-        return NextResponse.json({ error: "บาร์โค้ดนี้มีอยู่แล้ว" }, { status: 400 });
-      }
-    }
-
     const part = await prisma.$transaction(async (tx) => {
+      let resolvedCategoryId = categoryId || null;
+      if (!resolvedCategoryId && categoryName) {
+        const cat = await tx.category.upsert({
+          where: { name: categoryName },
+          create: { name: categoryName },
+          update: {},
+        });
+        resolvedCategoryId = cat.id;
+      }
+
       const created = await tx.part.create({
         data: {
           partNumber,
           partName,
           description,
-          categoryId: categoryId || null,
+          categoryId: resolvedCategoryId,
+          subcategory: subcategory || null,
+          plant: plant || null,
+          createdBy: user.id,
           location,
-          quantity: quantity ?? 0,
+          quantity: 0,
           minimumQuantity: minimumQuantity ?? 0,
           unit: unit || "pcs",
           barcodeValue: finalBarcodeValue,
@@ -166,20 +163,22 @@ export const POST = withCors(async (request: Request) => {
       });
 
       if ((quantity ?? 0) > 0) {
-        await tx.stockMovement.create({
-          data: {
+        await createStockMovement(
+          {
             partId: created.id,
             userId: user.id,
             type: "STOCK_IN",
-            quantityBefore: 0,
-            quantityAfter: quantity ?? 0,
-            quantityChange: quantity ?? 0,
+            quantity: quantity ?? 0,
             note: "สร้างอะไหล่ใหม่",
           },
-        });
+          tx
+        );
       }
 
-      return created;
+      return tx.part.findUnique({
+        where: { id: created.id },
+        include: { category: true },
+      });
     });
 
     return NextResponse.json(part, { status: 201 });
@@ -192,6 +191,13 @@ export const POST = withCors(async (request: Request) => {
         { error: "PASSWORD_CHANGE_REQUIRED", code: "PASSWORD_CHANGE_REQUIRED", message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน" },
         { status: 403 }
       );
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const target = (error.meta?.target as string[] | undefined)?.[0] ?? "";
+      if (target === "barcodeValue") {
+        return NextResponse.json({ error: "บาร์โค้ดนี้มีอยู่แล้ว" }, { status: 400 });
+      }
+      return NextResponse.json({ error: "รหัสอะไหล่นี้มีอยู่แล้ว" }, { status: 400 });
     }
     console.error("Mobile create part error:", error);
     return NextResponse.json(

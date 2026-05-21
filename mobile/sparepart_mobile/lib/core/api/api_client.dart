@@ -328,7 +328,12 @@ class ApiClient {
       final response = await _dio.post(
         '/parts/ai-suggest',
         data: formData,
-        options: Options(headers: _authHeaders),
+        options: Options(
+          headers: _authHeaders,
+          // AI processing takes longer — extend timeout to 60s
+          receiveTimeout: const Duration(seconds: 60),
+          sendTimeout: const Duration(seconds: 30),
+        ),
       );
       final data = response.data as Map<String, dynamic>;
       return data['suggestion'] as Map<String, dynamic>;
@@ -470,7 +475,12 @@ class ApiClient {
       final response = await _dio.post(
         '/import/ai',
         data: formData,
-        options: Options(headers: _authHeaders),
+        options: Options(
+          headers: _authHeaders,
+          // AI processing takes longer — extend timeout to 120s
+          receiveTimeout: const Duration(seconds: 120),
+          sendTimeout: const Duration(seconds: 30),
+        ),
       );
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {

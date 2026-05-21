@@ -31,17 +31,9 @@ export const POST = withCors(async (
       return NextResponse.json({ error: "ไม่พบไฟล์" }, { status: 400 });
     }
 
-    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
-    if (!allowedTypes.includes(file.type)) {
-      return NextResponse.json(
-        { error: "ไฟล์ต้องเป็น JPG, PNG, หรือ WebP เท่านั้น" },
-        { status: 400 }
-      );
-    }
-
-    const ext = file.name.split(".").pop()?.toLowerCase();
-    if (!["jpg", "jpeg", "png", "webp"].includes(ext || "")) {
-      return NextResponse.json({ error: "นามสกุลไฟล์ไม่ถูกต้อง" }, { status: 400 });
+    // Accept any image type — sharp will convert
+    if (!file.type.startsWith("image/") && file.type !== "application/octet-stream") {
+      return NextResponse.json({ error: "ไฟล์ต้องเป็นรูปภาพ" }, { status: 400 });
     }
 
     const arrayBuffer = await file.arrayBuffer();

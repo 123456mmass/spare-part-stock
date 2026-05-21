@@ -3,8 +3,14 @@ import sharp from "sharp";
 import { z } from "zod";
 import { prisma } from "./prisma";
 import { generateQRCode } from "./qrcode";
-import { extractImagesFromWorkbook, processAndSaveImage } from "./excel";
+import {
+  extractImagesFromWorkbook,
+  processAndSaveImage,
+  preflightImportRows,
+  applyImportedRows,
+} from "./excel";
 import { generatePartBarcodeValue } from "./barcode";
+import { validateImportRows, type RawImportRow } from "./import-validation";
 
 const MAX_AI_IMPORT_ROWS = 100; // Reduced from 300 to prevent OOM / API exhaustion
 
@@ -13,6 +19,7 @@ const aiPartSchema = z.object({
   partName: z.string().trim().min(1),
   description: z.string().trim().nullable().optional().transform(v => v || ""),
   category: z.string().trim().nullable().optional().transform(v => v || ""),
+  subcategory: z.string().trim().nullable().optional().transform(v => v || ""),
   location: z.string().trim().nullable().optional().transform(v => v || ""),
   quantity: z.coerce.number().int().min(0).nullable().optional().transform(v => v || 0),
   minimumQuantity: z.coerce.number().int().min(0).nullable().optional().transform(v => v || 0),
@@ -48,7 +55,14 @@ function gatewayModel() {
 }
 
 function gatewayKey() {
-  return process.env.SPARE_PART_AI_GATEWAY_KEY || process.env.LLM_GATEWAY_API_KEY || "";
+  const key =
+    process.env.SPARE_PART_AI_GATEWAY_KEY || process.env.LLM_GATEWAY_API_KEY || "";
+  if (!key) {
+    console.error(
+      "CRITICAL: No AI gateway key configured. Set SPARE_PART_AI_GATEWAY_KEY or LLM_GATEWAY_API_KEY in environment."
+    );
+  }
+  return key;
 }
 
 function extractTextFromAnthropic(payload: unknown): string {
@@ -176,6 +190,7 @@ async function parseWorkbookRows(fileBuffer: ArrayBuffer | Buffer) {
       partName: fallbackName,
       description: fallbackName,
       category: cellText(row, categoryCol),
+      subcategory: "",
       location: cellText(row, locationCol),
       quantity: Number.parseInt(cellText(row, quantityCol) || "0", 10) || 0,
       minimumQuantity: 0,
@@ -194,14 +209,17 @@ async function enrichRowBatchWithAi(
 ) {
   if (rows.length === 0) return { rows, aiUsed: false };
   const prompt = [
-    "You normalize spare-part Excel rows for inventory import.",
-    "Return only JSON with a parts array. Keep the same number/order as input rows.",
+    "You are an expert industrial spare-part inventory assistant with deep knowledge of brands, standards, and applications.",
+    "Return only JSON with a parts array.",
+    "IMPORTANT: If multiple rows refer to the same physical part (same or very similar partNumber/name), merge them into ONE entry — sum their quantities.",
     "Do not invent unknown serial numbers. Use partNumber from input if present.",
-    "Create useful descriptions from the visible code/name and row image. Choose category if obvious.",
-    "Important: partNumber is the spare-part model/SKU/part code. barcodeValue is a machine-readable barcode/QR number visible on the part/label or explicit barcode column.",
-    "Do not copy partNumber into barcodeValue unless the barcode text visibly matches it. Use null if no barcode/QR text is visible; the system will generate one.",
+    "For partName: format as 'Brand - Part Type' in English (e.g. 'Schneider - Contactor', 'Fanox - Current Transformer', 'Weidmuller - Terminal Block'). Use your knowledge to identify brand from part number or image.",
+    "For description: include brand, type, model, rated specs (voltage/current/size), standard (IEC/DIN/JIS), and typical application in Thai. e.g. 'Schneider Electric TeSys D, LC1D09, 9A 3-pole, 220VAC coil, IEC 60947, ใช้ควบคุมมอเตอร์/ปั๊ม'",
+    "For category: ALWAYS provide a Thai category name (e.g. อุปกรณ์ไฟฟ้า, เซ็นเซอร์, วาล์ว, มอเตอร์). NEVER leave empty.",
+    "For subcategory: ALWAYS provide specific English part type (e.g. Contactor, Breaker, Fuse, Terminal Block, Current Transformer, Panel Meter, Relay).",
+    "Important: barcodeValue is a machine-readable barcode/QR number visible on the part/label. Use null if not visible.",
     `Existing categories: ${categories.map((category) => category.name).join(", ") || "none"}`,
-    "Each output part must have: partNumber, partName, description, category, location, quantity, minimumQuantity, unit, barcodeValue.",
+    "Each output part must have: partNumber, partName, description, category, subcategory, location, quantity, minimumQuantity, unit, barcodeValue.",
     "Rows:",
     JSON.stringify(rows.map(({ rowNum, ...row }) => ({ rowNum, hasImage: rowNum ? imageMap.has(rowNum) : false, ...row }))),
   ].join("\n");
@@ -219,13 +237,13 @@ async function enrichRowBatchWithAi(
   };
   const apiKey = gatewayKey();
   if (apiKey) {
-    headers["x-api-key"] = apiKey;
     headers.authorization = `Bearer ${apiKey}`;
   }
 
   const response = await fetch(`${gatewayBaseUrl()}/v1/messages`, {
     method: "POST",
     headers,
+    signal: AbortSignal.timeout(120_000),
     body: JSON.stringify({
       model: gatewayModel(),
       max_tokens: 6000,
@@ -237,7 +255,7 @@ async function enrichRowBatchWithAi(
   if (!response.ok) throw new Error(`AI gateway returned ${response.status}`);
   const text = extractTextFromAnthropic(await response.json());
   const parsed = aiImportSchema.parse(parseJsonObject(text));
-  const enriched = parsed.parts.map((part, index) => ({ ...part, rowNum: rows[index]?.rowNum }));
+  const enriched = parsed.parts.map((part, index) => ({ ...part, rowNum: rows[index]?.rowNum ?? index + 2 }));
   return { rows: enriched, aiUsed: true };
 }
 
@@ -300,83 +318,41 @@ export async function importPartsFromExcelWithAi(
       result.errors.push("AI processing unavailable, using raw Excel data");
     }
 
-    // Queue image and QR updates for after transaction (like regular Excel import)
-    const imageUpdates: { partId: string; partNumber: string; rowNum: number }[] = [];
-    const qrUpdates: { partId: string; partNumber: string }[] = [];
+    const validated = validateImportRows(
+      rows.map<RawImportRow>((row) => ({
+        rowNum: row.rowNum ?? 0,
+        partNumber: row.partNumber,
+        partName: row.partName,
+        description: row.description || undefined,
+        categoryName: row.category || undefined,
+        subcategory: row.subcategory || undefined,
+        location: row.location || undefined,
+        quantity: row.quantity,
+        minimumQuantity: row.minimumQuantity,
+        unit: row.unit || "pcs",
+        barcodeValue: row.barcodeValue || undefined,
+      })),
+      generatePartBarcodeValue
+    );
+    result.errors.push(...validated.errors);
 
-    await prisma.$transaction(async (tx) => {
-      for (const row of rows) {
-        let categoryId: string | undefined;
-        if (row.category) {
-          const category = await tx.category.upsert({
-            where: { name: row.category },
-            create: { name: row.category },
-            update: {},
-          });
-          categoryId = category.id;
-        }
+    const preflight = await preflightImportRows(validated.rows, result.errors);
+    if (result.errors.length > 0 || !preflight) {
+      return result;
+    }
 
-        const existing = await tx.part.findUnique({ where: { partNumber: row.partNumber } });
-        let partId: string;
-
-        if (existing) {
-          const newQuantity = existing.quantity + row.quantity;
-          await tx.part.update({
-            where: { id: existing.id },
-            data: {
-              partName: row.partName,
-              description: row.description,
-              categoryId,
-              location: row.location,
-              quantity: newQuantity,
-              minimumQuantity: row.minimumQuantity,
-              unit: row.unit || "pcs",
-              barcodeValue: row.barcodeValue || generatePartBarcodeValue(row.partNumber),
-            },
-          });
-          partId = existing.id;
-          result.updated++;
-        } else {
-          const created = await tx.part.create({
-            data: {
-              partNumber: row.partNumber,
-              partName: row.partName,
-              description: row.description,
-              categoryId,
-              location: row.location,
-              quantity: row.quantity,
-              minimumQuantity: row.minimumQuantity,
-              unit: row.unit || "pcs",
-              barcodeValue: row.barcodeValue || generatePartBarcodeValue(row.partNumber),
-            },
-          });
-          partId = created.id;
-          result.imported++;
-        }
-
-        if (row.quantity > 0) {
-          await tx.stockMovement.create({
-            data: {
-              partId,
-              userId,
-              type: "STOCK_IN",
-              quantityBefore: existing?.quantity ?? 0,
-              quantityAfter: (existing?.quantity ?? 0) + row.quantity,
-              quantityChange: row.quantity,
-              note: result.aiUsed ? "AI Excel import" : "Excel import",
-            },
-          });
-        }
-
-        qrUpdates.push({ partId, partNumber: row.partNumber });
-        if (row.rowNum && imageMap.has(row.rowNum)) {
-          imageUpdates.push({ partId, partNumber: row.partNumber, rowNum: row.rowNum });
-        }
-      }
+    const applied = await applyImportedRows({
+      rows: validated.rows,
+      userId,
+      existingPartsByPartNumber: preflight.existingPartsByPartNumber,
     });
 
+    result.imported = applied.imported;
+    result.updated = applied.updated;
+
     // Process images and QR codes after transaction commits
-    for (const img of imageUpdates) {
+    for (const img of applied.imageUpdates) {
+      if (!imageMap.has(img.rowNum)) continue;
       const imageBuffer = imageMap.get(img.rowNum);
       if (imageBuffer) {
         const imageUrl = await processAndSaveImage(imageBuffer, img.partNumber);
@@ -386,7 +362,7 @@ export async function importPartsFromExcelWithAi(
       }
     }
 
-    for (const qr of qrUpdates) {
+    for (const qr of applied.qrUpdates) {
       const qrCodeUrl = await generateQRCode(qr.partId, qr.partNumber);
       await prisma.part.update({ where: { id: qr.partId }, data: { qrCodeUrl } });
     }

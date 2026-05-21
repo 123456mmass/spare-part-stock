@@ -24,6 +24,11 @@ export async function getUserById(id: string) {
   return prisma.user.findUnique({ where: { id } });
 }
 
+/**
+ * Verify API key for non-browser clients (scripts, tools).
+ * Fails closed: env var must be set, header must match.
+ * Browser clients use session cookies via requireAuth() instead.
+ */
 export async function verifyApiKey() {
   try {
     await rateLimitWeb({ name: "api-web", maxRequests: 100, windowSeconds: 60 });
@@ -33,10 +38,10 @@ export async function verifyApiKey() {
   }
   const headerList = await headers();
   const apiKey = headerList.get("X-API-Key");
-  const expectedKey = process.env.NEXT_PUBLIC_API_KEY;
+  const expectedKey = process.env.API_KEY;
 
   if (!expectedKey) {
-    console.error("CRITICAL: NEXT_PUBLIC_API_KEY is not set in environment variables");
+    console.error("CRITICAL: API_KEY is not set in environment variables");
     throw new AuthError("Unauthorized");
   }
 
@@ -66,7 +71,6 @@ export function verifyMobileApiKey(request: Request) {
 }
 
 export async function requireAuth() {
-  await verifyApiKey();
   const session = await getSession();
   if (!session) throw new AuthError("Unauthorized");
   const user = await getUserById(session.userId);

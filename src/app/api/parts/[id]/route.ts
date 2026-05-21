@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { partSchema } from "@/lib/validators";
+import { partUpdateSchema } from "@/lib/validators";
 import { requireAuth, requireRole } from "@/lib/auth";
+import { createStockMovement } from "@/lib/stock";
 
 export async function GET(
   request: Request,
@@ -50,11 +52,17 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await requireRole(["ADMIN"]);
+    await requireAuth();
 
     const { id } = await params;
     const body = await request.json();
-    const parsed = partSchema.partial().safeParse(body);
+    if (Object.prototype.hasOwnProperty.call(body, "quantity")) {
+      return NextResponse.json(
+        { error: "ห้ามแก้ไขจำนวนคงเหลือโดยตรง กรุณาใช้รายการเคลื่อนไหวสต็อก" },
+        { status: 400 }
+      );
+    }
+    const parsed = partUpdateSchema.safeParse(body);
 
     if (!parsed.success) {
       return NextResponse.json(
@@ -65,39 +73,29 @@ export async function PUT(
 
     const data = parsed.data;
 
-    if (data.partNumber) {
-      const existing = await prisma.part.findFirst({
-        where: {
-          partNumber: data.partNumber,
-          NOT: { id },
-        },
+    let resolvedCategoryId = data.categoryId ?? undefined;
+    if (!resolvedCategoryId && data.categoryName) {
+      const cat = await prisma.category.upsert({
+        where: { name: data.categoryName },
+        create: { name: data.categoryName },
+        update: {},
       });
-
-      if (existing) {
-        return NextResponse.json(
-          { error: "รหัสอะไหล่นี้มีอยู่แล้ว" },
-          { status: 400 }
-        );
-      }
-    }
-
-    if (data.barcodeValue) {
-      const dup = await prisma.part.findFirst({
-        where: { barcodeValue: data.barcodeValue, id: { not: id } },
-      });
-      if (dup) {
-        return NextResponse.json(
-          { error: "บาร์โค้ดนี้มีอยู่แล้ว" },
-          { status: 400 }
-        );
-      }
+      resolvedCategoryId = cat.id;
     }
 
     const part = await prisma.part.update({
       where: { id },
       data: {
-        ...data,
-        categoryId: data.categoryId || null,
+        ...(data.partNumber !== undefined && { partNumber: data.partNumber }),
+        ...(data.partName !== undefined && { partName: data.partName }),
+        ...(data.description !== undefined && { description: data.description }),
+        ...(data.location !== undefined && { location: data.location }),
+        ...(data.minimumQuantity !== undefined && { minimumQuantity: data.minimumQuantity }),
+        ...(data.unit !== undefined && { unit: data.unit }),
+        ...(data.barcodeValue !== undefined && { barcodeValue: data.barcodeValue || null }),
+        ...(data.subcategory !== undefined && { subcategory: data.subcategory }),
+        ...(data.plant !== undefined && { plant: data.plant }),
+        categoryId: resolvedCategoryId ?? null,
       },
       include: {
         category: true,
@@ -114,6 +112,13 @@ export async function PUT(
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
     }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const target = (error.meta?.target as string[] | undefined)?.[0] ?? "";
+      if (target === "barcodeValue") {
+        return NextResponse.json({ error: "บาร์โค้ดนี้มีอยู่แล้ว" }, { status: 400 });
+      }
+      return NextResponse.json({ error: "รหัสอะไหล่นี้มีอยู่แล้ว" }, { status: 400 });
+    }
     console.error("Error updating part:", error);
     return NextResponse.json(
       { error: "เกิดข้อผิดพลาดในการอัปเดต" },
@@ -127,32 +132,33 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await requireRole(["ADMIN"]);
+    const user = await requireAuth();
 
     const { id } = await params;
 
     await prisma.$transaction(async (tx) => {
-      const part = await tx.part.update({
-        where: { id },
-        data: { isActive: false },
-      });
+      const part = await tx.part.findUnique({ where: { id } });
+      if (!part) {
+        throw new Error("PART_NOT_FOUND");
+      }
 
-      await tx.stockMovement.create({
-        data: {
-          partId: part.id,
-          userId: user.id,
-          type: "ADJUSTMENT",
-          quantityBefore: part.quantity,
-          quantityAfter: 0,
-          quantityChange: -part.quantity,
-          note: "ลบอะไหล่ (soft delete)",
-        },
-      });
+      // STAFF can only delete parts they created
+      if (user.role !== "ADMIN" && part.createdBy !== user.id) {
+        throw new Error("FORBIDDEN");
+      }
+
+      await tx.part.delete({ where: { id } });
     });
 
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof Error) {
+      if (error.message === "PART_NOT_FOUND") {
+        return NextResponse.json({ error: "ไม่พบอะไหล่นี้" }, { status: 404 });
+      }
+      if (error.message === "FORBIDDEN") {
+        return NextResponse.json({ error: "ไม่มีสิทธิ์ลบอะไหล่นี้ (ไม่ใช่ผู้สร้าง)" }, { status: 403 });
+      }
       if (error.message === "Unauthorized") {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       }

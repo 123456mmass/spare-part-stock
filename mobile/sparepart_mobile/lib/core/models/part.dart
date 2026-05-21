@@ -33,6 +33,8 @@ class Part {
   final String? imageUrl;
   final String? qrCodeUrl;
   final String? barcodeValue;
+  final String? subcategory;
+  final String? plant;
   final PartCategory? category;
   final List<StockMovement>? movements;
 
@@ -48,6 +50,8 @@ class Part {
     this.imageUrl,
     this.qrCodeUrl,
     this.barcodeValue,
+    this.subcategory,
+    this.plant,
     this.category,
     this.movements,
   });
@@ -67,6 +71,8 @@ class Part {
       imageUrl: _resolveUrl(json['imageUrl'] as String?),
       qrCodeUrl: _resolveUrl(json['qrCodeUrl'] as String?),
       barcodeValue: json['barcodeValue'] as String?,
+      subcategory: json['subcategory'] as String?,
+      plant: json['plant'] as String?,
       category: categoryJson != null
           ? PartCategory.fromJson(categoryJson)
           : null,

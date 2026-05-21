@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { partSchema } from "@/lib/validators";
 import { requireAuth } from "@/lib/auth";
 import { generatePartBarcodeValue } from "@/lib/barcode";
+import { createStockMovement } from "@/lib/stock";
 
 export async function GET(request: Request) {
   try {
@@ -79,41 +80,32 @@ export async function POST(request: Request) {
       );
     }
 
-    const { partNumber, partName, description, categoryId, location, quantity, minimumQuantity, unit, barcodeValue } = parsed.data;
+    const { partNumber, partName, description, categoryId, categoryName, subcategory, plant, location, quantity, minimumQuantity, unit, barcodeValue } = parsed.data;
     const finalBarcodeValue = barcodeValue || generatePartBarcodeValue(partNumber);
 
-    const existing = await prisma.part.findUnique({
-      where: { partNumber },
-    });
-
-    if (existing) {
-      return NextResponse.json(
-        { error: "รหัสอะไหล่นี้มีอยู่แล้ว" },
-        { status: 400 }
-      );
-    }
-
-    if (finalBarcodeValue) {
-      const barcodeDup = await prisma.part.findUnique({
-        where: { barcodeValue: finalBarcodeValue },
-      });
-      if (barcodeDup) {
-        return NextResponse.json(
-          { error: "บาร์โค้ดนี้มีอยู่แล้ว" },
-          { status: 400 }
-        );
-      }
-    }
-
     const part = await prisma.$transaction(async (tx) => {
+      // Auto-create category if categoryName provided but no categoryId
+      let resolvedCategoryId = categoryId || null;
+      if (!resolvedCategoryId && categoryName) {
+        const cat = await tx.category.upsert({
+          where: { name: categoryName },
+          create: { name: categoryName },
+          update: {},
+        });
+        resolvedCategoryId = cat.id;
+      }
+
       const created = await tx.part.create({
         data: {
           partNumber,
           partName,
           description,
-          categoryId: categoryId || null,
+          categoryId: resolvedCategoryId,
+          subcategory: subcategory || null,
+          plant: plant || null,
+          createdBy: user.id,
           location,
-          quantity: quantity ?? 0,
+          quantity: 0,
           minimumQuantity: minimumQuantity ?? 0,
           unit: unit || "pcs",
           barcodeValue: finalBarcodeValue,
@@ -124,26 +116,37 @@ export async function POST(request: Request) {
       });
 
       if ((quantity ?? 0) > 0) {
-        await tx.stockMovement.create({
-          data: {
+        await createStockMovement(
+          {
             partId: created.id,
             userId: user.id,
             type: "STOCK_IN",
-            quantityBefore: 0,
-            quantityAfter: quantity ?? 0,
-            quantityChange: quantity ?? 0,
+            quantity: quantity ?? 0,
             note: "สร้างอะไหล่ใหม่",
           },
-        });
+          tx
+        );
       }
 
-      return created;
+      return tx.part.findUnique({
+        where: { id: created.id },
+        include: {
+          category: true,
+        },
+      });
     });
 
     return NextResponse.json(part, { status: 201 });
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const target = (error.meta?.target as string[] | undefined)?.[0] ?? "";
+      if (target === "barcodeValue") {
+        return NextResponse.json({ error: "บาร์โค้ดนี้มีอยู่แล้ว" }, { status: 400 });
+      }
+      return NextResponse.json({ error: "รหัสอะไหล่นี้มีอยู่แล้ว" }, { status: 400 });
     }
     console.error("Error creating part:", error);
     return NextResponse.json(

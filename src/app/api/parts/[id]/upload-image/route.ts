@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/auth";
+import { requireAuth } from "@/lib/auth";
 import { savePartImage } from "@/lib/uploads";
 
 export async function POST(
@@ -8,7 +8,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await requireRole(["ADMIN"]);
+    await requireAuth();
 
     const { id } = await params;
 
@@ -25,20 +25,10 @@ export async function POST(
       return NextResponse.json({ error: "ไม่พบไฟล์" }, { status: 400 });
     }
 
-    // Validate MIME type (double-check since it's from FormData)
-    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
-    if (!allowedTypes.includes(file.type)) {
+    // Accept any image type — sharp will convert to webp
+    if (!file.type.startsWith("image/") && file.type !== "application/octet-stream") {
       return NextResponse.json(
-        { error: "ไฟล์ต้องเป็น JPG, PNG, หรือ WebP เท่านั้น" },
-        { status: 400 }
-      );
-    }
-
-    // Validate extension
-    const ext = file.name.split(".").pop()?.toLowerCase();
-    if (!["jpg", "jpeg", "png", "webp"].includes(ext || "")) {
-      return NextResponse.json(
-        { error: "นามสกุลไฟล์ไม่ถูกต้อง" },
+        { error: "ไฟล์ต้องเป็นรูปภาพ" },
         { status: 400 }
       );
     }

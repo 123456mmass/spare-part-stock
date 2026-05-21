@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { verifyCredentials, verifyApiKey, AuthError } from "@/lib/auth";
+import { verifyCredentials, AuthError } from "@/lib/auth";
 import { createSession } from "@/lib/session";
 import { loginSchema } from "@/lib/validators";
 import { rateLimitWeb, RateLimitError } from "@/lib/rate-limit";
@@ -7,7 +7,6 @@ import { rateLimitWeb, RateLimitError } from "@/lib/rate-limit";
 export async function POST(request: Request) {
   try {
     await rateLimitWeb({ name: "login-web", maxRequests: 5, windowSeconds: 900 });
-    await verifyApiKey();
     const body = await request.json();
     const parsed = loginSchema.safeParse(body);
 

@@ -173,8 +173,7 @@ class _PartDetailScreenState extends State<PartDetailScreen> {
                 },
                 itemBuilder: (context) => [
                   const PopupMenuItem(value: 'edit', child: Text('แก้ไข')),
-                  if (part!.quantity == 0)
-                    const PopupMenuItem(value: 'delete', child: Text('ลบ', style: TextStyle(color: Colors.red))),
+                  const PopupMenuItem(value: 'delete', child: Text('ลบ', style: TextStyle(color: Colors.red))),
                 ],
               ),
           ],

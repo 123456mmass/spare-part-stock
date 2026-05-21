@@ -99,6 +99,12 @@ export async function POST(request: Request) {
         if (error.message === "NEGATIVE_STOCK") {
           return NextResponse.json({ error: "จำนวนสินค้าต้องไม่ติดลบ" }, { status: 400 });
         }
+        if (error.message === "CONCURRENT_MODIFICATION") {
+          return NextResponse.json(
+            { error: "ข้อมูลถูกแก้ไขพร้อมกัน กรุณาลองใหม่อีกครั้ง" },
+            { status: 409 }
+          );
+        }
       }
     }
     console.error("Error creating movement:", error);

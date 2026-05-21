@@ -47,7 +47,7 @@ export default function ChangePasswordPage() {
         return;
       }
       if (isForced) {
-        router.push("/dashboard");
+        window.location.href = "/dashboard";
       } else {
         toast({ title: "เปลี่ยนรหัสผ่านสำเร็จ" });
         setCurrentPassword("");

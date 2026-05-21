@@ -22,6 +22,7 @@ export function corsOptions(): (request: Request) => Promise<NextResponse> {
         "Access-Control-Allow-Methods": ALLOWED_METHODS,
         "Access-Control-Allow-Headers": ALLOWED_HEADERS,
         "Access-Control-Max-Age": MAX_AGE,
+        Vary: "Origin",
       },
     });
   };

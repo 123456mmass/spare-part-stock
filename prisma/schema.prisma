@@ -42,6 +42,9 @@ model Part {
   description     String?
   categoryId      String?
   category        Category? @relation(fields: [categoryId], references: [id])
+  subcategory     String?
+  plant           String?
+  createdBy       String?
   location        String?
   quantity        Int      @default(0)
   minimumQuantity Int      @default(0)

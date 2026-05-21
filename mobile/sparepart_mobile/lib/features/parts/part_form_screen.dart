@@ -26,6 +26,8 @@ class _PartFormScreenState extends State<PartFormScreen> {
   final _descriptionController = TextEditingController();
   final _locationController = TextEditingController();
   final _barcodeController = TextEditingController();
+  final _subcategoryController = TextEditingController();
+  final _plantController = TextEditingController();
   final _quantityController = TextEditingController();
   final _minimumQuantityController = TextEditingController();
   final _unitController = TextEditingController(text: 'pcs');
@@ -54,6 +56,8 @@ class _PartFormScreenState extends State<PartFormScreen> {
       _descriptionController.text = p.description ?? '';
       _locationController.text = p.location ?? '';
       _barcodeController.text = p.barcodeValue ?? '';
+      _subcategoryController.text = p.subcategory ?? '';
+      _plantController.text = p.plant ?? '';
       _quantityController.text = '${p.quantity}';
       _minimumQuantityController.text = '${p.minimumQuantity}';
       _unitController.text = p.unit;
@@ -108,6 +112,8 @@ class _PartFormScreenState extends State<PartFormScreen> {
           'partName': _partNameController.text.trim(),
           'description': _descriptionController.text.trim(),
           'categoryId': _selectedCategoryId,
+          'subcategory': _subcategoryController.text.trim(),
+          'plant': _plantController.text.trim(),
           'location': _locationController.text.trim(),
           'barcodeValue': _barcodeController.text.trim(),
           'minimumQuantity': minimumQuantity,
@@ -119,6 +125,9 @@ class _PartFormScreenState extends State<PartFormScreen> {
           'partName': _partNameController.text.trim(),
           'description': _descriptionController.text.trim(),
           'categoryId': _selectedCategoryId,
+          'categoryName': _selectedCategoryId == null ? _subcategoryController.text.trim() : null,
+          'subcategory': _subcategoryController.text.trim(),
+          'plant': _plantController.text.trim(),
           'location': _locationController.text.trim(),
           'barcodeValue': _barcodeController.text.trim(),
           'quantity': quantity,
@@ -302,6 +311,20 @@ class _PartFormScreenState extends State<PartFormScreen> {
     if (unit.isNotEmpty) _unitController.text = unit;
     if (barcodeValue.isNotEmpty) _barcodeController.text = barcodeValue;
     if (categoryId.isNotEmpty) _selectedCategoryId = categoryId;
+
+    final subcategory = stringValue('subcategory');
+    if (subcategory.isNotEmpty) _subcategoryController.text = subcategory;
+
+    // Auto-select or create category from AI suggestion
+    final categoryName = stringValue('matchedCategoryName').isNotEmpty
+        ? stringValue('matchedCategoryName')
+        : stringValue('categoryName');
+    if (categoryId.isEmpty && categoryName.isNotEmpty) {
+      final match = _categories.where((c) => c.name.toLowerCase() == categoryName.toLowerCase()).toList();
+      if (match.isNotEmpty) {
+        _selectedCategoryId = match.first.id;
+      }
+    }
 
     _quantityController.text = '${_intFromSuggestion(suggestion['quantity'])}';
     _minimumQuantityController.text = '${_intFromSuggestion(suggestion['minimumQuantity'])}';
@@ -531,6 +554,23 @@ class _PartFormScreenState extends State<PartFormScreen> {
                         )),
                       ],
                       onChanged: (v) => setState(() => _selectedCategoryId = v),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _subcategoryController,
+                      decoration: const InputDecoration(
+                        labelText: 'หมวดหมู่ย่อย (เช่น Contactor, Breaker, Fuse)',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _plantController,
+                      decoration: const InputDecoration(
+                        labelText: 'Block (เช่น 1, 2, 3) *',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (v) => (v == null || v.trim().isEmpty) ? 'กรุณากรอก Block' : null,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(

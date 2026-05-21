@@ -16,6 +16,7 @@ import {
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ExportDialog } from "@/components/export-dialog";
 
 export const dynamic = "force-dynamic";
 
@@ -206,12 +207,7 @@ export default async function DashboardPage() {
                 <span className="text-xs">นำเข้า Excel</span>
               </Button>
             </Link>
-            <Link href="/movements">
-              <Button variant="outline" className="w-full h-20 flex-col gap-2">
-                <Download className="h-6 w-6" />
-                <span className="text-xs">ส่งออกรายงาน</span>
-              </Button>
-            </Link>
+            <ExportDialog />
             {user?.role === "ADMIN" && (
               <Link href="/users">
                 <Button variant="outline" className="w-full h-20 flex-col gap-2">

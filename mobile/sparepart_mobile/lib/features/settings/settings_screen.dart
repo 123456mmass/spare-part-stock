@@ -56,34 +56,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ValueListenableBuilder(
                 valueListenable: isClearing,
                 builder: (_, clearing, __) {
-                  return Column(
+                  return StatefulBuilder(
+                    builder: (context, setCheckState) => Column(
                     children: [
                       CheckboxListTile(
                         value: clearData['categories']!,
-                        onChanged: clearing ? null : (v) => clearData['categories'] = v ?? false,
+                        onChanged: clearing ? null : (v) => setCheckState(() => clearData['categories'] = v ?? false),
                         title: const Text('หมวดหมู่'),
                         dense: true,
                       ),
                       CheckboxListTile(
                         value: clearData['parts']!,
-                        onChanged: clearing ? null : (v) => clearData['parts'] = v ?? false,
+                        onChanged: clearing ? null : (v) => setCheckState(() => clearData['parts'] = v ?? false),
                         title: const Text('อะไหล่'),
                         dense: true,
                       ),
                       CheckboxListTile(
                         value: clearData['movements']!,
-                        onChanged: clearing ? null : (v) => clearData['movements'] = v ?? false,
+                        onChanged: clearing ? null : (v) => setCheckState(() => clearData['movements'] = v ?? false),
                         title: const Text('การเคลื่อนไหว'),
                         dense: true,
                       ),
                       CheckboxListTile(
                         value: clearData['users']!,
-                        onChanged: clearing ? null : (v) => clearData['users'] = v ?? false,
+                        onChanged: clearing ? null : (v) => setCheckState(() => clearData['users'] = v ?? false),
                         title: const Text('ผู้ใช้ (ยกเว้นบัญชีคุณ)'),
                         dense: true,
                       ),
                     ],
-                  );
+                  ));
                 },
               ),
               const SizedBox(height: 12),

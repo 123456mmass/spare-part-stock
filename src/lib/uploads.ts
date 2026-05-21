@@ -3,8 +3,7 @@ import path from "path";
 import fs from "fs/promises";
 import crypto from "crypto";
 
-const MAX_SIZE = 5 * 1024 * 1024; // 5MB
-const ALLOWED_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
+const MAX_SIZE = 10 * 1024 * 1024; // 10MB (HEIC can be large)
 const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads", "parts");
 
 export async function savePartImage(
@@ -12,13 +11,8 @@ export async function savePartImage(
   originalName: string,
   partId: string
 ): Promise<string> {
-  const ext = path.extname(originalName).toLowerCase();
-  if (!ALLOWED_EXTENSIONS.has(ext)) {
-    throw new Error("File must be JPG, PNG, or WebP");
-  }
-
   if (buffer.length > MAX_SIZE) {
-    throw new Error("File must be 5MB or smaller");
+    throw new Error("File must be 10MB or smaller");
   }
 
   const filename = `${partId}-${crypto.randomBytes(4).toString("hex")}.webp`;

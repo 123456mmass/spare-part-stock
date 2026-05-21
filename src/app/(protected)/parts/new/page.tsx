@@ -29,6 +29,9 @@ interface FormValues {
   unit: string;
   description?: string;
   categoryId?: string;
+  categoryName?: string;
+  subcategory?: string;
+  plant?: string;
   location?: string;
   barcodeValue?: string;
 }
@@ -147,6 +150,7 @@ export default function NewPartPage() {
       if (suggestion.location) setValue("location", suggestion.location);
       if (suggestion.unit) setValue("unit", suggestion.unit);
       if (suggestion.barcodeValue) setValue("barcodeValue", suggestion.barcodeValue);
+      if (suggestion.subcategory) setValue("subcategory", suggestion.subcategory);
       if (Number.isFinite(suggestion.quantity)) setValue("quantity", suggestion.quantity);
       if (Number.isFinite(suggestion.minimumQuantity)) {
         setValue("minimumQuantity", suggestion.minimumQuantity);
@@ -154,6 +158,18 @@ export default function NewPartPage() {
       if (suggestion.categoryId) {
         setSelectedCategoryId(suggestion.categoryId);
         setValue("categoryId", suggestion.categoryId);
+      } else if (suggestion.matchedCategoryName || suggestion.categoryName) {
+        // AI suggested a category name — send it so API auto-creates
+        const catName = suggestion.matchedCategoryName || suggestion.categoryName;
+        setValue("categoryName" as keyof FormValues, catName);
+        // Check if it exists in loaded categories
+        const existing = categories.find(c => c.name.toLowerCase() === catName.toLowerCase());
+        if (existing) {
+          setSelectedCategoryId(existing.id);
+          setValue("categoryId", existing.id);
+        } else {
+          setSelectedCategoryId("__new__");
+        }
       }
 
       toast({
@@ -233,7 +249,12 @@ export default function NewPartPage() {
                   value={selectedCategoryId}
                   onValueChange={(value) => {
                     setSelectedCategoryId(value);
-                    setValue("categoryId", value);
+                    if (value === "__new__") {
+                      setValue("categoryId", "");
+                    } else {
+                      setValue("categoryId", value);
+                      setValue("categoryName" as keyof FormValues, "");
+                    }
                   }}
                 >
                   <SelectTrigger>
@@ -245,8 +266,16 @@ export default function NewPartPage() {
                         {cat.name}
                       </SelectItem>
                     ))}
+                    <SelectItem value="__new__">+ สร้างหมวดหมู่ใหม่</SelectItem>
                   </SelectContent>
                 </Select>
+                {selectedCategoryId === "__new__" && (
+                  <Input
+                    className="mt-2"
+                    placeholder="ชื่อหมวดหมู่ใหม่"
+                    {...register("categoryName" as keyof FormValues)}
+                  />
+                )}
               </div>
               <div>
                 <Label htmlFor="location">ที่เก็บ</Label>
@@ -256,6 +285,26 @@ export default function NewPartPage() {
                   placeholder="เช่น ชั้น A-1"
                 />
               </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="plant">Block</Label>
+                <Input
+                  id="plant"
+                  {...register("plant")}
+                  placeholder="เช่น 1, 2, 3"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="subcategory">หมวดหมู่ย่อย</Label>
+              <Input
+                id="subcategory"
+                {...register("subcategory")}
+                placeholder="เช่น Contactor, Breaker, Fuse, Relay"
+              />
             </div>
 
             <div>
@@ -331,15 +380,30 @@ export default function NewPartPage() {
                 <input
                   type="file"
                   id="imageFile"
-                  accept="image/jpeg,image/png,image/webp"
+                  accept="image/*"
                   onChange={handleImageChange}
                   className="hidden"
                 />
-                <Label htmlFor="imageFile">
-                  <Button variant="outline" size="sm" asChild className="cursor-pointer">
-                    <span>เลือกรูป</span>
-                  </Button>
-                </Label>
+                <input
+                  type="file"
+                  id="cameraCapture"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handleImageChange}
+                  className="hidden"
+                />
+                <div className="flex gap-2">
+                  <Label htmlFor="imageFile">
+                    <Button variant="outline" size="sm" asChild className="cursor-pointer">
+                      <span>เลือกรูป</span>
+                    </Button>
+                  </Label>
+                  <Label htmlFor="cameraCapture">
+                    <Button variant="outline" size="sm" asChild className="cursor-pointer">
+                      <span>📷 ถ่ายรูป</span>
+                    </Button>
+                  </Label>
+                </div>
                 {imageFile && <p className="text-xs text-gray-500 mt-1">{imageFile.name}</p>}
                 <Button
                   type="button"

@@ -12,6 +12,9 @@ export const partSchema = z.object({
   partName: z.string().min(1, "กรุณากรอกชื่ออะไหล่").regex(/^[^<>]+$/, "ห้ามมีตัวอักษรพิเศษ < หรือ >"),
   description: z.string().regex(/^[^<>]*$/, "ห้ามมีตัวอักษรพิเศษ < หรือ >").optional(),
   categoryId: z.string().nullable().transform(v => v === "" || v === null ? null : v).optional(),
+  categoryName: z.string().nullable().transform(v => v === "" || v === null ? null : v).optional(),
+  subcategory: z.string().nullable().transform(v => v === "" || v === null ? null : v).optional(),
+  plant: z.string().min(1, "กรุณากรอก Block"),
   location: z.string().regex(/^[^<>]*$/, "ห้ามมีตัวอักษรพิเศษ < หรือ >").optional(),
   quantity: z.coerce.number().min(0, "จำนวนต้องเป็น 0 ขึ้นไป"),
   minimumQuantity: z.coerce.number().min(0, "จำนวนขั้นต่ำต้องเป็น 0 ขึ้นไป"),
@@ -22,9 +25,12 @@ export const partSchema = z.object({
     .optional(),
 });
 
+export const partUpdateSchema = partSchema.omit({ quantity: true }).partial();
+
 export type PartInput = z.infer<typeof partSchema>;
 export type PartInputRaw = z.input<typeof partSchema>;
 export type PartInputOutput = z.output<typeof partSchema>;
+export type PartUpdateInput = z.infer<typeof partUpdateSchema>;
 
 export const stockMovementSchema = z.object({
   partId: z.string().min(1),
@@ -45,6 +51,13 @@ export const stockMovementSchema = z.object({
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "จำนวนใหม่ต้องไม่น้อยกว่า 0",
+        path: ["quantity"],
+      });
+    }
+    if (data.quantity > 10_000_000) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "จำนวนใหม่ต้องไม่เกิน 10,000,000",
         path: ["quantity"],
       });
     }

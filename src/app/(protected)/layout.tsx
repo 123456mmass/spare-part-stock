@@ -73,7 +73,7 @@ export default function ProtectedLayout({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-gray-50">
       <Sidebar userName={user.name} userRole={user.role} mustChangePassword={user.mustChangePassword} onLogout={handleLogout} />
       <main className="md:ml-64 min-h-screen pb-20 md:pb-0">
-        <div className="p-4 md:p-6">{children}</div>
+        <div className="pt-14 md:pt-0 p-4 md:p-6">{children}</div>
       </main>
       <BottomNav />
     </div>

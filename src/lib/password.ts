@@ -1,6 +1,6 @@
 import crypto from "crypto";
 
-export function generateTempPassword(length = 6): string {
+export function generateTempPassword(length = 10): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
   let result = "";
   const bytes = crypto.randomBytes(length);

@@ -19,6 +19,7 @@ interface Part {
   partNumber: string;
   partName: string;
   category: { id: string; name: string } | null;
+  subcategory: string | null;
   location: string | null;
   quantity: number;
   minimumQuantity: number;
@@ -35,6 +36,7 @@ export default function PartsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [subcategoryFilter, setSubcategoryFilter] = useState("all");
   const [stockFilter, setStockFilter] = useState("all");
   const [viewMode, setViewMode] = useState<"table" | "card">("card");
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
@@ -84,6 +86,9 @@ export default function PartsPage() {
     const matchesCategory =
       categoryFilter === "all" || part.category?.id === categoryFilter;
 
+    const matchesSubcategory =
+      subcategoryFilter === "all" || part.subcategory === subcategoryFilter;
+
     let matchesStock = true;
     if (stockFilter === "in-stock") {
       matchesStock = part.quantity > part.minimumQuantity && part.quantity > 0;
@@ -93,7 +98,7 @@ export default function PartsPage() {
       matchesStock = part.quantity === 0;
     }
 
-    return matchesSearch && matchesCategory && matchesStock;
+    return matchesSearch && matchesCategory && matchesSubcategory && matchesStock;
   });
 
   return (
@@ -141,6 +146,18 @@ export default function PartsPage() {
                     <SelectItem key={cat.id} value={cat.id}>
                       {cat.name}
                     </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={subcategoryFilter} onValueChange={setSubcategoryFilter}>
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue placeholder="หมวดหมู่ย่อย" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">ทุกประเภท</SelectItem>
+                  {[...new Set(parts.map(p => p.subcategory).filter(Boolean))].sort().map((sub) => (
+                    <SelectItem key={sub!} value={sub!}>{sub}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -207,11 +224,11 @@ export default function PartsPage() {
                 <Card className="hover:shadow-lg transition-shadow cursor-pointer h-full">
                   <CardContent className="p-4">
                     {part.imageUrl ? (
-                      <div className="h-40 bg-gray-100 rounded-lg mb-4 flex items-center justify-center overflow-hidden p-2">
+                      <div className="h-40 bg-gray-100 rounded-lg mb-4 overflow-hidden">
                         <img
                           src={part.imageUrl}
                           alt={part.partName}
-                          className="max-h-full max-w-full object-contain"
+                          className="w-full h-full object-cover"
                         />
                       </div>
                     ) : (

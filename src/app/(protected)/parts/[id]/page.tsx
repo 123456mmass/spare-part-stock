@@ -218,6 +218,22 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
     }
   };
 
+  const handleDeletePart = async () => {
+    if (!part || !confirm(`ยืนยันลบอะไหล่ "${part.partNumber}" ?`)) return;
+    try {
+      const response = await fetch(`/api/parts/${part.id}`, { method: "DELETE" });
+      if (response.ok) {
+        toast({ title: "ลบอะไหล่สำเร็จ" });
+        router.push("/parts");
+      } else {
+        const error = await response.json();
+        toast({ title: "เกิดข้อผิดพลาด", description: error.error, variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "เกิดข้อผิดพลาด", variant: "destructive" });
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -256,6 +272,9 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
             <Edit className="h-4 w-4 mr-2" />
             แก้ไข
           </Button>
+          <Button variant="outline" size="sm" className="text-red-600 hover:bg-red-50" onClick={handleDeletePart}>
+            ลบ
+          </Button>
         </div>
       </div>
 
@@ -267,11 +286,11 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
             <CardContent className="p-4">
               <div className="relative">
                 {part.imageUrl ? (
-                  <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden p-3 flex items-center justify-center">
+                  <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center">
                     <img
                       src={part.imageUrl}
                       alt={part.partName}
-                      className="max-h-full max-w-full object-contain"
+                      className="w-full h-full object-cover"
                     />
                   </div>
                 ) : (
@@ -282,7 +301,7 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
                 <label className="absolute bottom-2 right-2">
                   <input
                     type="file"
-                    accept="image/jpeg,image/png,image/webp"
+                    accept="image/*"
                     className="hidden"
                     onChange={handleImageUpload}
                     disabled={isUploading}
@@ -319,8 +338,23 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
                 <CardTitle className="text-sm">บาร์โค้ด</CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
-                <div className="bg-white p-4 rounded-lg border flex justify-center">
-                  <img src={`/api/parts/${part.id}/barcode`} alt={part.barcodeValue} className="h-20" />
+                <div className="bg-white p-4 rounded-lg border flex flex-col items-center">
+                  <img src={`/api/parts/${part.id}/barcode`} alt={part.barcodeValue} className="max-w-full h-auto" />
+                  <p className="text-xs text-gray-500 mt-2 break-all text-center">{part.barcodeValue}</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3"
+                    onClick={() => {
+                      const link = document.createElement("a");
+                      link.href = `/api/parts/${part.id}/barcode`;
+                      link.download = `barcode-${part.partNumber}.png`;
+                      link.click();
+                    }}
+                  >
+                    <ArrowDownToLine className="h-4 w-4 mr-1" />
+                    ดาวน์โหลดบาร์โค้ด
+                  </Button>
                 </div>
               </CardContent>
             </Card>

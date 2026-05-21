@@ -23,6 +23,8 @@ class _PartListScreenState extends State<PartListScreen> {
   bool _isLoading = false;
   String? _error;
   String? _stockStatusFilter;
+  String? _categoryFilter;
+  String? _plantFilter;
 
   @override
   void initState() {
@@ -65,6 +67,22 @@ class _PartListScreenState extends State<PartListScreen> {
   }
 
   Future<void> _onRefresh() => _fetchParts(page: _currentPage, status: _stockStatusFilter);
+
+  List<String> _getUniqueCategories() {
+    return _parts.map((p) => p.category?.name).where((c) => c != null && c.isNotEmpty).cast<String>().toSet().toList()..sort();
+  }
+
+  List<String> _getUniquePlants() {
+    return _parts.map((p) => p.plant).where((p) => p != null && p.isNotEmpty).cast<String>().toSet().toList()..sort();
+  }
+
+  List<Part> get _filteredParts {
+    return _parts.where((p) {
+      if (_categoryFilter != null && p.category?.name != _categoryFilter) return false;
+      if (_plantFilter != null && p.plant != _plantFilter) return false;
+      return true;
+    }).toList();
+  }
 
   Color _statusColor(String status) {
     switch (status) {
@@ -158,6 +176,44 @@ class _PartListScreenState extends State<PartListScreen> {
                       ],
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: _categoryFilter,
+                          decoration: const InputDecoration(
+                            labelText: 'หมวดหมู่',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                          items: [
+                            const DropdownMenuItem(value: null, child: Text('ทั้งหมด')),
+                            ..._getUniqueCategories().map((c) => DropdownMenuItem(value: c, child: Text(c))),
+                          ],
+                          onChanged: (v) => setState(() => _categoryFilter = v),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: _plantFilter,
+                          decoration: const InputDecoration(
+                            labelText: 'Block',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                          items: [
+                            const DropdownMenuItem(value: null, child: Text('ทั้งหมด')),
+                            ..._getUniquePlants().map((p) => DropdownMenuItem(value: p, child: Text('Block $p'))),
+                          ],
+                          onChanged: (v) => setState(() => _plantFilter = v),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -180,9 +236,9 @@ class _PartListScreenState extends State<PartListScreen> {
                           onRefresh: _onRefresh,
                           child: ListView.builder(
                             padding: const EdgeInsets.symmetric(horizontal: 12),
-                            itemCount: _parts.length,
+                            itemCount: _filteredParts.length,
                             itemBuilder: (context, index) {
-                              final part = _parts[index];
+                              final part = _filteredParts[index];
                               return Card(
                                 margin: const EdgeInsets.only(bottom: 8),
                                 child: InkWell(

@@ -9,8 +9,8 @@ export const OPTIONS = corsOptions();
 
 export const POST = withCors(async (request: Request) => {
   try {
-    rateLimit(request, { name: "login-mobile", maxRequests: 5, windowSeconds: 900 });
     verifyMobileApiKey(request);
+    rateLimit(request, { name: "login-mobile", maxRequests: 5, windowSeconds: 900 });
     const body = await request.json();
     const parsed = loginSchema.safeParse(body);
 
