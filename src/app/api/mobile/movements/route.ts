@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { stockMovementSchema } from "@/lib/validators";
 import { requireAuthFromRequest } from "@/lib/auth";
 import { createStockMovement, StockError } from "@/lib/stock";
+import { notifyLowStock } from "@/lib/notifications";
 import { corsOptions, withCors } from "@/lib/cors";
 import { exportMovementsToExcel } from "@/lib/excel";
 
@@ -78,15 +79,9 @@ export const POST = withCors(async (request: Request) => {
 
     const { partId, type, quantity, note } = parsed.data;
 
-    // Role enforcement: STAFF can only STOCK_IN and STOCK_OUT
-    if (user.role === "STAFF" && type === "ADJUSTMENT") {
-      return NextResponse.json(
-        { error: "คุณไม่มีสิทธิ์ในการปรับยอดสินค้า" },
-        { status: 403 }
-      );
-    }
-
     const movement = await createStockMovement({ partId, userId: user.id, type, quantity, note });
+
+    await notifyLowStock(partId);
 
     return NextResponse.json(
       { movement, partQuantity: movement.part.quantity },
@@ -107,10 +102,10 @@ export const POST = withCors(async (request: Request) => {
         return NextResponse.json({ error: "ไม่พบอะไหล่นี้" }, { status: 404 });
       }
       if (error.message === "INSUFFICIENT_STOCK") {
-        return NextResponse.json({ error: "จำนวนสินค้าไม่เพียงพอ" }, { status: 400 });
+        return NextResponse.json({ error: "จำนวนอะไหล่ไม่เพียงพอ" }, { status: 400 });
       }
       if (error.message === "NEGATIVE_STOCK") {
-        return NextResponse.json({ error: "จำนวนสินค้าต้องไม่ติดลบ" }, { status: 400 });
+        return NextResponse.json({ error: "จำนวนอะไหล่ต้องไม่ติดลบ" }, { status: 400 });
       }
       if (error.message === "CONCURRENT_MODIFICATION") {
         return NextResponse.json(

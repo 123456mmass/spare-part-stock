@@ -51,6 +51,9 @@ export async function POST(request: Request) {
       if (error.message === "Forbidden") {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
+      if (error.message === "PASSWORD_CHANGE_REQUIRED") {
+        return NextResponse.json({ error: "PASSWORD_CHANGE_REQUIRED", code: "PASSWORD_CHANGE_REQUIRED", message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน" }, { status: 403 });
+      }
     }
     console.error("Import error:", error);
     return NextResponse.json(
@@ -77,6 +80,9 @@ SP-002,สายพานลำเลียง,สายพานลำเลี
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (error instanceof Error && error.message === "PASSWORD_CHANGE_REQUIRED") {
+      return NextResponse.json({ error: "PASSWORD_CHANGE_REQUIRED", code: "PASSWORD_CHANGE_REQUIRED", message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน" }, { status: 403 });
     }
     console.error("Template download error:", error);
     return NextResponse.json({ error: "เกิดข้อผิดพลาด" }, { status: 500 });

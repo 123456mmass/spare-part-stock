@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuthAllowPasswordChange } from "@/lib/auth";
 import { changePasswordSchema } from "@/lib/validators";
 import bcrypt from "bcryptjs";
 
 export async function POST(request: Request) {
   try {
-    const user = await requireAuth();
+    const user = await requireAuthAllowPasswordChange();
 
     const body = await request.json();
     const parsed = changePasswordSchema.safeParse(body);

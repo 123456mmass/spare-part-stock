@@ -1,0 +1,293 @@
+"use client";
+
+import { useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { liffFetch } from "@/lib/liff-api";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { partSchema } from "@/lib/validators";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent } from "@/components/ui/card";
+import { useToast } from "@/components/ui/toaster";
+import { ArrowLeft, Loader2, Sparkles } from "lucide-react";
+
+interface FormValues {
+  partNumber: string;
+  partName: string;
+  quantity: number;
+  minimumQuantity: number;
+  unit: string;
+  description?: string;
+  categoryName?: string;
+  subcategory?: string;
+  plant?: string;
+  location?: string;
+  barcodeValue?: string;
+}
+
+export default function LiffAddPartPage() {
+  const router = useRouter();
+  const { toast } = useToast();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAiSuggesting, setIsAiSuggesting] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    formState: { errors },
+  } = useForm<FormValues>({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    resolver: zodResolver(partSchema) as any,
+    defaultValues: { quantity: 0, minimumQuantity: 0, unit: "pcs" },
+  });
+
+  const onSubmit = async (data: FormValues) => {
+    setIsSubmitting(true);
+    try {
+      const res = await liffFetch("/api/liff/parts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+
+      if (res.ok) {
+        const part = await res.json();
+
+        if (imageFile) {
+          const imgFormData = new FormData();
+          imgFormData.append("file", imageFile);
+          await liffFetch(`/api/liff/parts/${part.id}/upload-image`, {
+            method: "POST",
+            body: imgFormData,
+          });
+        }
+
+        toast({ title: "สร้างอะไหล่สำเร็จ" });
+        router.push("/liff");
+      } else {
+        const error = await res.json();
+        toast({ title: "เกิดข้อผิดพลาด", description: error.error, variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์", variant: "destructive" });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleImageChange = (e: FormEvent<HTMLInputElement>) => {
+    const file = e.currentTarget.files?.[0];
+    if (file) {
+      setImageFile(file);
+      const reader = new FileReader();
+      reader.onload = (ev) => setImagePreview(ev.target?.result as string);
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleAiSuggest = async () => {
+    if (!imageFile) {
+      toast({ title: "กรุณาเลือกรูปก่อน", variant: "destructive" });
+      return;
+    }
+    setIsAiSuggesting(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", imageFile);
+      const res = await liffFetch("/api/liff/parts/ai-suggest", {
+        method: "POST",
+        body: formData,
+      });
+
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "AI suggestion failed");
+
+      const s = payload.suggestion || {};
+      if (s.partNumber) setValue("partNumber", s.partNumber);
+      if (s.partName) setValue("partName", s.partName);
+      if (s.description) setValue("description", s.description);
+      if (s.location) setValue("location", s.location);
+      if (s.unit) setValue("unit", s.unit);
+      if (s.barcodeValue) setValue("barcodeValue", s.barcodeValue);
+      if (s.subcategory) setValue("subcategory", s.subcategory);
+      if (Number.isFinite(s.quantity)) setValue("quantity", s.quantity);
+      if (Number.isFinite(s.minimumQuantity)) setValue("minimumQuantity", s.minimumQuantity);
+      if (s.matchedCategoryName || s.categoryName) {
+        setValue("categoryName" as keyof FormValues, s.matchedCategoryName || s.categoryName);
+      }
+
+      toast({ title: "AI เติมข้อมูลจากรูป", description: "ตรวจสอบค่าก่อนบันทึก" });
+    } catch (error) {
+      toast({
+        title: "AI ไม่สามารถวิเคราะห์รูปได้",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsAiSuggesting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <Link href="/liff">
+          <Button variant="ghost" size="sm">
+            <ArrowLeft className="size-4" />
+          </Button>
+        </Link>
+        <h1 className="text-lg font-bold">เพิ่มอะไหล่ใหม่</h1>
+      </div>
+
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <Card>
+          <CardContent className="p-4 space-y-4">
+            <p className="text-sm font-medium">รูปอะไหล่ + AI</p>
+            <div className="flex gap-3">
+              <div className="w-20 h-20 bg-muted rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0">
+                {imagePreview ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={imagePreview} alt="Preview" className="max-h-full max-w-full object-contain" />
+                ) : (
+                  <span className="text-muted-foreground text-xs">ไม่มีรูป</span>
+                )}
+              </div>
+              <div className="flex-1 space-y-2">
+                <input
+                  type="file"
+                  id="liffImageFile"
+                  accept="image/*"
+                  onChange={handleImageChange}
+                  className="hidden"
+                />
+                <input
+                  type="file"
+                  id="liffCameraCapture"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handleImageChange}
+                  className="hidden"
+                />
+                <div className="flex gap-2">
+                  <Label htmlFor="liffImageFile">
+                    <Button variant="outline" size="sm" asChild className="cursor-pointer">
+                      <span>เลือกรูป</span>
+                    </Button>
+                  </Label>
+                  <Label htmlFor="liffCameraCapture">
+                    <Button variant="outline" size="sm" asChild className="cursor-pointer">
+                      <span>📷 ถ่ายรูป</span>
+                    </Button>
+                  </Label>
+                </div>
+                {imageFile && <p className="text-xs text-muted-foreground truncate">{imageFile.name}</p>}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleAiSuggest}
+                  disabled={!imageFile || isAiSuggesting}
+                >
+                  {isAiSuggesting ? (
+                    <Loader2 className="size-4 mr-1 animate-spin" />
+                  ) : (
+                    <Sparkles className="size-4 mr-1" />
+                  )}
+                  AI เติมข้อมูล
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="partNumber" className="text-xs">รหัสอะไหล่</Label>
+                <Input id="partNumber" {...register("partNumber")} placeholder="เช่น SP-001" className="h-9 text-sm" />
+                {errors.partNumber && <p className="text-xs text-destructive">{errors.partNumber.message}</p>}
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="partName" className="text-xs">ชื่ออะไหล่ *</Label>
+                <Input id="partName" {...register("partName")} placeholder="ชื่ออะไหล่" className="h-9 text-sm" />
+                {errors.partName && <p className="text-xs text-destructive">{errors.partName.message}</p>}
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="description" className="text-xs">รายละเอียด</Label>
+              <Textarea id="description" {...register("description")} placeholder="รายละเอียดเพิ่มเติม" className="text-sm" rows={2} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="categoryName" className="text-xs">หมวดหมู่</Label>
+                <Input id="categoryName" {...register("categoryName" as keyof FormValues)} placeholder="เช่น อุปกรณ์ไฟฟ้า" className="h-9 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="subcategory" className="text-xs">หมวดหมู่ย่อย</Label>
+                <Input id="subcategory" {...register("subcategory")} placeholder="เช่น Contactor" className="h-9 text-sm" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="location" className="text-xs">ที่เก็บ</Label>
+                <Input id="location" {...register("location")} placeholder="เช่น ชั้น A-1" className="h-9 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="plant" className="text-xs">Block</Label>
+                <Input id="plant" {...register("plant")} placeholder="เช่น 1, 2, 3" className="h-9 text-sm" />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="barcodeValue" className="text-xs">บาร์โค้ด</Label>
+              <Input id="barcodeValue" {...register("barcodeValue")} placeholder="รหัสบาร์โค้ด (ถ้ามี)" className="h-9 text-sm" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <p className="text-sm font-medium">ข้อมูลสต็อก</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="quantity" className="text-xs">จำนวน</Label>
+                <Input id="quantity" type="number" min="0" {...register("quantity")} className="h-9 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="minimumQuantity" className="text-xs">ขั้นต่ำ</Label>
+                <Input id="minimumQuantity" type="number" min="0" {...register("minimumQuantity")} className="h-9 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="unit" className="text-xs">หน่วย</Label>
+                <Input id="unit" {...register("unit")} placeholder="pcs" className="h-9 text-sm" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="flex gap-3">
+          <Link href="/liff" className="flex-1">
+            <Button variant="outline" type="button" className="w-full">
+              ยกเลิก
+            </Button>
+          </Link>
+          <Button type="submit" className="flex-1" disabled={isSubmitting}>
+            {isSubmitting && <Loader2 className="size-4 mr-2 animate-spin" />}
+            บันทึก
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}

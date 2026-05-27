@@ -54,6 +54,9 @@ export async function GET() {
     });
   } catch (error) {
     if (error instanceof AuthError) {
+      if (error.message === "PASSWORD_CHANGE_REQUIRED") {
+        return NextResponse.json({ error: "PASSWORD_CHANGE_REQUIRED", code: "PASSWORD_CHANGE_REQUIRED", message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน" }, { status: 403 });
+      }
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     console.error("Dashboard stats error:", error);

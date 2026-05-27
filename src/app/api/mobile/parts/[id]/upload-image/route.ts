@@ -13,15 +13,15 @@ export const POST = withCors(async (
   try {
     const user = await requireAuthFromRequest(request);
 
-    if (user.role !== "ADMIN") {
-      return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 });
-    }
-
     const { id } = await params;
 
     const part = await prisma.part.findFirst({ where: { id, isActive: true } });
     if (!part) {
       return NextResponse.json({ error: "ไม่พบอะไหล่นี้" }, { status: 404 });
+    }
+
+    if (user.role !== "ADMIN" && part.createdBy !== user.id) {
+      return NextResponse.json({ error: "ไม่มีสิทธิ์เปลี่ยนรูปอะไหล่นี้ (ไม่ใช่ผู้สร้าง)" }, { status: 403 });
     }
 
     const formData = await request.formData();
@@ -43,11 +43,11 @@ export const POST = withCors(async (
       return NextResponse.json({ error: "ไฟล์ต้องมีขนาดไม่เกิน 5MB" }, { status: 400 });
     }
 
-    const imageUrl = await savePartImage(buffer, file.name, id);
+    const { url: imageUrl, embedding } = await savePartImage(buffer, file.name, id);
 
     await prisma.part.update({
       where: { id },
-      data: { imageUrl },
+      data: { imageUrl, imageEmbedding: embedding },
     });
 
     return NextResponse.json({ imageUrl });

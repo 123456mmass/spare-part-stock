@@ -6,7 +6,7 @@ const MAX_AGE = "86400";
 
 function isLocalOrigin(origin: string | null): boolean {
   if (!origin) return false;
-  return /^https?:\/\/(localhost|127\.0\.0\.1|spare\.birdsphichitchai\.dev)(:\d+)?$/.test(origin);
+  return /^https?:\/\/(localhost|127\.0\.0\.1|spare\.birdsphichitchai\.dev|liff\.line\.me)(:\d+)?$/.test(origin);
 }
 
 export function corsOptions(): (request: Request) => Promise<NextResponse> {

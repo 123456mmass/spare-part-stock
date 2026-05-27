@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/api_error.dart';
 import '../../core/auth/auth_store.dart';
 import '../../core/models/part.dart';
 import '../scanner/scanner_entry.dart';
+import 'image_search_results_screen.dart';
+import 'image_search_loading_screen.dart';
 
 class PartListScreen extends StatefulWidget {
   const PartListScreen({super.key});
@@ -84,6 +87,41 @@ class _PartListScreenState extends State<PartListScreen> {
     }).toList();
   }
 
+  Future<void> _searchByImage() async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(source: ImageSource.camera, maxWidth: 1600, imageQuality: 90);
+    if (picked == null || !mounted) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ImageSearchLoadingScreen(imagePath: picked.path),
+      ),
+    );
+
+    try {
+      final api = context.read<ApiClient>();
+      final matches = await api.searchPartByImage(picked.path);
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => ImageSearchResultsScreen(matches: matches, queryImagePath: picked.path),
+        ),
+      );
+    } on ApiError catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('เกิดข้อผิดพลาด'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
   Color _statusColor(String status) {
     switch (status) {
       case 'IN_STOCK': return Colors.green;
@@ -106,6 +144,11 @@ class _PartListScreenState extends State<PartListScreen> {
           onPressed: () => context.go('/home'),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.image_search),
+            tooltip: 'ค้นหาด้วยรูป',
+            onPressed: _searchByImage,
+          ),
           IconButton(
             icon: const Icon(Icons.qr_code_scanner),
             tooltip: 'สแกนบาร์โค้ด',
@@ -161,7 +204,7 @@ class _PartListScreenState extends State<PartListScreen> {
                           setState(() => _stockStatusFilter = null);
                           _fetchParts(page: 1, status: null);
                         }),
-                        _FilterChip(label: 'มีสินค้า', selected: _stockStatusFilter == 'in-stock', onSelected: () {
+                        _FilterChip(label: 'มีอะไหล่', selected: _stockStatusFilter == 'in-stock', onSelected: () {
                           setState(() => _stockStatusFilter = 'in-stock');
                           _fetchParts(page: 1, status: 'in-stock');
                         }),
@@ -270,8 +313,8 @@ class _PartListScreenState extends State<PartListScreen> {
                                           child: Column(
                                             crossAxisAlignment: CrossAxisAlignment.start,
                                             children: [
-                                              Text(part.partNumber, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                              Text(part.partName, style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+                                              Text(part.partName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                              Text(part.partNumber, style: TextStyle(color: Colors.grey[600], fontSize: 13)),
                                               if (part.category != null)
                                                 Padding(
                                                   padding: const EdgeInsets.only(top: 4),

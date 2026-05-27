@@ -226,8 +226,8 @@ class _LowStockItem extends StatelessWidget {
           isOut ? Icons.remove_shopping_cart : Icons.warning_amber,
           color: isOut ? Colors.red : Colors.amber,
         ),
-        title: Text(partNumber),
-        subtitle: Text(partName),
+        title: Text(partName),
+        subtitle: Text(partNumber),
         trailing: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.end,
@@ -289,7 +289,7 @@ class _MovementItem extends StatelessWidget {
 
   String get _formattedDate {
     try {
-      final d = DateTime.parse(createdAt);
+      final d = DateTime.parse(createdAt).toLocal();
       return '${d.day}/${d.month}/${d.year} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
     } catch (_) {
       return createdAt;
@@ -319,8 +319,8 @@ class _MovementItem extends StatelessWidget {
             size: 20,
           ),
         ),
-        title: Text(partNumber, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text('$_typeLabel • $userName • $_formattedDate'),
+        title: Text(partName, style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Text('$partNumber • $_typeLabel • $userName • $_formattedDate'),
         trailing: Text(
           '${isPlus ? '+' : ''}$quantityChange',
           style: TextStyle(

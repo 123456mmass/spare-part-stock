@@ -128,8 +128,8 @@ export default function MovementsPage() {
                     <tr key={movement.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 text-sm">{formatDateTime(movement.createdAt)}</td>
                       <td className="px-4 py-3">
-                        <p className="font-medium text-sm">{movement.part.partNumber}</p>
-                        <p className="text-xs text-gray-500">{movement.part.partName}</p>
+                        <p className="font-medium text-sm">{movement.part.partName}</p>
+                        <p className="text-xs text-gray-500">{movement.part.partNumber}</p>
                       </td>
                       <td className="px-4 py-3">
                         <Badge

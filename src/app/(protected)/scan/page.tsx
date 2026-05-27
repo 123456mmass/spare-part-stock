@@ -2,19 +2,41 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { fetchWithAuth as fetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toaster";
-import { Search, Camera, XCircle } from "lucide-react";
+import { Search, Camera, XCircle, ImageIcon, Barcode, Loader2 } from "lucide-react";
+
+type Mode = "barcode" | "image";
+
+interface MatchPart {
+  id: string;
+  partNumber: string;
+  partName: string;
+  imageUrl: string | null;
+  quantity: number;
+  unit: string;
+  location: string | null;
+}
+
+interface Match {
+  part: MatchPart;
+  similarity: number;
+}
 
 export default function ScanPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const [mode, setMode] = useState<Mode>("barcode");
   const [scanning, setScanning] = useState(false);
   const [manualCode, setManualCode] = useState("");
   const [error, setError] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [matches, setMatches] = useState<Match[] | null>(null);
+  const [capturedPreview, setCapturedPreview] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -47,6 +69,18 @@ export default function ScanPage() {
 
   const startCamera = async () => {
     setError("");
+    setMatches(null);
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      const isSecure = typeof window !== "undefined" && (window.isSecureContext || location.hostname === "localhost");
+      setError(
+        isSecure
+          ? "เบราว์เซอร์นี้ไม่รองรับการใช้กล้อง"
+          : `ต้องเปิดผ่าน HTTPS เท่านั้น (ตอนนี้ใช้ ${location.protocol}//${location.host})`
+      );
+      return;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
@@ -54,16 +88,24 @@ export default function ScanPage() {
       streamRef.current = stream;
       setScanning(true);
 
-      // Wait for video element to be ready
       setTimeout(() => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           videoRef.current.play();
-          startDetection();
+          if (mode === "barcode") startDetection();
         }
       }, 100);
     } catch (err) {
-      setError("ไม่สามารถเปิดกล้องได้ กรุณาอนุญาตการใช้กล้องในเบราว์เซอร์");
+      const e = err as DOMException;
+      if (e.name === "NotAllowedError" || e.name === "SecurityError") {
+        setError("ไม่ได้รับอนุญาตให้ใช้กล้อง กดที่ไอคอนกล้องบน address bar เพื่ออนุญาต แล้วลองใหม่");
+      } else if (e.name === "NotFoundError" || e.name === "OverconstrainedError") {
+        setError("ไม่พบกล้องบนอุปกรณ์นี้");
+      } else if (e.name === "NotReadableError") {
+        setError("กล้องถูกใช้งานโดยแอปอื่นอยู่");
+      } else {
+        setError(`เปิดกล้องไม่ได้: ${e.name || "Unknown"} — ${e.message || "ไม่ทราบสาเหตุ"}`);
+      }
     }
   };
 
@@ -74,8 +116,8 @@ export default function ScanPage() {
       if (!videoRef.current || videoRef.current.readyState < 2) return;
 
       try {
-        // Try native BarcodeDetector first
         if ("BarcodeDetector" in window) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const detector = new (window as any).BarcodeDetector({
             formats: ["qr_code", "ean_13", "ean_8", "code_128", "code_39", "itf"]
           });
@@ -86,9 +128,77 @@ export default function ScanPage() {
           }
         }
       } catch {
-        // BarcodeDetector not supported, just keep scanning
+        // BarcodeDetector not supported
       }
     }, 500);
+  };
+
+  const captureAndSearch = async () => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2) return;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      toast({ title: "เกิดข้อผิดพลาด", description: "canvas ctx unavailable", variant: "destructive" });
+      return;
+    }
+    ctx.drawImage(video, 0, 0);
+
+    let blob: Blob;
+    try {
+      blob = await new Promise((resolve, reject) =>
+        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("blob fail"))), "image/jpeg", 0.85)
+      );
+    } catch (err) {
+      toast({ title: "เกิดข้อผิดพลาด", description: (err as Error).message, variant: "destructive" });
+      return;
+    }
+
+    const previewUrl = canvas.toDataURL("image/jpeg", 0.7);
+    setCapturedPreview(previewUrl);
+    stopCamera();
+    setSearching(true);
+    setMatches(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", blob, "scan.jpg");
+      const res = await fetch("/api/parts/search-by-image", { method: "POST", body: formData });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast({ title: "ค้นหาด้วยรูปไม่สำเร็จ", description: data.error || `HTTP ${res.status}`, variant: "destructive" });
+        return;
+      }
+
+      const data = (await res.json()) as { matches: Match[] };
+      setMatches(data.matches);
+      if (data.matches.length === 0) {
+        toast({ title: "ไม่พบอะไหล่ที่ตรง", description: "ลองถ่ายมุมอื่นหรือใกล้ขึ้น", variant: "destructive" });
+      }
+    } catch (err) {
+      toast({ title: "เกิดข้อผิดพลาด", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const switchMode = (next: Mode) => {
+    if (next === mode) return;
+    stopCamera();
+    setMatches(null);
+    setCapturedPreview(null);
+    setError("");
+    setMode(next);
+  };
+
+  const retake = () => {
+    setCapturedPreview(null);
+    setMatches(null);
+    startCamera();
   };
 
   useEffect(() => {
@@ -98,16 +208,37 @@ export default function ScanPage() {
   return (
     <div className="space-y-6 max-w-lg mx-auto">
       <div className="text-center">
-        <h1 className="text-2xl font-bold text-gray-900">สแกนบาร์โค้ด / QR Code</h1>
-        <p className="text-gray-500">เล็งกล้องไปที่บาร์โค้ดหรือ QR Code ของอะไหล่</p>
+        <h1 className="text-2xl font-bold text-gray-900">
+          {mode === "barcode" ? "สแกนบาร์โค้ด / QR Code" : "ค้นหาด้วยรูปภาพ"}
+        </h1>
+        <p className="text-gray-500">
+          {mode === "barcode" ? "เล็งกล้องไปที่บาร์โค้ดหรือ QR Code ของอะไหล่" : "ถ่ายรูปอะไหล่เพื่อจับคู่กับฐานข้อมูล"}
+        </p>
       </div>
 
-      {!scanning && (
+      <div className="grid grid-cols-2 gap-2">
+        <Button
+          variant={mode === "barcode" ? "default" : "outline"}
+          onClick={() => switchMode("barcode")}
+        >
+          <Barcode className="h-4 w-4 mr-2" />
+          บาร์โค้ด
+        </Button>
+        <Button
+          variant={mode === "image" ? "default" : "outline"}
+          onClick={() => switchMode("image")}
+        >
+          <ImageIcon className="h-4 w-4 mr-2" />
+          ค้นหาด้วยรูป
+        </Button>
+      </div>
+
+      {!scanning && !capturedPreview && (
         <Card>
           <CardContent className="p-8 text-center">
             <Camera className="h-16 w-16 text-blue-500 mx-auto mb-4" />
             <Button size="lg" onClick={startCamera} className="w-full">
-              เปิดกล้องสแกน
+              เปิดกล้อง
             </Button>
             {error && (
               <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2">
@@ -134,29 +265,91 @@ export default function ScanPage() {
                 <div className="w-64 h-48 border-2 border-blue-400 rounded-lg" />
               </div>
             </div>
-            <div className="p-3 text-center">
-              <Button variant="outline" size="sm" onClick={stopCamera}>หยุดสแกน</Button>
+            <div className="p-3 flex gap-2 justify-center">
+              {mode === "image" && (
+                <Button onClick={captureAndSearch}>
+                  <Camera className="h-4 w-4 mr-2" />
+                  ถ่ายและค้นหา
+                </Button>
+              )}
+              <Button variant="outline" size="sm" onClick={stopCamera}>หยุด</Button>
             </div>
           </CardContent>
         </Card>
       )}
 
-      <Card>
-        <CardContent className="p-4">
-          <p className="text-sm text-gray-500 mb-2">หรือพิมพ์รหัสอะไหล่/บาร์โค้ด:</p>
-          <div className="flex gap-2">
-            <Input
-              value={manualCode}
-              onChange={(e) => setManualCode(e.target.value)}
-              placeholder="พิมพ์รหัส..."
-              onKeyDown={(e) => e.key === "Enter" && searchByCode(manualCode.trim())}
-            />
-            <Button onClick={() => searchByCode(manualCode.trim())}>
-              <Search className="h-4 w-4" />
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      {!scanning && capturedPreview && mode === "image" && (
+        <Card className="overflow-hidden">
+          <CardContent className="p-0">
+            <div className="relative aspect-[4/3] bg-black">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={capturedPreview} alt="captured" className="w-full h-full object-cover" />
+              {searching && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 text-white gap-2">
+                  <Loader2 className="h-8 w-8 animate-spin" />
+                  <p className="text-sm">กำลังค้นหา...</p>
+                </div>
+              )}
+            </div>
+            <div className="p-3 flex gap-2 justify-center">
+              <Button variant="outline" size="sm" onClick={retake} disabled={searching}>
+                <Camera className="h-4 w-4 mr-2" />
+                ถ่ายใหม่
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {mode === "image" && matches && matches.length > 0 && (
+        <Card>
+          <CardContent className="p-3 space-y-2">
+            <p className="text-sm font-medium text-gray-700 px-1">ผลการค้นหา (เรียงตามความใกล้เคียง)</p>
+            {matches.map((m) => (
+              <button
+                key={m.part.id}
+                onClick={() => router.push(`/parts/${m.part.id}`)}
+                className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 border border-gray-200 text-left"
+              >
+                <div className="relative w-16 h-16 flex-shrink-0 bg-gray-100 rounded overflow-hidden">
+                  {m.part.imageUrl ? (
+                    <Image src={m.part.imageUrl} alt={m.part.partName} fill className="object-cover" sizes="64px" />
+                  ) : null}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">{m.part.partName}</p>
+                  <p className="text-xs text-gray-500 truncate">{m.part.partNumber}</p>
+                  <p className="text-xs text-gray-500">คงเหลือ {m.part.quantity} {m.part.unit}</p>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-sm font-semibold text-blue-600">
+                    {Math.round(m.similarity * 100)}%
+                  </p>
+                </div>
+              </button>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {mode === "barcode" && (
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-sm text-gray-500 mb-2">หรือพิมพ์รหัสอะไหล่/บาร์โค้ด:</p>
+            <div className="flex gap-2">
+              <Input
+                value={manualCode}
+                onChange={(e) => setManualCode(e.target.value)}
+                placeholder="พิมพ์รหัส..."
+                onKeyDown={(e) => e.key === "Enter" && searchByCode(manualCode.trim())}
+              />
+              <Button onClick={() => searchByCode(manualCode.trim())}>
+                <Search className="h-4 w-4" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="h-20 md:hidden" />
     </div>

@@ -39,6 +39,9 @@ export async function GET(
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    if (error instanceof Error && error.message === "PASSWORD_CHANGE_REQUIRED") {
+      return NextResponse.json({ error: "PASSWORD_CHANGE_REQUIRED", code: "PASSWORD_CHANGE_REQUIRED", message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน" }, { status: 403 });
+    }
     console.error("Error fetching part:", error);
     return NextResponse.json(
       { error: "เกิดข้อผิดพลาดในการดึงข้อมูล" },
@@ -52,9 +55,18 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await requireAuth();
+    const user = await requireAuth();
 
     const { id } = await params;
+
+    const existing = await prisma.part.findUnique({ where: { id } });
+    if (!existing) {
+      return NextResponse.json({ error: "ไม่พบอะไหล่นี้" }, { status: 404 });
+    }
+    if (user.role !== "ADMIN" && existing.createdBy !== user.id) {
+      return NextResponse.json({ error: "ไม่มีสิทธิ์แก้ไขอะไหล่นี้ (ไม่ใช่ผู้สร้าง)" }, { status: 403 });
+    }
+
     const body = await request.json();
     if (Object.prototype.hasOwnProperty.call(body, "quantity")) {
       return NextResponse.json(
@@ -111,6 +123,9 @@ export async function PUT(
       if (error.message === "Forbidden") {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
+      if (error.message === "PASSWORD_CHANGE_REQUIRED") {
+        return NextResponse.json({ error: "PASSWORD_CHANGE_REQUIRED", code: "PASSWORD_CHANGE_REQUIRED", message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน" }, { status: 403 });
+      }
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       const target = (error.meta?.target as string[] | undefined)?.[0] ?? "";
@@ -164,6 +179,9 @@ export async function DELETE(
       }
       if (error.message === "Forbidden") {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      if (error.message === "PASSWORD_CHANGE_REQUIRED") {
+        return NextResponse.json({ error: "PASSWORD_CHANGE_REQUIRED", code: "PASSWORD_CHANGE_REQUIRED", message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน" }, { status: 403 });
       }
     }
     console.error("Error deleting part:", error);

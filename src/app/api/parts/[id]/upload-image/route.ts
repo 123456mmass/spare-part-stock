@@ -8,13 +8,17 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await requireAuth();
+    const user = await requireAuth();
 
     const { id } = await params;
 
     const part = await prisma.part.findFirst({ where: { id, isActive: true } });
     if (!part) {
       return NextResponse.json({ error: "ไม่พบอะไหล่นี้" }, { status: 404 });
+    }
+
+    if (user.role !== "ADMIN" && part.createdBy !== user.id) {
+      return NextResponse.json({ error: "ไม่มีสิทธิ์เปลี่ยนรูปอะไหล่นี้ (ไม่ใช่ผู้สร้าง)" }, { status: 403 });
     }
 
     // Parse FormData
@@ -45,13 +49,11 @@ export async function POST(
       );
     }
 
-    // Process and save image
-    const imageUrl = await savePartImage(buffer, file.name, id);
+    const { url: imageUrl, embedding } = await savePartImage(buffer, file.name, id);
 
-    // Update part's imageUrl
     await prisma.part.update({
       where: { id },
-      data: { imageUrl },
+      data: { imageUrl, imageEmbedding: embedding },
     });
 
     return NextResponse.json({ imageUrl });
@@ -62,6 +64,9 @@ export async function POST(
       }
       if (error.message === "Forbidden") {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      if (error.message === "PASSWORD_CHANGE_REQUIRED") {
+        return NextResponse.json({ error: "PASSWORD_CHANGE_REQUIRED", code: "PASSWORD_CHANGE_REQUIRED", message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน" }, { status: 403 });
       }
     }
     console.error("Image upload error:", error);

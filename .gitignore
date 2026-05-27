@@ -62,3 +62,5 @@ test-results/
 /mobile/sparepart_mobile/android/.gradle/
 /mobile/sparepart_mobile/android/app/build/
 secrets.zip
+KEYS.md
+DEPLOY_KEYS.md

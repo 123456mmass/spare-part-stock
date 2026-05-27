@@ -21,6 +21,7 @@ class AuthStore extends ChangeNotifier {
   String? get error => _error;
   bool get isAuthenticated => _user != null;
   bool get isAdmin => _user?.isAdmin ?? false;
+  String? get userId => _user?.id;
 
   Future<void> boot() async {
     final token = await _storage.read(key: 'auth_token');

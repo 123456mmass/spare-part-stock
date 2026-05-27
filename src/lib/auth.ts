@@ -76,6 +76,16 @@ export async function requireAuth() {
   const user = await getUserById(session.userId);
   if (!user) throw new AuthError("Unauthorized");
   if (!user.isActive) throw new AuthError("Unauthorized");
+  if (user.mustChangePassword) throw new AuthError("PASSWORD_CHANGE_REQUIRED");
+  return user;
+}
+
+export async function requireAuthAllowPasswordChange() {
+  const session = await getSession();
+  if (!session) throw new AuthError("Unauthorized");
+  const user = await getUserById(session.userId);
+  if (!user) throw new AuthError("Unauthorized");
+  if (!user.isActive) throw new AuthError("Unauthorized");
   return user;
 }
 

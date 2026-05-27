@@ -133,3 +133,10 @@ Follow these rules for every task in this repository.
 - Do not expose secrets in client code, logs, screenshots, or markdown output.
 - Do not bypass MCP/skill requirements for the task category.
 - Do not rely on outdated Next.js assumptions when local docs are available.
+
+<!-- lean-ctx -->
+## lean-ctx
+
+Prefer lean-ctx MCP tools over native equivalents for token savings.
+Full rules: @LEAN-CTX.md
+<!-- /lean-ctx -->

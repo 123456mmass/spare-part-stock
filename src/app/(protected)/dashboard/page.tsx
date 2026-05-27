@@ -144,7 +144,7 @@ export default async function DashboardPage() {
                 </div>
                 <div>
                   <p className="text-2xl font-bold">{stats.lowStockParts}</p>
-                  <p className="text-xs text-gray-500">สินค้าใกล้หมด</p>
+                  <p className="text-xs text-gray-500">อะไหล่ใกล้หมด</p>
                 </div>
               </div>
             </CardContent>
@@ -160,7 +160,7 @@ export default async function DashboardPage() {
                 </div>
                 <div>
                   <p className="text-2xl font-bold">{stats.outOfStock}</p>
-                  <p className="text-xs text-gray-500">สินค้าหมด</p>
+                  <p className="text-xs text-gray-500">อะไหล่หมด</p>
                 </div>
               </div>
             </CardContent>
@@ -226,7 +226,7 @@ export default async function DashboardPage() {
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2 text-amber-800">
               <AlertTriangle className="h-5 w-5" />
-              สินค้าที่ต้องระวัง
+              อะไหล่ที่ต้องระวัง
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -237,8 +237,8 @@ export default async function DashboardPage() {
                   <Link key={part.id} href={`/parts/${part.id}`}>
                     <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-amber-200 hover:border-amber-300 transition-colors">
                       <div>
-                        <p className="font-medium text-gray-900">{part.partNumber}</p>
-                        <p className="text-sm text-gray-500">{part.partName}</p>
+                        <p className="font-medium text-gray-900">{part.partName}</p>
+                        <p className="text-sm text-gray-500">{part.partNumber}</p>
                       </div>
                       <div className="text-right">
                         <Badge variant={part.isOutOfStock ? "danger" : "warning"}>

@@ -6,7 +6,7 @@ import { partSchema } from "@/lib/validators";
 import { requireAuthFromRequest } from "@/lib/auth";
 import { corsOptions, withCors } from "@/lib/cors";
 import { exportPartsToExcel } from "@/lib/excel";
-import { generatePartBarcodeValue } from "@/lib/barcode";
+import { generatePartBarcodeValue, generatePartNumber } from "@/lib/barcode";
 import { createStockMovement } from "@/lib/stock";
 
 export const OPTIONS = corsOptions();
@@ -130,7 +130,11 @@ export const POST = withCors(async (request: Request) => {
       );
     }
 
-    const { partNumber, partName, description, categoryId, categoryName, subcategory, plant, location, quantity, minimumQuantity, unit, barcodeValue } = parsed.data;
+    const { partName, description, categoryId, categoryName, subcategory, plant, location, quantity, minimumQuantity, unit, barcodeValue } = parsed.data;
+    let { partNumber } = parsed.data;
+    if (!partNumber || partNumber === "-") {
+      partNumber = generatePartNumber();
+    }
     const finalBarcodeValue = barcodeValue || generatePartBarcodeValue(partNumber);
 
     const part = await prisma.$transaction(async (tx) => {
@@ -193,8 +197,14 @@ export const POST = withCors(async (request: Request) => {
       );
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      const target = (error.meta?.target as string[] | undefined)?.[0] ?? "";
-      if (target === "barcodeValue") {
+      const meta = error.meta as { target?: unknown; driverAdapterError?: { cause?: { constraint?: { fields?: string[] } } } } | undefined;
+      const adapterFields = meta?.driverAdapterError?.cause?.constraint?.fields;
+      const targetStr = Array.isArray(adapterFields)
+        ? adapterFields.join(",")
+        : Array.isArray(meta?.target)
+          ? meta.target.join(",")
+          : String(meta?.target ?? error.message ?? "");
+      if (targetStr.includes("barcodeValue")) {
         return NextResponse.json({ error: "บาร์โค้ดนี้มีอยู่แล้ว" }, { status: 400 });
       }
       return NextResponse.json({ error: "รหัสอะไหล่นี้มีอยู่แล้ว" }, { status: 400 });

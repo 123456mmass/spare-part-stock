@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/api_error.dart';
+import '../../core/auth/auth_store.dart';
 import '../../core/models/part.dart';
 import '../../core/models/category.dart';
 import '../scanner/scanner_entry.dart';
@@ -375,6 +376,12 @@ class _PartFormScreenState extends State<PartFormScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthStore>();
+    final canDelete = _isEditing &&
+        widget.part!.quantity == 0 &&
+        (auth.isAdmin ||
+            (auth.userId != null && widget.part!.createdBy == auth.userId));
+
     return Scaffold(
       appBar: AppBar(
         title: Text(_isEditing ? 'แก้ไขอะไหล่' : 'เพิ่มอะไหล่ใหม่'),
@@ -383,7 +390,7 @@ class _PartFormScreenState extends State<PartFormScreen> {
           onPressed: () => context.pop(),
         ),
         actions: [
-          if (_isEditing && widget.part!.quantity == 0)
+          if (canDelete)
             IconButton(
               icon: const Icon(Icons.delete, color: Colors.red),
               tooltip: 'ลบอะไหล่',

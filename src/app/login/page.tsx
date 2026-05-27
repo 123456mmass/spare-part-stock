@@ -51,7 +51,11 @@ export default function LoginPage() {
         description: `ยินดีต้อนรับ ${result.user.name}`,
       });
 
-      router.push("/dashboard");
+      if (result.user.mustChangePassword) {
+        router.push("/settings/password?force=true");
+      } else {
+        router.push("/dashboard");
+      }
     } catch {
       toast({
         title: "เกิดข้อผิดพลาด",

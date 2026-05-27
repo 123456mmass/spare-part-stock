@@ -342,6 +342,28 @@ class ApiClient {
     }
   }
 
+  Future<List<Map<String, dynamic>>> searchPartByImage(String filePath) async {
+    try {
+      final formData = FormData.fromMap({
+        'file': await MultipartFile.fromFile(filePath),
+      });
+      final response = await _dio.post(
+        '/parts/search-by-image',
+        data: formData,
+        options: Options(
+          headers: _authHeaders,
+          receiveTimeout: const Duration(seconds: 45),
+          sendTimeout: const Duration(seconds: 30),
+        ),
+      );
+      final data = response.data as Map<String, dynamic>;
+      final matches = (data['matches'] as List<dynamic>?) ?? [];
+      return matches.cast<Map<String, dynamic>>();
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
   // --- Admin Users ---
 
   Future<List<UserModel>> getUsers() async {

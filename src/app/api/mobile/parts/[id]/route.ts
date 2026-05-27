@@ -59,11 +59,16 @@ export const PUT = withCors(async (
   try {
     const user = await requireAuthFromRequest(request);
 
-    if (user.role !== "ADMIN") {
-      return NextResponse.json({ error: "ไม่มีสิทธิ์" }, { status: 403 });
+    const { id } = await params;
+
+    const existing = await prisma.part.findUnique({ where: { id } });
+    if (!existing) {
+      return NextResponse.json({ error: "ไม่พบอะไหล่นี้" }, { status: 404 });
+    }
+    if (user.role !== "ADMIN" && existing.createdBy !== user.id) {
+      return NextResponse.json({ error: "ไม่มีสิทธิ์แก้ไขอะไหล่นี้ (ไม่ใช่ผู้สร้าง)" }, { status: 403 });
     }
 
-    const { id } = await params;
     const body = await request.json();
     if (Object.prototype.hasOwnProperty.call(body, "quantity")) {
       return NextResponse.json(

@@ -127,7 +127,7 @@ class _StockMovementSheetState extends State<StockMovementSheet> {
             ),
             const SizedBox(height: 4),
             Text(
-              '${widget.part.partNumber} — ${widget.part.partName}',
+              '${widget.part.partName} — ${widget.part.partNumber}',
               style: TextStyle(color: Colors.grey[600]),
             ),
             Text(

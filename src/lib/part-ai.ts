@@ -3,6 +3,7 @@ import { z } from "zod";
 import sharp from "sharp";
 import { prisma } from "./prisma";
 import { generatePartBarcodeValue } from "./barcode";
+import { callPartAi, parseJsonObject, type AiContentBlock } from "./ai-client";
 
 const MAX_AI_IMAGE_SIZE = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "image/avif", "image/tiff", "image/bmp", "image/gif"]);
@@ -27,29 +28,6 @@ export type PartAiSuggestion = z.infer<typeof aiSuggestionSchema> & {
   matchedCategoryName: string | null;
 };
 
-function gatewayBaseUrl() {
-  return (
-    process.env.SPARE_PART_AI_GATEWAY_URL ||
-    process.env.LLM_GATEWAY_BASE_URL ||
-    "http://127.0.0.1:4000"
-  ).replace(/\/+$/, "");
-}
-
-function gatewayModel() {
-  return process.env.SPARE_PART_AI_MODEL || process.env.LLM_GATEWAY_MODEL || "gemini-3-flash";
-}
-
-function gatewayKey() {
-  const key =
-    process.env.SPARE_PART_AI_GATEWAY_KEY || process.env.LLM_GATEWAY_API_KEY || "";
-  if (!key) {
-    console.error(
-      "CRITICAL: No AI gateway key configured. Set SPARE_PART_AI_GATEWAY_KEY or LLM_GATEWAY_API_KEY in environment."
-    );
-  }
-  return key;
-}
-
 function mediaTypeFromFile(file: File) {
   // First check actual MIME type from the File object
   if (ALLOWED_IMAGE_TYPES.has(file.type)) return file.type;
@@ -69,56 +47,6 @@ function mediaTypeFromFile(file: File) {
   if (ext === ".webp") return "image/webp";
   // Flutter temp files may have no extension or .helic — default to jpeg
   return "image/jpeg";
-}
-
-function extractTextFromAnthropic(payload: unknown): string {
-  if (!payload || typeof payload !== "object") return "";
-  const content = (payload as { content?: unknown }).content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((block) => {
-      if (!block || typeof block !== "object") return "";
-      const text = (block as { text?: unknown }).text;
-      return typeof text === "string" ? text : "";
-    })
-    .join("\n")
-    .trim();
-}
-
-function parseJsonObject(text: string) {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const raw = fenced?.[1] ?? text;
-  const start = raw.indexOf("{");
-  if (start === -1) {
-    throw new Error("AI did not return a JSON object");
-  }
-
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let i = start; i < raw.length; i++) {
-    const char = raw[i];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (char === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (char === '"') {
-      inString = !inString;
-      continue;
-    }
-    if (inString) continue;
-    if (char === "{") depth++;
-    if (char === "}") depth--;
-    if (depth === 0) {
-      return JSON.parse(raw.slice(start, i + 1)) as unknown;
-    }
-  }
-
-  throw new Error("AI returned incomplete JSON");
 }
 
 async function resolveCategory(categoryName: string) {
@@ -199,50 +127,24 @@ export async function suggestPartFromImage(file: File): Promise<PartAiSuggestion
     }),
   ].join("\n");
 
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-    "anthropic-version": "2023-06-01",
-  };
-  const apiKey = gatewayKey();
-  if (apiKey) {
-    headers.authorization = `Bearer ${apiKey}`;
+  const aiContent: AiContentBlock[] = [
+    {
+      type: "image",
+      imageBase64: resizedBuffer.toString("base64"),
+      mediaType: "image/png",
+    },
+    { type: "text", text: prompt },
+  ];
+
+  let result;
+  try {
+    result = await callPartAi(aiContent, { maxTokens: 4096, temperature: 0, timeoutMs: 60_000 });
+  } catch (err) {
+    console.error("AI gateway error:", (err as Error).message);
+    throw new Error(`AI gateway returned error: ${(err as Error).message}`);
   }
 
-  const response = await fetch(`${gatewayBaseUrl()}/v1/messages`, {
-    method: "POST",
-    headers,
-    signal: AbortSignal.timeout(60_000),
-    body: JSON.stringify({
-      model: gatewayModel(),
-      max_tokens: 4096,
-      temperature: 0,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: "image/png",
-                data: resizedBuffer.toString("base64"),
-              },
-            },
-            { type: "text", text: prompt },
-          ],
-        },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    console.error("AI gateway error:", response.status, body.substring(0, 200));
-    throw new Error(`AI gateway returned ${response.status}`);
-  }
-
-  const rawJson = await response.json();
-  const text = extractTextFromAnthropic(rawJson);
+  const text = result.text;
 
   // Debug: log what AI returned if JSON parsing fails
   let parsed;

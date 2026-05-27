@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { stockMovementSchema } from "@/lib/validators";
 import { requireAuth } from "@/lib/auth";
 import { createStockMovement, StockError } from "@/lib/stock";
+import { notifyLowStock } from "@/lib/notifications";
 import { exportMovementsToExcel } from "@/lib/excel";
 
 export async function GET(request: Request) {
@@ -49,6 +50,9 @@ export async function GET(request: Request) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    if (error instanceof Error && error.message === "PASSWORD_CHANGE_REQUIRED") {
+      return NextResponse.json({ error: "PASSWORD_CHANGE_REQUIRED", code: "PASSWORD_CHANGE_REQUIRED", message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน" }, { status: 403 });
+    }
     console.error("Error fetching movements:", error);
     return NextResponse.json(
       { error: "เกิดข้อผิดพลาดในการดึงข้อมูล" },
@@ -73,15 +77,9 @@ export async function POST(request: Request) {
 
     const { partId, type, quantity, note } = parsed.data;
 
-    // Role enforcement: STAFF can only STOCK_IN and STOCK_OUT, ADMIN can also ADJUSTMENT
-    if (user.role === "STAFF" && type === "ADJUSTMENT") {
-      return NextResponse.json(
-        { error: "คุณไม่มีสิทธิ์ในการปรับยอดสินค้า" },
-        { status: 403 }
-      );
-    }
-
     const movement = await createStockMovement({ partId, userId: user.id, type, quantity, note });
+
+    await notifyLowStock(partId);
 
     return NextResponse.json(movement, { status: 201 });
   } catch (error) {
@@ -89,15 +87,18 @@ export async function POST(request: Request) {
       if (error.message === "Unauthorized") {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       }
+      if (error.message === "PASSWORD_CHANGE_REQUIRED") {
+        return NextResponse.json({ error: "PASSWORD_CHANGE_REQUIRED", code: "PASSWORD_CHANGE_REQUIRED", message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน" }, { status: 403 });
+      }
       if (error instanceof StockError) {
         if (error.message === "PART_NOT_FOUND") {
           return NextResponse.json({ error: "ไม่พบอะไหล่นี้" }, { status: 404 });
         }
         if (error.message === "INSUFFICIENT_STOCK") {
-          return NextResponse.json({ error: "จำนวนสินค้าไม่เพียงพอ" }, { status: 400 });
+          return NextResponse.json({ error: "จำนวนอะไหล่ไม่เพียงพอ" }, { status: 400 });
         }
         if (error.message === "NEGATIVE_STOCK") {
-          return NextResponse.json({ error: "จำนวนสินค้าต้องไม่ติดลบ" }, { status: 400 });
+          return NextResponse.json({ error: "จำนวนอะไหล่ต้องไม่ติดลบ" }, { status: 400 });
         }
         if (error.message === "CONCURRENT_MODIFICATION") {
           return NextResponse.json(

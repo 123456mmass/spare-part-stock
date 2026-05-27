@@ -275,12 +275,12 @@ class _PublicLookupScreenState extends State<PublicLookupScreen> {
                                       Row(
                                         children: [
                                           Expanded(
-                                            child: Text(_part!.partNumber, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                                            child: Text(_part!.partName, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
                                           ),
                                           const Icon(Icons.chevron_right, color: Colors.grey),
                                         ],
                                       ),
-                                      Text(_part!.partName, style: Theme.of(context).textTheme.bodyMedium),
+                                      Text(_part!.partNumber, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey[600])),
                                       if (_part!.category != null) ...[
                                         const SizedBox(height: 4),
                                         Chip(label: Text(_part!.category!.name), visualDensity: VisualDensity.compact),

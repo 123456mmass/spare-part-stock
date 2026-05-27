@@ -217,7 +217,7 @@ class _MovementCard extends StatelessWidget {
 
   String get _formattedDate {
     try {
-      final d = DateTime.parse(movement.createdAt);
+      final d = DateTime.parse(movement.createdAt).toLocal();
       return '${d.day}/${d.month}/${d.year} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
     } catch (_) {
       return movement.createdAt;
@@ -240,11 +240,11 @@ class _MovementCard extends StatelessWidget {
           child: Icon(_typeIcon, color: _typeColor, size: 20),
         ),
         title: Text(
-          movement.partNumber ?? '',
+          movement.partName ?? '',
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         subtitle: Text(
-          '${movement.typeLabel} • ${movement.userName ?? ''} • $_formattedDate',
+          '${movement.partNumber ?? ''} • ${movement.typeLabel} • ${movement.userName ?? ''} • $_formattedDate',
         ),
         trailing: Text(
           '${isPlus ? '+' : ''}${movement.quantityChange}',

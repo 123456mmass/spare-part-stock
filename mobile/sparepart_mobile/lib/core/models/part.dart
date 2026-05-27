@@ -35,6 +35,7 @@ class Part {
   final String? barcodeValue;
   final String? subcategory;
   final String? plant;
+  final String? createdBy;
   final PartCategory? category;
   final List<StockMovement>? movements;
 
@@ -52,6 +53,7 @@ class Part {
     this.barcodeValue,
     this.subcategory,
     this.plant,
+    this.createdBy,
     this.category,
     this.movements,
   });
@@ -73,6 +75,7 @@ class Part {
       barcodeValue: json['barcodeValue'] as String?,
       subcategory: json['subcategory'] as String?,
       plant: json['plant'] as String?,
+      createdBy: json['createdBy'] as String?,
       category: categoryJson != null
           ? PartCategory.fromJson(categoryJson)
           : null,
@@ -95,7 +98,7 @@ class Part {
       case 'LOW_STOCK':
         return 'ใกล้หมด';
       default:
-        return 'มีสินค้า';
+        return 'มีอะไหล่';
     }
   }
 }

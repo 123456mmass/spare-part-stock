@@ -25,33 +25,14 @@ function updateEnv(newKey: string) {
   console.log("Updated .env with new MOBILE_API_KEY");
 }
 
-function updateFlutterConfig(newKey: string) {
-  const flutterConfigPath = path.join(
-    process.cwd(),
-    "mobile",
-    "sparepart_mobile",
-    "lib",
-    "core",
-    "config",
-    "app_config.dart"
-  );
-
-  if (!fs.existsSync(flutterConfigPath)) {
-    console.warn("Flutter config file not found at " + flutterConfigPath);
-    return;
-  }
-
-  let content = fs.readFileSync(flutterConfigPath, "utf-8");
-  content = content.replace(
-    /static const String defaultApiKey = '.*';/g,
-    `static const String defaultApiKey = '${newKey}';`
-  );
-
-  fs.writeFileSync(flutterConfigPath, content);
-  console.log("Updated Flutter app_config.dart with new key");
-}
-
 const newKey = generateKey();
 console.log(`Generated new MOBILE_API_KEY: ${newKey}`);
 updateEnv(newKey);
-updateFlutterConfig(newKey);
+console.log("\n=== Flutter Build Command ===");
+console.log(`flutter build apk --release \\`);
+console.log(`  --dart-define=API_KEY=${newKey} \\`);
+console.log(`  --dart-define=API_BASE_URL=https://spare.birdsphichitchai.dev`);
+console.log("\nFor iOS:");
+console.log(`flutter build ios --release \\`);
+console.log(`  --dart-define=API_KEY=${newKey} \\`);
+console.log(`  --dart-define=API_BASE_URL=https://spare.birdsphichitchai.dev`);

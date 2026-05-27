@@ -39,6 +39,8 @@ interface Part {
   partName: string;
   description: string | null;
   category: { id: string; name: string } | null;
+  subcategory: string | null;
+  plant: string | null;
   location: string | null;
   quantity: number;
   minimumQuantity: number;
@@ -46,6 +48,7 @@ interface Part {
   imageUrl: string | null;
   qrCodeUrl: string | null;
   barcodeValue: string | null;
+  createdBy: string | null;
   movements: Movement[];
 }
 
@@ -66,6 +69,7 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
   const { toast } = useToast();
   const [part, setPart] = useState<Part | null>(null);
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+  const [currentUser, setCurrentUser] = useState<{ id: string; role: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [stockDialogOpen, setStockDialogOpen] = useState(false);
   const [stockType, setStockType] = useState<"STOCK_IN" | "STOCK_OUT" | "ADJUSTMENT">("STOCK_IN");
@@ -77,6 +81,8 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
     partName?: string;
     description?: string;
     categoryId?: string;
+    subcategory?: string;
+    plant?: string;
     location?: string;
     minimumQuantity?: number;
     unit?: string;
@@ -96,6 +102,8 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
           partName: data.partName,
           description: data.description || "",
           categoryId: data.category?.id,
+          subcategory: data.subcategory || "",
+          plant: data.plant || "",
           location: data.location || "",
           minimumQuantity: data.minimumQuantity,
           unit: data.unit,
@@ -124,10 +132,23 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
     }
   };
 
+  const fetchCurrentUser = async () => {
+    try {
+      const response = await fetch("/api/auth/me");
+      if (response.ok) {
+        const data = await response.json();
+        setCurrentUser(data.user);
+      }
+    } catch {
+      // Silent
+    }
+  };
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchPart();
     fetchCategories();
+    fetchCurrentUser();
   }, [resolvedParams.id]);
 
   const handleStockAction = async () => {
@@ -245,6 +266,7 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
   if (!part) return null;
 
   const status = getStockStatus(part.quantity, part.minimumQuantity);
+  const canEdit = currentUser?.role === "ADMIN" || part.createdBy === currentUser?.id;
 
   return (
     <div className="space-y-6">
@@ -256,8 +278,8 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
           </Button>
         </Link>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-gray-900">{part.partNumber}</h1>
-          <p className="text-gray-500">{part.partName}</p>
+          <h1 className="text-2xl font-bold text-gray-900">{part.partName}</h1>
+          <p className="text-gray-500">{part.partNumber}</p>
         </div>
         <div className="flex gap-2">
           {part.qrCodeUrl && (
@@ -268,13 +290,17 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
               </Button>
             </Link>
           )}
-          <Button variant="outline" size="sm" onClick={() => setEditDialogOpen(true)}>
-            <Edit className="h-4 w-4 mr-2" />
-            แก้ไข
-          </Button>
-          <Button variant="outline" size="sm" className="text-red-600 hover:bg-red-50" onClick={handleDeletePart}>
-            ลบ
-          </Button>
+          {canEdit && (
+            <Button variant="outline" size="sm" onClick={() => setEditDialogOpen(true)}>
+              <Edit className="h-4 w-4 mr-2" />
+              แก้ไข
+            </Button>
+          )}
+          {canEdit && (
+            <Button variant="outline" size="sm" className="text-red-600 hover:bg-red-50" onClick={handleDeletePart}>
+              ลบ
+            </Button>
+          )}
         </div>
       </div>
 
@@ -298,21 +324,23 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
                     <Package className="h-20 w-20 text-gray-400" />
                   </div>
                 )}
-                <label className="absolute bottom-2 right-2">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={handleImageUpload}
-                    disabled={isUploading}
-                  />
-                  <Button variant="secondary" size="sm" className="pointer-events-auto" asChild>
-                    <span>
-                      <Upload className="h-4 w-4 mr-1" />
-                      {isUploading ? "กำลังอัปโหลด..." : "เปลี่ยนรูป"}
-                    </span>
-                  </Button>
-                </label>
+                {canEdit && (
+                  <label className="absolute bottom-2 right-2">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleImageUpload}
+                      disabled={isUploading}
+                    />
+                    <Button variant="secondary" size="sm" className="pointer-events-auto" asChild>
+                      <span>
+                        <Upload className="h-4 w-4 mr-1" />
+                        {isUploading ? "กำลังอัปโหลด..." : "เปลี่ยนรูป"}
+                      </span>
+                    </Button>
+                  </label>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -721,6 +749,24 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
                 <Input
                   value={editData.location || ""}
                   onChange={(e) => setEditData({ ...editData, location: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Block</Label>
+                <Input
+                  value={editData.plant || ""}
+                  onChange={(e) => setEditData({ ...editData, plant: e.target.value })}
+                  placeholder="เช่น Block 1"
+                />
+              </div>
+              <div>
+                <Label>หมวดหมู่ย่อย</Label>
+                <Input
+                  value={editData.subcategory || ""}
+                  onChange={(e) => setEditData({ ...editData, subcategory: e.target.value })}
+                  placeholder="ถ้ามี"
                 />
               </div>
             </div>

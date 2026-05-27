@@ -2,15 +2,21 @@ import sharp from "sharp";
 import path from "path";
 import fs from "fs/promises";
 import crypto from "crypto";
+import { embedImage, float32ToBytes } from "./embeddings";
 
-const MAX_SIZE = 10 * 1024 * 1024; // 10MB (HEIC can be large)
+const MAX_SIZE = 10 * 1024 * 1024;
 const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads", "parts");
+
+export interface SavedPartImage {
+  url: string;
+  embedding: Uint8Array<ArrayBuffer> | null;
+}
 
 export async function savePartImage(
   buffer: Buffer,
   originalName: string,
   partId: string
-): Promise<string> {
+): Promise<SavedPartImage> {
   if (buffer.length > MAX_SIZE) {
     throw new Error("File must be 10MB or smaller");
   }
@@ -22,5 +28,13 @@ export async function savePartImage(
     .webp({ quality: 80 })
     .toFile(path.join(UPLOAD_DIR, filename));
 
-  return `/uploads/parts/${filename}`;
+  let embedding: Uint8Array<ArrayBuffer> | null = null;
+  try {
+    const vec = await embedImage(buffer);
+    embedding = float32ToBytes(vec);
+  } catch (err) {
+    console.error("embedImage failed, saving image without embedding:", (err as Error).message);
+  }
+
+  return { url: `/uploads/parts/${filename}`, embedding };
 }

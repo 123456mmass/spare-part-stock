@@ -127,6 +127,9 @@ class _PartDetailScreenState extends State<PartDetailScreen> {
       imageUrl: part.imageUrl,
       qrCodeUrl: part.qrCodeUrl,
       barcodeValue: part.barcodeValue,
+      subcategory: part.subcategory,
+      plant: part.plant,
+      createdBy: part.createdBy,
       category: part.category,
     );
   }
@@ -148,6 +151,9 @@ class _PartDetailScreenState extends State<PartDetailScreen> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthStore>();
     final part = _part;
+    final canEdit = part != null &&
+        (auth.isAdmin ||
+            (auth.userId != null && part.createdBy == auth.userId));
 
     return PopScope<bool>(
       canPop: false,
@@ -162,7 +168,7 @@ class _PartDetailScreenState extends State<PartDetailScreen> {
             onPressed: _close,
           ),
           actions: [
-            if (auth.isAdmin)
+            if (canEdit)
               PopupMenuButton<String>(
                 onSelected: (value) {
                   if (value == 'edit') {
@@ -229,13 +235,13 @@ class _PartDetailScreenState extends State<PartDetailScreen> {
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
                                             Text(
-                                              part.partNumber,
+                                              part.partName,
                                               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                                                     fontWeight: FontWeight.bold,
                                                   ),
                                             ),
                                             const SizedBox(height: 4),
-                                            Text(part.partName),
+                                            Text(part.partNumber, style: TextStyle(color: Colors.grey[600])),
                                             if (part.category != null) ...[
                                               const SizedBox(height: 8),
                                               Chip(
@@ -339,14 +345,12 @@ class _PartDetailScreenState extends State<PartDetailScreen> {
                                         ),
                                       ],
                                     ),
-                                    if (auth.isAdmin) ...[
-                                      const SizedBox(height: 8),
-                                      OutlinedButton.icon(
-                                        onPressed: () => _showStockMovementSheet('ADJUSTMENT'),
-                                        icon: const Icon(Icons.edit, color: Colors.blue),
-                                        label: const Text('ปรับปรุงสต็อก'),
-                                      ),
-                                    ],
+                                    const SizedBox(height: 8),
+                                    OutlinedButton.icon(
+                                      onPressed: () => _showStockMovementSheet('ADJUSTMENT'),
+                                      icon: const Icon(Icons.edit, color: Colors.blue),
+                                      label: const Text('ปรับปรุงสต็อก'),
+                                    ),
                                   ],
                                 ),
                               ),
@@ -491,7 +495,7 @@ class _MovementHistoryItem extends StatelessWidget {
 
   String get _formattedDate {
     try {
-      final d = DateTime.parse(movement.createdAt);
+      final d = DateTime.parse(movement.createdAt).toLocal();
       return '${d.day}/${d.month}/${d.year} ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
     } catch (_) {
       return movement.createdAt;

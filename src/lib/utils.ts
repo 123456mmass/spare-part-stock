@@ -38,11 +38,11 @@ export function getStockStatus(quantity: number, minimumQuantity: number): "in-s
 export function getStockStatusLabel(status: ReturnType<typeof getStockStatus>): string {
   switch (status) {
     case "in-stock":
-      return "มีสินค้า";
+      return "มีอะไหล่";
     case "low-stock":
-      return "สินค้าใกล้หมด";
+      return "อะไหล่ใกล้หมด";
     case "out-of-stock":
-      return "สินค้าหมด";
+      return "อะไหล่หมด";
   }
 }
 

@@ -8,7 +8,7 @@ export const loginSchema = z.object({
 export type LoginInput = z.infer<typeof loginSchema>;
 
 export const partSchema = z.object({
-  partNumber: z.string().min(1, "กรุณากรอกรหัสอะไหล่").regex(/^[^<>]+$/, "ห้ามมีตัวอักษรพิเศษ < หรือ >"),
+  partNumber: z.string().optional().default("").transform(v => v.trim() || "-").pipe(z.string().min(1).regex(/^[^<>]+$/, "ห้ามมีตัวอักษรพิเศษ < หรือ >")),
   partName: z.string().min(1, "กรุณากรอกชื่ออะไหล่").regex(/^[^<>]+$/, "ห้ามมีตัวอักษรพิเศษ < หรือ >"),
   description: z.string().regex(/^[^<>]*$/, "ห้ามมีตัวอักษรพิเศษ < หรือ >").optional(),
   categoryId: z.string().nullable().transform(v => v === "" || v === null ? null : v).optional(),
@@ -102,3 +102,17 @@ export const changePasswordSchema = z.object({
 });
 
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
+export const lineVerifyTokenSchema = z.object({
+  idToken: z.string().min(1, "กรุณากรอก LINE ID Token"),
+});
+
+export type LineVerifyTokenInput = z.infer<typeof lineVerifyTokenSchema>;
+
+export const lineLinkSchema = z.object({
+  idToken: z.string().min(1, "กรุณากรอก LINE ID Token"),
+  username: z.string().min(1, "กรุณากรอกชื่อผู้ใช้"),
+  password: z.string().min(1, "กรุณากรอกรหัสผ่าน"),
+});
+
+export type LineLinkInput = z.infer<typeof lineLinkSchema>;

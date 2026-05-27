@@ -20,6 +20,7 @@ interface Part {
   partName: string;
   category: { id: string; name: string } | null;
   subcategory: string | null;
+  plant: string | null;
   location: string | null;
   quantity: number;
   minimumQuantity: number;
@@ -27,6 +28,8 @@ interface Part {
   imageUrl: string | null;
   qrCodeUrl: string | null;
 }
+
+const NO_BLOCK_VALUE = "__none__";
 
 export default function PartsPage() {
   const router = useRouter();
@@ -37,6 +40,7 @@ export default function PartsPage() {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [subcategoryFilter, setSubcategoryFilter] = useState("all");
+  const [plantFilter, setPlantFilter] = useState("all");
   const [stockFilter, setStockFilter] = useState("all");
   const [viewMode, setViewMode] = useState<"table" | "card">("card");
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
@@ -89,6 +93,10 @@ export default function PartsPage() {
     const matchesSubcategory =
       subcategoryFilter === "all" || part.subcategory === subcategoryFilter;
 
+    const matchesPlant =
+      plantFilter === "all" ||
+      (plantFilter === NO_BLOCK_VALUE ? !part.plant : part.plant === plantFilter);
+
     let matchesStock = true;
     if (stockFilter === "in-stock") {
       matchesStock = part.quantity > part.minimumQuantity && part.quantity > 0;
@@ -98,7 +106,7 @@ export default function PartsPage() {
       matchesStock = part.quantity === 0;
     }
 
-    return matchesSearch && matchesCategory && matchesSubcategory && matchesStock;
+    return matchesSearch && matchesCategory && matchesSubcategory && matchesPlant && matchesStock;
   });
 
   return (
@@ -162,13 +170,26 @@ export default function PartsPage() {
                 </SelectContent>
               </Select>
 
+              <Select value={plantFilter} onValueChange={setPlantFilter}>
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue placeholder="Block" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">ทุก Block</SelectItem>
+                  <SelectItem value={NO_BLOCK_VALUE}>ไม่มี Block</SelectItem>
+                  {[...new Set(parts.map(p => p.plant).filter(Boolean))].sort().map((p) => (
+                    <SelectItem key={p!} value={p!}>{p}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
               <Select value={stockFilter} onValueChange={setStockFilter}>
                 <SelectTrigger className="w-[160px]">
                   <SelectValue placeholder="สถานะสต็อก" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">ทุกสถานะ</SelectItem>
-                  <SelectItem value="in-stock">มีสินค้า</SelectItem>
+                  <SelectItem value="in-stock">มีอะไหล่</SelectItem>
                   <SelectItem value="low-stock">ใกล้หมด</SelectItem>
                   <SelectItem value="out-of-stock">หมด</SelectItem>
                 </SelectContent>
@@ -239,8 +260,8 @@ export default function PartsPage() {
                     <div className="space-y-2">
                       <div className="flex items-start justify-between gap-2">
                         <div>
-                          <p className="font-semibold text-gray-900">{part.partNumber}</p>
-                          <p className="text-sm text-gray-500">{part.partName}</p>
+                          <p className="font-semibold text-gray-900">{part.partName}</p>
+                          <p className="text-sm text-gray-500">{part.partNumber}</p>
                         </div>
                         {part.qrCodeUrl && (
                           <QrCode className="h-5 w-5 text-gray-400" />
@@ -285,8 +306,8 @@ export default function PartsPage() {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">รหัสอะไหล่</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">ชื่อ</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">รหัสอะไหล่</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">หมวดหมู่</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">ที่เก็บ</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500">จำนวน</th>
@@ -302,8 +323,8 @@ export default function PartsPage() {
                         className="hover:bg-gray-50 cursor-pointer"
                         onClick={() => router.push(`/parts/${part.id}`)}
                       >
-                        <td className="px-4 py-3 font-medium">{part.partNumber}</td>
-                        <td className="px-4 py-3">{part.partName}</td>
+                        <td className="px-4 py-3 font-medium">{part.partName}</td>
+                        <td className="px-4 py-3 text-gray-500">{part.partNumber}</td>
                         <td className="px-4 py-3">{part.category?.name || "-"}</td>
                         <td className="px-4 py-3">{part.location || "-"}</td>
                         <td className="px-4 py-3 text-right font-medium">

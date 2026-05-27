@@ -1,0 +1,83 @@
+import { NextResponse } from "next/server";
+import { stockMovementSchema } from "@/lib/validators";
+import { requireAuthFromRequest } from "@/lib/auth";
+import { createStockMovement, StockError } from "@/lib/stock";
+import { notifyLowStock } from "@/lib/notifications";
+import { corsOptions, withCors } from "@/lib/cors";
+
+export const OPTIONS = corsOptions();
+
+export const POST = withCors(async (request: Request) => {
+  try {
+    const user = await requireAuthFromRequest(request);
+
+    const body = await request.json();
+    const parsed = stockMovementSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "ข้อมูลไม่ถูกต้อง", details: parsed.error.issues },
+        { status: 400 }
+      );
+    }
+
+    const { partId, type, quantity, note } = parsed.data;
+
+    const movement = await createStockMovement({
+      partId,
+      userId: user.id,
+      type,
+      quantity,
+      note,
+    });
+
+    await notifyLowStock(partId);
+
+    return NextResponse.json(
+      { movement, partQuantity: movement.part.quantity },
+      { status: 201 }
+    );
+  } catch (error) {
+    if (error instanceof Error && error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (error instanceof Error && error.message === "PASSWORD_CHANGE_REQUIRED") {
+      return NextResponse.json(
+        {
+          error: "PASSWORD_CHANGE_REQUIRED",
+          code: "PASSWORD_CHANGE_REQUIRED",
+          message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน",
+        },
+        { status: 403 }
+      );
+    }
+    if (error instanceof StockError) {
+      if (error.message === "PART_NOT_FOUND") {
+        return NextResponse.json({ error: "ไม่พบอะไหล่นี้" }, { status: 404 });
+      }
+      if (error.message === "INSUFFICIENT_STOCK") {
+        return NextResponse.json(
+          { error: "จำนวนอะไหล่ไม่เพียงพอ" },
+          { status: 400 }
+        );
+      }
+      if (error.message === "NEGATIVE_STOCK") {
+        return NextResponse.json(
+          { error: "จำนวนอะไหล่ต้องไม่ติดลบ" },
+          { status: 400 }
+        );
+      }
+      if (error.message === "CONCURRENT_MODIFICATION") {
+        return NextResponse.json(
+          { error: "ข้อมูลถูกแก้ไขพร้อมกัน กรุณาลองใหม่อีกครั้ง" },
+          { status: 409 }
+        );
+      }
+    }
+    console.error("LIFF create movement error:", error);
+    return NextResponse.json(
+      { error: "เกิดข้อผิดพลาดในการบันทึกการเคลื่อนไหว" },
+      { status: 500 }
+    );
+  }
+});
