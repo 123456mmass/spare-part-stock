@@ -64,3 +64,35 @@ test-results/
 secrets.zip
 KEYS.md
 DEPLOY_KEYS.md
+
+# Temporary scripts and patches
+test-ai-*.ts
+test-ai-*.js
+test-excel-*.js
+test-json-parse.js
+test-mobile-ai*.ts
+test-p2002-*.mjs
+test-row.ts
+test-embed.ts
+check-ai-env.ts
+load_env.ts
+get-first-user*.js
+get-first-user*.ts
+gateway-proxy.mjs
+run_deploy.js
+patch_*.js
+
+# Archives and backups
+*.tar.gz
+codebase.zip
+dev.db.backup-*
+
+# Build artifacts
+.next-app/
+.serena/
+
+# Temp docs
+line-app-architecture.html
+AGENTS.md.bak
+test-images/
+test-images.xlsx
