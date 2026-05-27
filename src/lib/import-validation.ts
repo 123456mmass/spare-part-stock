@@ -45,6 +45,7 @@ export interface RawImportRow {
   description?: string;
   categoryName?: string;
   subcategory?: string;
+  plant?: string;
   location?: string;
   quantity: string | number;
   minimumQuantity: string | number;
@@ -59,6 +60,7 @@ export interface ValidatedImportRow {
   description?: string;
   categoryName?: string;
   subcategory?: string;
+  plant?: string;
   location?: string;
   quantity: number;
   minimumQuantity: number;
@@ -135,6 +137,8 @@ export function validateImportRows(
 
     validatedRows.push({
       ...normalized,
+      plant: row.plant,
+      subcategory: row.subcategory,
       finalBarcodeValue,
     });
   }

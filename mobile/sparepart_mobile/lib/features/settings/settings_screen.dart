@@ -286,6 +286,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 8),
               Card(
                 child: ListTile(
+                  leading: const Icon(Icons.category),
+                  title: const Text('หมวดหมู่'),
+                  subtitle: const Text('จัดการหมวดหมู่อะไหล่'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push('/categories'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.business),
+                  title: const Text('บล็อก / โรงงาน'),
+                  subtitle: const Text('จัดการบล็อก เปลี่ยนชื่อ รวม ลบ'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push('/blocks'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Card(
+                child: ListTile(
                   leading: const Icon(Icons.warning_amber, color: Colors.red),
                   title: const Text('ล้างฐานข้อมูล', style: TextStyle(color: Colors.red)),
                   subtitle: const Text('ลบข้อมูลที่เลือกอย่างถาวร'),

@@ -14,6 +14,7 @@ const ContentSecurityPolicy = `
 `;
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["sharp"],
   async headers() {
     return [
       {

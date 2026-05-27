@@ -288,7 +288,8 @@ async function enrichRowsWithAi(rows: AiPart[], imageMap: Map<number, Buffer>) {
 
 export async function importPartsFromExcelWithAi(
   fileBuffer: ArrayBuffer | Buffer,
-  userId: string
+  userId: string,
+  overridePlant?: string
 ): Promise<AiImportResult> {
   const result: AiImportResult = {
     success: false,
@@ -344,6 +345,7 @@ export async function importPartsFromExcelWithAi(
     const applied = await applyImportedRows({
       rows: validated.rows,
       userId,
+      overridePlant,
       existingPartsByPartNumber: preflight.existingPartsByPartNumber,
     });
 

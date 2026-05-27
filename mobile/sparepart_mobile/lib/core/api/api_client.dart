@@ -473,11 +473,13 @@ class ApiClient {
 
   // --- Import/Export ---
 
-  Future<Map<String, dynamic>> importExcel(String filePath) async {
+  Future<Map<String, dynamic>> importExcel(String filePath, {String? plant}) async {
     try {
-      final formData = FormData.fromMap({
+      final map = <String, dynamic>{
         'file': await MultipartFile.fromFile(filePath),
-      });
+      };
+      if (plant != null && plant.isNotEmpty) map['plant'] = plant;
+      final formData = FormData.fromMap(map);
       final response = await _dio.post(
         '/import',
         data: formData,
@@ -489,11 +491,13 @@ class ApiClient {
     }
   }
 
-  Future<Map<String, dynamic>> importExcelWithAi(String filePath) async {
+  Future<Map<String, dynamic>> importExcelWithAi(String filePath, {String? plant}) async {
     try {
-      final formData = FormData.fromMap({
+      final map = <String, dynamic>{
         'file': await MultipartFile.fromFile(filePath),
-      });
+      };
+      if (plant != null && plant.isNotEmpty) map['plant'] = plant;
+      final formData = FormData.fromMap(map);
       final response = await _dio.post(
         '/import/ai',
         data: formData,
@@ -503,6 +507,70 @@ class ApiClient {
           receiveTimeout: const Duration(seconds: 120),
           sendTimeout: const Duration(seconds: 30),
         ),
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  // --- Blocks ---
+
+  Future<List<Map<String, dynamic>>> getBlocks() async {
+    try {
+      final response = await _dio.get(
+        '/blocks',
+        options: Options(headers: _authHeaders),
+      );
+      final data = response.data as List<dynamic>;
+      return data.cast<Map<String, dynamic>>();
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<void> deleteCategory(String id) async {
+    try {
+      await _dio.delete(
+        '/categories/${Uri.encodeComponent(id)}',
+        options: Options(headers: _authHeaders),
+      );
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<Map<String, dynamic>> renameBlock(String oldName, String newName) async {
+    try {
+      final response = await _dio.patch(
+        '/blocks/${Uri.encodeComponent(oldName)}',
+        data: {'newName': newName},
+        options: Options(headers: _authHeaders),
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<Map<String, dynamic>> deleteBlock(String name) async {
+    try {
+      final response = await _dio.delete(
+        '/blocks/${Uri.encodeComponent(name)}',
+        options: Options(headers: _authHeaders),
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<Map<String, dynamic>> mergeBlocks(List<String> sourceNames, String target) async {
+    try {
+      final response = await _dio.post(
+        '/blocks/merge',
+        data: {'sourceNames': sourceNames, 'target': target},
+        options: Options(headers: _authHeaders),
       );
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {

@@ -12,6 +12,7 @@ import {
   X,
   FileUp,
   Tag,
+  Building2,
   Users,
   KeyRound,
 } from "lucide-react";
@@ -26,6 +27,7 @@ const navigation = [
   { name: "สแกน QR", href: "/scan", icon: Scan },
   { name: "นำเข้า Excel", href: "/import", icon: FileUp },
   { name: "หมวดหมู่", href: "/categories", icon: Tag },
+  { name: "บล็อก", href: "/blocks", icon: Building2, adminOnly: true },
   { name: "จัดการผู้ใช้", href: "/users", icon: Users, adminOnly: true },
 ];
 

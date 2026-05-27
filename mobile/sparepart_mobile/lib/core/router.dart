@@ -14,6 +14,7 @@ import '../features/categories/category_list_screen.dart';
 import '../features/parts/part_form_screen.dart';
 import '../features/admin/user_list_screen.dart';
 import '../features/import/import_export_screen.dart';
+import '../features/blocks/block_list_screen.dart';
 import '../features/scanner/scanner_entry.dart';
 
 class AppRouter {
@@ -126,6 +127,10 @@ class AppRouter {
       GoRoute(
         path: '/import-export',
         builder: (context, state) => const ImportExportScreen(),
+      ),
+      GoRoute(
+        path: '/blocks',
+        builder: (context, state) => const BlockListScreen(),
       ),
     ],
   );

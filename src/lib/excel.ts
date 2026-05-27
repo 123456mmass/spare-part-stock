@@ -14,9 +14,10 @@ import { createStockMovement } from "./stock";
 
 const UPLOADS_DIR = path.join(process.cwd(), "public", "uploads");
 const IMAGES_DIR = path.join(UPLOADS_DIR, "images");
-const MAX_ROWS = 5000;
+const MAX_ROWS = 200000;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
-const MAX_TOTAL_IMAGE_SIZE = 200 * 1024 * 1024;
+const MAX_TOTAL_IMAGE_SIZE = 500 * 1024 * 1024;
+const BATCH_SIZE = 500;
 
 export interface ExcelPartRow {
   partNumber: string;
@@ -133,25 +134,33 @@ export async function preflightImportRows(
   const partNumbers = rows.map((row) => row.partNumber);
   const barcodes = rows.map((row) => row.finalBarcodeValue);
 
-  const existingParts = await prisma.part.findMany({
-    where: {
-      OR: [
-        { partNumber: { in: partNumbers } },
-        { barcodeValue: { in: barcodes } },
-      ],
-    },
-    select: {
-      id: true,
-      partNumber: true,
-      barcodeValue: true,
-    },
-  });
+  // SQLite has variable limits; batch the lookup in chunks of 500
+  const PREFLIGHT_BATCH = 500;
+  const existingParts: { id: string; partNumber: string; barcodeValue: string | null }[] = [];
+
+  for (let i = 0; i < partNumbers.length; i += PREFLIGHT_BATCH) {
+    const pnBatch = partNumbers.slice(i, i + PREFLIGHT_BATCH);
+    const bcBatch = barcodes.slice(i, i + PREFLIGHT_BATCH);
+    const batch = await prisma.part.findMany({
+      where: {
+        OR: [
+          { partNumber: { in: pnBatch } },
+          { barcodeValue: { in: bcBatch } },
+        ],
+      },
+      select: { id: true, partNumber: true, barcodeValue: true },
+    });
+    existingParts.push(...batch);
+  }
+
+  // Deduplicate (a part may appear in multiple batches if barcode overlaps)
+  const deduped = [...new Map(existingParts.map((p) => [p.id, p])).values()];
 
   const existingPartsByPartNumber = new Map(
-    existingParts.map((part) => [part.partNumber, part])
+    deduped.map((part) => [part.partNumber, part])
   );
   const existingPartsByBarcode = new Map(
-    existingParts
+    deduped
       .filter((part) => part.barcodeValue)
       .map((part) => [part.barcodeValue as string, part])
   );
@@ -177,6 +186,7 @@ export async function preflightImportRows(
 export async function applyImportedRows(params: {
   rows: ValidatedImportRow[];
   userId: string;
+  overridePlant?: string;
   existingPartsByPartNumber: Map<
     string,
     {
@@ -191,96 +201,144 @@ export async function applyImportedRows(params: {
   imageUpdates: { partId: string; partNumber: string; rowNum: number }[];
   qrUpdates: { partId: string; partNumber: string }[];
 }> {
-  const { rows, userId, existingPartsByPartNumber } = params;
+  const { rows, userId, overridePlant, existingPartsByPartNumber } = params;
   const imageUpdates: { partId: string; partNumber: string; rowNum: number }[] = [];
   const qrUpdates: { partId: string; partNumber: string }[] = [];
   let imported = 0;
   let updated = 0;
 
-  await prisma.$transaction(
-    async (tx) => {
-      for (const row of rows) {
-      let categoryId: string | undefined;
-      if (row.categoryName) {
-        const category = await tx.category.upsert({
-          where: { name: row.categoryName },
-          create: { name: row.categoryName },
-          update: {},
-        });
-        categoryId = category.id;
+  // Pre-resolve all categories in one pass
+  const categoryNames = [...new Set(rows.map((r) => r.categoryName).filter(Boolean))] as string[];
+  const categoryMap = new Map<string, string>();
+  if (categoryNames.length > 0) {
+    for (const name of categoryNames) {
+      const cat = await prisma.category.upsert({
+        where: { name },
+        create: { name },
+        update: {},
+      });
+      categoryMap.set(name, cat.id);
+    }
+  }
+
+  // Separate rows into new vs existing
+  const newRows: ValidatedImportRow[] = [];
+  const updateRows: (ValidatedImportRow & { existingId: string })[] = [];
+  for (const row of rows) {
+    const existing = existingPartsByPartNumber.get(row.partNumber);
+    if (existing) {
+      updateRows.push({ ...row, existingId: existing.id });
+    } else {
+      newRows.push(row);
+    }
+  }
+
+  // Batch create new parts
+  for (let i = 0; i < newRows.length; i += BATCH_SIZE) {
+    const batch = newRows.slice(i, i + BATCH_SIZE);
+    await prisma.part.createMany({
+      data: batch.map((row) => ({
+        partNumber: row.partNumber,
+        partName: row.partName,
+        description: row.description,
+        categoryId: row.categoryName ? categoryMap.get(row.categoryName) : undefined,
+        subcategory: row.subcategory || null,
+        plant: overridePlant || row.plant || null,
+        location: row.location,
+        quantity: row.quantity,
+        minimumQuantity: row.minimumQuantity,
+        unit: row.unit,
+        barcodeValue: row.finalBarcodeValue,
+      })),
+    });
+    imported += batch.length;
+  }
+
+  // Fetch created parts to get IDs for image/QR updates (batched for SQLite variable limit)
+  if (newRows.length > 0) {
+    const createdParts: { id: string; partNumber: string }[] = [];
+    const allNewPartNumbers = newRows.map((r) => r.partNumber);
+    for (let i = 0; i < allNewPartNumbers.length; i += BATCH_SIZE) {
+      const pnBatch = allNewPartNumbers.slice(i, i + BATCH_SIZE);
+      const batch = await prisma.part.findMany({
+        where: { partNumber: { in: pnBatch } },
+        select: { id: true, partNumber: true },
+      });
+      createdParts.push(...batch);
+    }
+    const createdMap = new Map(createdParts.map((p) => [p.partNumber, p.id]));
+
+    // Create stock movements for new parts with quantity > 0
+    const movementsToCreate = newRows
+      .filter((r) => r.quantity > 0)
+      .map((r) => ({
+        partId: createdMap.get(r.partNumber)!,
+        userId,
+        type: "STOCK_IN" as const,
+        quantityBefore: 0,
+        quantityAfter: r.quantity,
+        quantityChange: r.quantity,
+        note: "สร้างจาก Excel import",
+      }))
+      .filter((m) => m.partId);
+
+    for (let i = 0; i < movementsToCreate.length; i += BATCH_SIZE) {
+      const batch = movementsToCreate.slice(i, i + BATCH_SIZE);
+      await prisma.stockMovement.createMany({ data: batch });
+    }
+
+    for (const row of newRows) {
+      const partId = createdMap.get(row.partNumber);
+      if (partId) {
+        qrUpdates.push({ partId, partNumber: row.partNumber });
+        imageUpdates.push({ partId, partNumber: row.partNumber, rowNum: row.rowNum });
       }
+    }
+  }
 
-      const existingPart = existingPartsByPartNumber.get(row.partNumber);
-      let partId: string;
-
-      if (existingPart) {
-        await tx.part.update({
-          where: { id: existingPart.id },
-          data: {
-            partName: row.partName,
-            description: row.description,
-            categoryId,
-            location: row.location,
-            minimumQuantity: row.minimumQuantity,
-            unit: row.unit,
-            barcodeValue: row.finalBarcodeValue,
-          },
-        });
-
-        if (row.quantity > 0) {
-          await createStockMovement(
-            {
-              partId: existingPart.id,
-              userId,
-              type: "STOCK_IN",
-              quantity: row.quantity,
-              note: "นำเข้าจาก Excel",
+  // Batch update existing parts (must be individual updates due to different data per row)
+  for (let i = 0; i < updateRows.length; i += BATCH_SIZE) {
+    const batch = updateRows.slice(i, i + BATCH_SIZE);
+    await prisma.$transaction(
+      async (tx) => {
+        for (const row of batch) {
+          await tx.part.update({
+            where: { id: row.existingId },
+            data: {
+              partName: row.partName,
+              description: row.description,
+              categoryId: row.categoryName ? categoryMap.get(row.categoryName) : undefined,
+              location: row.location,
+              minimumQuantity: row.minimumQuantity,
+              unit: row.unit,
+              barcodeValue: row.finalBarcodeValue,
+              ...((overridePlant || row.plant) ? { plant: overridePlant || row.plant } : {}),
             },
-            tx
-          );
+          });
+
+          if (row.quantity > 0) {
+            await createStockMovement(
+              {
+                partId: row.existingId,
+                userId,
+                type: "STOCK_IN",
+                quantity: row.quantity,
+                note: "นำเข้าจาก Excel",
+              },
+              tx
+            );
+          }
         }
+      },
+      { timeout: 300_000, maxWait: 30_000 }
+    );
+    updated += batch.length;
 
-        partId = existingPart.id;
-        updated++;
-      } else {
-        const created = await tx.part.create({
-          data: {
-            partNumber: row.partNumber,
-            partName: row.partName,
-            description: row.description,
-            categoryId,
-            subcategory: row.subcategory || null,
-            location: row.location,
-            quantity: 0,
-            minimumQuantity: row.minimumQuantity,
-            unit: row.unit,
-            barcodeValue: row.finalBarcodeValue,
-          },
-        });
-
-        if (row.quantity > 0) {
-          await createStockMovement(
-            {
-              partId: created.id,
-              userId,
-              type: "STOCK_IN",
-              quantity: row.quantity,
-              note: "สร้างจาก Excel import",
-            },
-            tx
-          );
-        }
-
-        partId = created.id;
-        imported++;
-      }
-
-      qrUpdates.push({ partId, partNumber: row.partNumber });
-      imageUpdates.push({ partId, partNumber: row.partNumber, rowNum: row.rowNum });
-      }
-    },
-    { timeout: 120_000, maxWait: 10_000 }
-  );
+    for (const row of batch) {
+      qrUpdates.push({ partId: row.existingId, partNumber: row.partNumber });
+      imageUpdates.push({ partId: row.existingId, partNumber: row.partNumber, rowNum: row.rowNum });
+    }
+  }
 
   return {
     imported,
@@ -292,7 +350,8 @@ export async function applyImportedRows(params: {
 
 export async function importPartsFromExcel(
   fileBuffer: ArrayBuffer | Buffer,
-  userId: string
+  userId: string,
+  overridePlant?: string
 ): Promise<ImportResult> {
   const result: ImportResult = {
     success: false,
@@ -308,7 +367,9 @@ export async function importPartsFromExcel(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await workbook.xlsx.load(fileBuffer as any);
 
-    const worksheet = workbook.getWorksheet(1);
+    const worksheet = workbook.worksheets.length > 1
+      ? workbook.worksheets.reduce((best, ws) => (ws.rowCount > best.rowCount ? ws : best), workbook.worksheets[0])
+      : workbook.getWorksheet(1);
     if (!worksheet) {
       result.errors.push("ไม่พบ Sheet ที่ 1 ในไฟล์ Excel");
       return result;
@@ -324,8 +385,16 @@ export async function importPartsFromExcel(
       imageMap.set(img.rowIndex, img.buffer);
     }
 
-    // Get header row (row 1)
-    const headerRow = worksheet.getRow(1);
+    // Get header row — try row 1 first, then row 2 (plant export format has blank row 1)
+    let headerRowNum = 1;
+    const headerRow1 = worksheet.getRow(1);
+    let hasContent = false;
+    headerRow1.eachCell((cell) => {
+      if (cell.text?.toString().trim()) hasContent = true;
+    });
+    if (!hasContent) headerRowNum = 2;
+
+    const headerRow = worksheet.getRow(headerRowNum);
     const headers: Record<string, number> = {};
 
     headerRow.eachCell((cell, colNumber) => {
@@ -341,58 +410,93 @@ export async function importPartsFromExcel(
       return undefined;
     }
 
-    // Validate required headers
-    const partNumberCol = getCol("part number", "part no.", "part no", "item code", "sku");
-    const partNameCol = getCol("part name", "description", "desc", "item name", "name");
-    const quantityCol = getCol("quantity", "qty", "stock", "count");
+    // Detect if this is a "plant" export format from our system
+    const isPlantFormat = headers["material description"] !== undefined && headers["stock on hand"] !== undefined;
 
-    if (!partNumberCol) {
-      result.errors.push('ไม่พบคอลัมน์ "Part Number" หรือ "Part No." ที่จำเป็น');
-      return result;
+    // Validate required headers
+    let partNumberCol: number | undefined;
+    let partNameCol: number | undefined;
+    let quantityCol: number | undefined;
+
+    if (isPlantFormat) {
+      // Plant format: Type=partNumber(optional), Material Description=partName, Stock On Hand=quantity
+      partNameCol = getCol("material description");
+      quantityCol = getCol("stock on hand");
+      partNumberCol = getCol("type"); // may be empty in data — handled below
+    } else {
+      partNumberCol = getCol("part number", "part no.", "part no", "item code", "sku");
+      partNameCol = getCol("part name", "description", "desc", "item name", "name");
+      quantityCol = getCol("quantity", "qty", "stock", "count");
     }
+
     if (!partNameCol) {
-      result.errors.push('ไม่พบคอลัมน์ "Part Name" หรือ "Description" ที่จำเป็น');
+      result.errors.push('ไม่พบคอลัมน์ "Part Name" / "Material Description" ที่จำเป็น');
       return result;
     }
     if (!quantityCol) {
-      result.errors.push('ไม่พบคอลัมน์ "Quantity" ที่จำเป็น');
+      result.errors.push('ไม่พบคอลัมน์ "Quantity" / "Stock On Hand" ที่จำเป็น');
       return result;
     }
 
-    const categoryCol = getCol("category", "type", "group", "หมวดหมู่", "ประเภท");
+    const categoryCol = isPlantFormat
+      ? getCol("system")
+      : getCol("category", "type", "group", "หมวดหมู่", "ประเภท");
     const locationCol = getCol("location", "storage", "bin");
     const minQtyCol = getCol("minimum quantity", "min qty", "min quantity", "min");
     const unitCol = getCol("unit", "uom", "measure");
-    const descriptionCol = getCol("description", "desc", "detail");
+    const descriptionCol = isPlantFormat ? undefined : getCol("description", "desc", "detail");
     const barcodeCol = getCol("barcode", "barcodevalue", "บาร์โค้ด");
+    const plantCol = isPlantFormat ? getCol("plant") : undefined;
+    const noCol = isPlantFormat ? getCol("no.") : undefined;
 
     // Parse all rows first
     const totalRows = worksheet.actualRowCount || worksheet.rowCount || 1;
-    const rowCount = Math.min(totalRows, MAX_ROWS + 1);
-    if (totalRows > MAX_ROWS + 1) {
+    const dataStartRow = headerRowNum + 1;
+    const rowCount = Math.min(totalRows, MAX_ROWS + headerRowNum);
+    if (totalRows > MAX_ROWS + headerRowNum) {
       result.errors.push(`ไฟล์มีข้อมูลเกิน ${MAX_ROWS} แถว จะนำเข้าเฉพาะ ${MAX_ROWS} แถวแรก`);
     }
 
     const parsedRows: RawImportRow[] = [];
+    let autoNumCounter = 0;
 
-    for (let rowNum = 2; rowNum <= rowCount; rowNum++) {
+    for (let rowNum = dataStartRow; rowNum <= rowCount; rowNum++) {
       const row = worksheet.getRow(rowNum);
 
-      const partNumber = row.getCell(partNumberCol).text?.toString().trim() || "";
       const partName = row.getCell(partNameCol).text?.toString().trim() || "";
+      if (!partName) continue; // skip empty rows
 
-      if (!partNumber || !partName) {
-        result.errors.push(`แถว ${rowNum}: ข้อมูล part number หรือ part name ไม่ถูกต้อง`);
-        continue;
+      let partNumber = "";
+      if (isPlantFormat) {
+        // In plant format, "Type" column may be empty — generate from No. or row counter
+        partNumber = partNumberCol ? (row.getCell(partNumberCol).text?.toString().trim() || "") : "";
+        if (!partNumber) {
+          autoNumCounter++;
+          const noText = noCol ? (row.getCell(noCol).text?.toString().trim() || "") : "";
+          partNumber = noText ? `PLANT-${noText.padStart(4, "0")}` : `PLANT-${String(autoNumCounter).padStart(4, "0")}`;
+        }
+      } else {
+        partNumber = partNumberCol ? (row.getCell(partNumberCol).text?.toString().trim() || "") : "";
+        if (!partNumber) {
+          result.errors.push(`แถว ${rowNum}: ไม่มี part number`);
+          continue;
+        }
       }
 
       const description = descriptionCol ? (row.getCell(descriptionCol)?.text?.toString().trim() || undefined) : undefined;
       const categoryName = categoryCol ? (row.getCell(categoryCol)?.text?.toString().trim() || undefined) : undefined;
       const location = locationCol ? (row.getCell(locationCol)?.text?.toString().trim() || undefined) : undefined;
-      const quantityText = row.getCell(quantityCol).text?.toString().trim() || "0";
+      const quantityText = row.getCell(quantityCol!).text?.toString().trim() || "0";
+      // Handle non-numeric quantities like "1ม้วน" — extract leading digits
+      const qtyClean = quantityText.match(/^\d+/) ? (quantityText.match(/^\d+/)![0]) : "0";
       const minQtyText = minQtyCol ? (row.getCell(minQtyCol)?.text?.toString().trim() || "0") : "0";
       const unit = unitCol ? (row.getCell(unitCol)?.text?.toString().trim() || "pcs") : "pcs";
       const barcodeValue = barcodeCol ? (row.getCell(barcodeCol)?.text?.toString().trim() || undefined) : undefined;
+
+      // Capture plant from row for plant format
+      const rowPlant = (isPlantFormat && plantCol)
+        ? (row.getCell(plantCol).text?.toString().trim() || undefined)
+        : undefined;
 
       parsedRows.push({
         rowNum,
@@ -400,8 +504,9 @@ export async function importPartsFromExcel(
         partName,
         description,
         categoryName,
+        plant: rowPlant,
         location,
-        quantity: quantityText,
+        quantity: qtyClean,
         minimumQuantity: minQtyText,
         unit,
         barcodeValue: barcodeValue || undefined,
@@ -419,33 +524,57 @@ export async function importPartsFromExcel(
     const applied = await applyImportedRows({
       rows: validated.rows,
       userId,
+      overridePlant,
       existingPartsByPartNumber: preflight.existingPartsByPartNumber,
     });
 
     result.imported = applied.imported;
     result.updated = applied.updated;
 
-    // Process images and QR codes after transaction commits
-    for (const img of applied.imageUpdates) {
-      if (!imageMap.has(img.rowNum)) continue;
-      const imageBuffer = imageMap.get(img.rowNum);
-      if (imageBuffer) {
-        const imageUrl = await processAndSaveImage(imageBuffer, img.partNumber);
-        if (imageUrl) {
-          await prisma.part.update({
-            where: { id: img.partId },
-            data: { imageUrl },
-          });
-        }
+    // Process images in parallel with concurrency limit
+    const IMAGE_CONCURRENCY = 10;
+    const imageItems = applied.imageUpdates.filter((img) => imageMap.has(img.rowNum));
+    for (let i = 0; i < imageItems.length; i += IMAGE_CONCURRENCY) {
+      const batch = imageItems.slice(i, i + IMAGE_CONCURRENCY);
+      const results = await Promise.allSettled(
+        batch.map(async (img) => {
+          const imageBuffer = imageMap.get(img.rowNum);
+          if (!imageBuffer) return null;
+          const imageUrl = await processAndSaveImage(imageBuffer, img.partNumber);
+          if (imageUrl) return { partId: img.partId, imageUrl };
+          return null;
+        })
+      );
+      const updates = results
+        .filter((r): r is PromiseFulfilledResult<{ partId: string; imageUrl: string } | null> => r.status === "fulfilled")
+        .map((r) => r.value)
+        .filter(Boolean) as { partId: string; imageUrl: string }[];
+      if (updates.length > 0) {
+        await prisma.$transaction(
+          updates.map((u) => prisma.part.update({ where: { id: u.partId }, data: { imageUrl: u.imageUrl } }))
+        );
       }
     }
+    result.imagesExtracted = imageItems.length;
 
-    for (const qr of applied.qrUpdates) {
-      const qrCodeUrl = await generateQRCode(qr.partId, qr.partNumber);
-      await prisma.part.update({
-        where: { id: qr.partId },
-        data: { qrCodeUrl },
-      });
+    // Batch QR generation with concurrency limit
+    const QR_CONCURRENCY = 20;
+    for (let i = 0; i < applied.qrUpdates.length; i += QR_CONCURRENCY) {
+      const batch = applied.qrUpdates.slice(i, i + QR_CONCURRENCY);
+      const qrResults = await Promise.allSettled(
+        batch.map(async (qr) => {
+          const qrCodeUrl = await generateQRCode(qr.partId, qr.partNumber);
+          return { partId: qr.partId, qrCodeUrl };
+        })
+      );
+      const qrUpdates = qrResults
+        .filter((r): r is PromiseFulfilledResult<{ partId: string; qrCodeUrl: string }> => r.status === "fulfilled")
+        .map((r) => r.value);
+      if (qrUpdates.length > 0) {
+        await prisma.$transaction(
+          qrUpdates.map((u) => prisma.part.update({ where: { id: u.partId }, data: { qrCodeUrl: u.qrCodeUrl } }))
+        );
+      }
     }
 
     result.success = result.errors.length === 0;

@@ -3,7 +3,7 @@ import { importPartsFromExcel } from "@/lib/excel";
 import { requireAuthFromRequest } from "@/lib/auth";
 import { corsOptions, withCors } from "@/lib/cors";
 
-const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB
 
 export const OPTIONS = corsOptions();
 
@@ -48,8 +48,9 @@ export const POST = withCors(async (request: Request) => {
 
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
+    const plant = (formData.get("plant") as string)?.trim() || undefined;
 
-    const result = await importPartsFromExcel(buffer, user.id);
+    const result = await importPartsFromExcel(buffer, user.id, plant);
 
     return NextResponse.json(result);
   } catch (error) {

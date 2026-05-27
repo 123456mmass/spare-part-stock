@@ -24,6 +24,30 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
   String? _resultMessage;
   bool _isError = false;
 
+  List<Map<String, dynamic>> _blocks = [];
+  String? _selectedBlock;
+  final _newBlockController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchBlocks();
+  }
+
+  Future<void> _fetchBlocks() async {
+    try {
+      final api = context.read<ApiClient>();
+      final blocks = await api.getBlocks();
+      if (mounted) setState(() => _blocks = blocks);
+    } catch (_) {}
+  }
+
+  String? get _plantValue {
+    final nb = _newBlockController.text.trim();
+    if (nb.isNotEmpty) return nb;
+    return _selectedBlock;
+  }
+
   Future<void> _pickAndImportExcel({required bool useAi}) async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -49,8 +73,8 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
       if (!mounted) return;
       final api = context.read<ApiClient>();
       final apiResult = useAi
-          ? await api.importExcelWithAi(file.path!)
-          : await api.importExcel(file.path!);
+          ? await api.importExcelWithAi(file.path!, plant: _plantValue)
+          : await api.importExcel(file.path!, plant: _plantValue);
       final imported = apiResult['imported'] as int? ?? 0;
       final updated = apiResult['updated'] as int? ?? 0;
       final errors = (apiResult['errors'] as List<dynamic>?) ?? [];
@@ -63,6 +87,8 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
             : 'นำเข้าได้ $imported รายการ, แก้ไข $updated รายการ, มีข้อผิดพลาด ${errors.length} รายการ';
         _isError = errors.isNotEmpty && imported + updated == 0;
       });
+      // refresh blocks after import
+      _fetchBlocks();
     } on ApiError catch (e) {
       if (!mounted) return;
       setState(() {
@@ -158,6 +184,12 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
   }
 
   @override
+  void dispose() {
+    _newBlockController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
@@ -188,12 +220,75 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
                     Expanded(
                       child: Text(
                         _resultMessage!,
-                        style: TextStyle(color: _isError ? Colors.red : Colors.green),
+                        style: TextStyle(color: _isError ? Colors.red[900] : Colors.green[900]),
                       ),
                     ),
                   ],
                 ),
               ),
+            // Block/Plant selection
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('เลือกบล็อก/โรงงาน (ไม่บังคับ)',
+                        style: TextStyle(fontWeight: FontWeight.w500)),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      value: _selectedBlock,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'บล็อกที่มีอยู่',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      ),
+                      items: [
+                        const DropdownMenuItem(value: null, child: Text('-- ไม่ระบุบล็อก --')),
+                        ..._blocks.map((b) {
+                          final name = b['name'] as String;
+                          final count = b['partCount'] as int;
+                          return DropdownMenuItem(
+                            value: name,
+                            child: Text('$name ($count รายการ)'),
+                          );
+                        }),
+                      ],
+                      onChanged: (v) {
+                        setState(() {
+                          _selectedBlock = v;
+                          if (v != null) _newBlockController.clear();
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('หรือพิมพ์ชื่อบล็อกใหม่', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                    const SizedBox(height: 4),
+                    TextField(
+                      controller: _newBlockController,
+                      decoration: const InputDecoration(
+                        hintText: 'เช่น โรงงาน A',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      ),
+                      onChanged: (v) {
+                        if (v.isNotEmpty) setState(() => _selectedBlock = null);
+                      },
+                    ),
+                    if (_plantValue != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          'ทุกแถวจะถูกกำหนดบล็อกเป็น "${_plantValue}"',
+                          style: const TextStyle(fontSize: 12, color: Colors.blue),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -309,7 +404,7 @@ class _ImportExportScreenState extends State<ImportExportScreen> {
                   'คำแนะนำ\n'
                   '- โหมดปกติต้องมี Part Number, Part Name/Description และ Quantity\n'
                   '- โหมด AI เหมาะกับไฟล์ตัวอย่างเช่น NBK1.xlsx ที่มี Part no., Description, Quantity\n'
-                  '- ถ้าไฟล์ใหญ่ ระบบจะเริ่มจาก 300 แถวแรกก่อน',
+                  '- ถ้าไฟล์ใหญ่ ระบบจะเริ่มจาก 100 แถวแรกก่อน',
                   style: TextStyle(fontSize: 13),
                 ),
               ),

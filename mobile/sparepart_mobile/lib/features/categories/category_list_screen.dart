@@ -98,6 +98,45 @@ class _CategoryListScreenState extends State<CategoryListScreen> {
     );
   }
 
+  Future<void> _confirmDelete(Category cat) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('ลบหมวดหมู่'),
+        content: Text(
+          cat.partsCount > 0
+              ? 'คุณต้องการลบ "${cat.name}" ใช่หรือไม่?\n\nอะไหล่ ${cat.partsCount} รายการจะถูกปลดหมวดหมู่ออก (อะไหล่ไม่ถูกลบ)'
+              : 'คุณต้องการลบ "${cat.name}" ใช่หรือไม่?',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('ยกเลิก')),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('ลบ'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    try {
+      await context.read<ApiClient>().deleteCategory(cat.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ลบ "${cat.name}" สำเร็จ')),
+        );
+      }
+      _fetchCategories();
+    } on ApiError catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthStore>();
@@ -164,7 +203,18 @@ class _CategoryListScreenState extends State<CategoryListScreen> {
                                 ),
                                 title: Text(cat.name, style: const TextStyle(fontWeight: FontWeight.bold)),
                                 subtitle: Text('${cat.partsCount} รายการ'),
-                                trailing: const Icon(Icons.chevron_right),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (auth.isAdmin)
+                                      IconButton(
+                                        icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                                        tooltip: 'ลบหมวดหมู่',
+                                        onPressed: () => _confirmDelete(cat),
+                                      ),
+                                    const Icon(Icons.chevron_right),
+                                  ],
+                                ),
                                 onTap: () {
                                   context.go('/parts?categoryId=${Uri.encodeComponent(cat.id)}');
                                 },

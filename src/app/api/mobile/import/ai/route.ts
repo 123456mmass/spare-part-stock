@@ -26,7 +26,8 @@ export const POST = withCors(async (request: Request) => {
       return NextResponse.json({ error: "Please upload .xlsx or .xls" }, { status: 400 });
     }
 
-    const result = await importPartsFromExcelWithAi(Buffer.from(await file.arrayBuffer()), user.id);
+    const plant = (formData.get("plant") as string)?.trim() || undefined;
+    const result = await importPartsFromExcelWithAi(Buffer.from(await file.arrayBuffer()), user.id, plant);
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {
