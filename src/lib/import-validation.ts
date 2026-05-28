@@ -31,7 +31,7 @@ const importRowSchema = z.object({
   partName: z.string().trim().min(1, "ต้องระบุชื่ออะไหล่"),
   description: z.string().trim().optional(),
   categoryName: z.string().trim().optional(),
-  location: z.string().trim().optional(),
+  location: z.string().trim().min(1, "ต้องระบุ Location (อาคาร)"),
   quantity: integerLikeSchema,
   minimumQuantity: integerLikeSchema,
   unit: z.string().trim().min(1).default("pcs"),

@@ -11,6 +11,7 @@ import {
   type ValidatedImportRow,
 } from "./import-validation";
 import { createStockMovement } from "./stock";
+import { resolveBuildingIdByName } from "./buildings";
 
 const UPLOADS_DIR = path.join(process.cwd(), "public", "uploads");
 const IMAGES_DIR = path.join(UPLOADS_DIR, "images");
@@ -174,6 +175,24 @@ export async function preflightImportRows(
     }
   }
 
+  const buildingNameCache = new Map<string, string | null>();
+  for (const row of rows) {
+    const location = row.location?.trim();
+    if (!location) {
+      errors.push(`แถว ${row.rowNum}: ต้องระบุ Location (อาคารที่จัดเก็บ)`);
+      continue;
+    }
+    const cacheKey = location.toLowerCase();
+    if (!buildingNameCache.has(cacheKey)) {
+      buildingNameCache.set(cacheKey, await resolveBuildingIdByName(location));
+    }
+    if (!buildingNameCache.get(cacheKey)) {
+      errors.push(
+        `แถว ${row.rowNum}: ไม่พบอาคาร "${location}" — สร้างอาคารในเมนูอาคารก่อนนำเข้า`
+      );
+    }
+  }
+
   if (errors.length > 0) {
     return null;
   }
@@ -221,6 +240,15 @@ export async function applyImportedRows(params: {
     }
   }
 
+  // Pre-resolve building names from location column (Excel Location = อาคาร)
+  const buildingNameSet = [
+    ...new Set(rows.map((r) => r.location?.trim()).filter(Boolean)),
+  ] as string[];
+  const buildingIdMap = new Map<string, string | null>();
+  for (const name of buildingNameSet) {
+    buildingIdMap.set(name.toLowerCase(), await resolveBuildingIdByName(name));
+  }
+
   // Separate rows into new vs existing
   const newRows: ValidatedImportRow[] = [];
   const updateRows: (ValidatedImportRow & { existingId: string })[] = [];
@@ -244,6 +272,9 @@ export async function applyImportedRows(params: {
         categoryId: row.categoryName ? categoryMap.get(row.categoryName) : undefined,
         subcategory: row.subcategory || null,
         plant: overridePlant || row.plant || null,
+        buildingId: row.location
+          ? buildingIdMap.get(row.location.trim().toLowerCase()) ?? null
+          : null,
         location: row.location,
         quantity: row.quantity,
         minimumQuantity: row.minimumQuantity,
@@ -309,6 +340,9 @@ export async function applyImportedRows(params: {
               description: row.description,
               categoryId: row.categoryName ? categoryMap.get(row.categoryName) : undefined,
               location: row.location,
+              buildingId: row.location
+                ? buildingIdMap.get(row.location.trim().toLowerCase()) ?? null
+                : undefined,
               minimumQuantity: row.minimumQuantity,
               unit: row.unit,
               barcodeValue: row.finalBarcodeValue,
@@ -516,6 +550,28 @@ export async function importPartsFromExcel(
     const validated = validateImportRows(parsedRows, generatePartBarcodeValue);
     result.errors.push(...validated.errors);
 
+    if (validated.rows.length > 0) {
+      const buildingNames = [
+        ...new Set(validated.rows.map((r) => r.location?.trim()).filter(Boolean)),
+      ] as string[];
+      const buildingIdMap = new Map<string, string | null>();
+      for (const name of buildingNames) {
+        buildingIdMap.set(name.toLowerCase(), await resolveBuildingIdByName(name));
+      }
+      for (const row of validated.rows) {
+        const loc = row.location?.trim();
+        if (!loc) {
+          result.errors.push(`แถว ${row.rowNum}: ต้องระบุ Location (อาคาร)`);
+          continue;
+        }
+        if (!buildingIdMap.get(loc.toLowerCase())) {
+          result.errors.push(
+            `แถว ${row.rowNum}: ไม่พบอาคาร "${loc}" — สร้างอาคารก่อนนำเข้า`
+          );
+        }
+      }
+    }
+
     const preflight = await preflightImportRows(validated.rows, result.errors);
     if (result.errors.length > 0 || !preflight) {
       return result;
@@ -591,6 +647,7 @@ export async function exportPartsToExcel(): Promise<Buffer> {
     where: { isActive: true },
     include: {
       category: true,
+      building: true,
     },
     orderBy: {
       partNumber: "asc",
@@ -606,6 +663,8 @@ export async function exportPartsToExcel(): Promise<Buffer> {
     { header: "Part Name", key: "partName", width: 30 },
     { header: "Description", key: "description", width: 40 },
     { header: "Category", key: "category", width: 15 },
+    { header: "Building", key: "building", width: 15 },
+    { header: "Block", key: "block", width: 10 },
     { header: "Location", key: "location", width: 15 },
     { header: "Quantity", key: "quantity", width: 10 },
     { header: "Minimum Quantity", key: "minimumQuantity", width: 15 },
@@ -625,6 +684,8 @@ export async function exportPartsToExcel(): Promise<Buffer> {
       partName: part.partName,
       description: part.description || "",
       category: part.category?.name || "",
+      building: part.building?.name || "",
+      block: part.plant || "",
       location: part.location || "",
       quantity: part.quantity,
       minimumQuantity: part.minimumQuantity,

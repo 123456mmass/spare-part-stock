@@ -84,8 +84,15 @@ patch_*.js
 
 # Archives and backups
 *.tar.gz
+*.tgz
+backups/
 codebase.zip
 dev.db.backup-*
+
+# Temp data scripts (one-off NBC2 imports/improvements)
+scripts/nbc2-*.xlsx
+scripts/import-nbc2-*.ts
+scripts/improve-nbc2.ts
 
 # Build artifacts
 .next-app/

@@ -17,6 +17,7 @@ export async function GET(
       where: { id, isActive: true },
       include: {
         category: true,
+        building: true,
         movements: {
           take: 50,
           orderBy: { createdAt: "desc" },
@@ -107,10 +108,12 @@ export async function PUT(
         ...(data.barcodeValue !== undefined && { barcodeValue: data.barcodeValue || null }),
         ...(data.subcategory !== undefined && { subcategory: data.subcategory }),
         ...(data.plant !== undefined && { plant: data.plant }),
+        ...(data.buildingId !== undefined && { buildingId: data.buildingId }),
         categoryId: resolvedCategoryId ?? null,
       },
       include: {
         category: true,
+        building: true,
       },
     });
 

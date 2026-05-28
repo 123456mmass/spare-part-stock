@@ -15,6 +15,7 @@ import {
   Building2,
   Users,
   KeyRound,
+  Warehouse,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ const navigation = [
   { name: "นำเข้า Excel", href: "/import", icon: FileUp },
   { name: "หมวดหมู่", href: "/categories", icon: Tag },
   { name: "บล็อก", href: "/blocks", icon: Building2, adminOnly: true },
+  { name: "อาคาร", href: "/buildings", icon: Warehouse, adminOnly: true },
   { name: "จัดการผู้ใช้", href: "/users", icon: Users, adminOnly: true },
 ];
 

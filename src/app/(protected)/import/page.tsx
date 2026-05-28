@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toaster";
+import { PageHeader } from "@/components/layout";
 
 interface BlockInfo {
   name: string;
@@ -123,16 +124,21 @@ export default function ImportPage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">นำเข้าข้อมูล Excel</h1>
-          <p className="text-gray-500">นำเข้าอะไหล่จาก Excel หรือให้ AI วิเคราะห์ไฟล์ก่อนเติมข้อมูลอัตโนมัติ</p>
-        </div>
-        <Button variant="outline" onClick={downloadTemplate}>
-          <Download className="h-4 w-4 mr-2" />
-          ดาวน์โหลด Template
-        </Button>
-      </div>
+      <PageHeader
+        title="นำเข้าข้อมูล Excel"
+        description="นำเข้าอะไหล่จาก Excel หรือให้ AI วิเคราะห์ไฟล์ก่อนเติมข้อมูลอัตโนมัติ"
+        action={
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-white/30 bg-white/10 text-white hover:bg-white/20"
+            onClick={downloadTemplate}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            ดาวน์โหลด Template
+          </Button>
+        }
+      />
 
       {/* Block/Plant selection */}
       <Card>
@@ -226,7 +232,7 @@ export default function ImportPage() {
           <CardTitle className="text-lg">คำแนะนำ</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-gray-600">
-          <p>โหมดปกติต้องมีคอลัมน์ Part Number, Part Name/Description และ Quantity</p>
+          <p>โหมดปกติต้องมีคอลัมน์ Part Number, Part Name/Description, Location (ชื่ออาคารที่มีในระบบ) และ Quantity</p>
           <p>โหมด AI เหมาะกับไฟล์ที่หัวตารางไม่ตรงแบบ เช่น NBK1.xlsx ที่มี Part no., Description, Quantity</p>
           <p>ถ้าไฟล์ใหญ่เกินไป ระบบจะจำกัดการวิเคราะห์ด้วย AI ที่ 100 แถวแรกก่อน</p>
         </CardContent>

@@ -28,11 +28,26 @@ class _PartListScreenState extends State<PartListScreen> {
   String? _stockStatusFilter;
   String? _categoryFilter;
   String? _plantFilter;
+  String? _buildingIdFilter;
+  List<Map<String, dynamic>> _buildings = [];
 
   @override
   void initState() {
     super.initState();
-    _fetchParts();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final qp = GoRouterState.of(context).uri.queryParameters;
+      if (qp['plant'] != null) _plantFilter = qp['plant'];
+      if (qp['buildingId'] != null) _buildingIdFilter = qp['buildingId'];
+      _fetchBuildings();
+      _fetchParts();
+    });
+  }
+
+  Future<void> _fetchBuildings() async {
+    try {
+      final data = await context.read<ApiClient>().getBuildings();
+      if (mounted) setState(() => _buildings = data);
+    } catch (_) {}
   }
 
   @override
@@ -51,7 +66,9 @@ class _PartListScreenState extends State<PartListScreen> {
       final api = context.read<ApiClient>();
       final result = await api.getParts(
         search: _searchController.text.trim().isEmpty ? null : _searchController.text.trim(),
-        stockStatus: status,
+        stockStatus: status ?? _stockStatusFilter,
+        plant: _plantFilter,
+        buildingId: _buildingIdFilter,
         page: page,
       );
       setState(() {
@@ -82,7 +99,6 @@ class _PartListScreenState extends State<PartListScreen> {
   List<Part> get _filteredParts {
     return _parts.where((p) {
       if (_categoryFilter != null && p.category?.name != _categoryFilter) return false;
-      if (_plantFilter != null && p.plant != _plantFilter) return false;
       return true;
     }).toList();
   }
@@ -252,10 +268,35 @@ class _PartListScreenState extends State<PartListScreen> {
                             const DropdownMenuItem(value: null, child: Text('ทั้งหมด')),
                             ..._getUniquePlants().map((p) => DropdownMenuItem(value: p, child: Text('Block $p'))),
                           ],
-                          onChanged: (v) => setState(() => _plantFilter = v),
+                          onChanged: (v) {
+                            setState(() => _plantFilter = v);
+                            _fetchParts(page: 1);
+                          },
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: _buildingIdFilter,
+                    decoration: const InputDecoration(
+                      labelText: 'อาคาร',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                    items: [
+                      const DropdownMenuItem(value: null, child: Text('ทุกอาคาร')),
+                      const DropdownMenuItem(value: '__none__', child: Text('ไม่ระบุอาคาร')),
+                      ..._buildings.map((b) => DropdownMenuItem(
+                        value: b['id'] as String,
+                        child: Text(b['name']?.toString() ?? '-'),
+                      )),
+                    ],
+                    onChanged: (v) {
+                      setState(() => _buildingIdFilter = v);
+                      _fetchParts(page: 1);
+                    },
                   ),
                 ],
               ),

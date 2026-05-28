@@ -109,6 +109,8 @@ class ApiClient {
     String? search,
     String? stockStatus,
     String? categoryId,
+    String? plant,
+    String? buildingId,
     int page = 1,
     int limit = 20,
   }) async {
@@ -120,6 +122,8 @@ class ApiClient {
       if (search != null && search.isNotEmpty) params['search'] = search;
       if (stockStatus != null) params['stockStatus'] = stockStatus;
       if (categoryId != null) params['categoryId'] = categoryId;
+      if (plant != null) params['plant'] = plant;
+      if (buildingId != null) params['buildingId'] = buildingId;
 
       final response = await _dio.get(
         '/parts',
@@ -507,6 +511,34 @@ class ApiClient {
           receiveTimeout: const Duration(seconds: 120),
           sendTimeout: const Duration(seconds: 30),
         ),
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  // --- Buildings ---
+
+  Future<List<Map<String, dynamic>>> getBuildings() async {
+    try {
+      final response = await _dio.get(
+        '/buildings',
+        options: Options(headers: _authHeaders),
+      );
+      final data = response.data as List<dynamic>;
+      return data.cast<Map<String, dynamic>>();
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<Map<String, dynamic>> updateBuilding(String id, String name) async {
+    try {
+      final response = await _dio.patch(
+        '/buildings/${Uri.encodeComponent(id)}',
+        data: {'name': name},
+        options: Options(headers: _authHeaders),
       );
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {

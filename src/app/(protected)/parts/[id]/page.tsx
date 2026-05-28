@@ -39,6 +39,7 @@ interface Part {
   partName: string;
   description: string | null;
   category: { id: string; name: string } | null;
+  building: { id: string; name: string } | null;
   subcategory: string | null;
   plant: string | null;
   location: string | null;
@@ -69,6 +70,7 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
   const { toast } = useToast();
   const [part, setPart] = useState<Part | null>(null);
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+  const [buildings, setBuildings] = useState<{ id: string; name: string }[]>([]);
   const [currentUser, setCurrentUser] = useState<{ id: string; role: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [stockDialogOpen, setStockDialogOpen] = useState(false);
@@ -83,6 +85,7 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
     categoryId?: string;
     subcategory?: string;
     plant?: string;
+    buildingId?: string;
     location?: string;
     minimumQuantity?: number;
     unit?: string;
@@ -104,6 +107,7 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
           categoryId: data.category?.id,
           subcategory: data.subcategory || "",
           plant: data.plant || "",
+          buildingId: data.building?.id || "",
           location: data.location || "",
           minimumQuantity: data.minimumQuantity,
           unit: data.unit,
@@ -132,6 +136,18 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
     }
   };
 
+  const fetchBuildings = async () => {
+    try {
+      const response = await fetch("/api/buildings");
+      if (response.ok) {
+        const data = await response.json();
+        setBuildings(data);
+      }
+    } catch {
+      // Silent
+    }
+  };
+
   const fetchCurrentUser = async () => {
     try {
       const response = await fetch("/api/auth/me");
@@ -148,6 +164,7 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchPart();
     fetchCategories();
+    fetchBuildings();
     fetchCurrentUser();
   }, [resolvedParams.id]);
 
@@ -193,6 +210,10 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
 
   const handleUpdatePart = async () => {
     if (!part) return;
+    if (!editData.buildingId) {
+      toast({ title: "กรุณาเลือกอาคาร", variant: "destructive" });
+      return;
+    }
 
     try {
       const response = await fetch(`/api/parts/${part.id}`, {
@@ -610,8 +631,12 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
                 <span>{part.category?.name || "-"}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">ที่เก็บ</span>
-                <span>{part.location || "-"}</span>
+                <span className="text-gray-500">อาคาร</span>
+                <span>{part.building?.name || "-"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Block</span>
+                <span>{part.plant || "-"}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">หน่วย</span>
@@ -745,11 +770,24 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
                 </Select>
               </div>
               <div>
-                <Label>ที่เก็บ</Label>
-                <Input
-                  value={editData.location || ""}
-                  onChange={(e) => setEditData({ ...editData, location: e.target.value })}
-                />
+                <Label>อาคาร *</Label>
+                <Select
+                  value={editData.buildingId || ""}
+                  onValueChange={(value) =>
+                    setEditData({ ...editData, buildingId: value })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="เลือกอาคาร" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {buildings.map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -758,7 +796,7 @@ export default function PartDetailPage({ params }: { params: Promise<{ id: strin
                 <Input
                   value={editData.plant || ""}
                   onChange={(e) => setEditData({ ...editData, plant: e.target.value })}
-                  placeholder="เช่น Block 1"
+                  placeholder="เช่น 1, 2"
                 />
               </div>
               <div>

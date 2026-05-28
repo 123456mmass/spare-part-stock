@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/components/ui/toaster";
 import { formatDateTime, cn } from "@/lib/utils";
 import { Download, ArrowUpDown } from "lucide-react";
+import { PageHeader } from "@/components/layout";
 
 interface Movement {
   id: string;
@@ -73,12 +74,12 @@ export default function MovementsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">ประวัติการเคลื่อนไหว</h1>
-          <p className="text-gray-500">จำนวน {movements.length} รายการ</p>
-        </div>
-        <div className="flex gap-2">
+      <PageHeader
+        title="ประวัติการเคลื่อนไหว"
+        description={`จำนวน ${movements.length} รายการ`}
+      />
+
+      <div className="flex flex-wrap items-center justify-end gap-2">
           <Select value={typeFilter} onValueChange={setTypeFilter}>
             <SelectTrigger className="w-[150px]">
               <SelectValue placeholder="ทุกประเภท" />
@@ -94,11 +95,9 @@ export default function MovementsPage() {
             <Download className="h-4 w-4 mr-2" />
             ส่งออก
           </Button>
-        </div>
       </div>
 
-      {/* Movements List */}
-      <Card>
+      <Card className="premium-card border-0 shadow-md overflow-hidden">
         <CardContent className="p-0">
           {isLoading ? (
             <div className="p-8 text-center">

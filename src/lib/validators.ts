@@ -15,6 +15,7 @@ export const partSchema = z.object({
   categoryName: z.string().nullable().transform(v => v === "" || v === null ? null : v).optional(),
   subcategory: z.string().nullable().transform(v => v === "" || v === null ? null : v).optional(),
   plant: z.string().min(1, "กรุณากรอก Block"),
+  buildingId: z.string().min(1, "กรุณาเลือกอาคาร"),
   location: z.string().regex(/^[^<>]*$/, "ห้ามมีตัวอักษรพิเศษ < หรือ >").optional(),
   quantity: z.coerce.number().min(0, "จำนวนต้องเป็น 0 ขึ้นไป"),
   minimumQuantity: z.coerce.number().min(0, "จำนวนขั้นต่ำต้องเป็น 0 ขึ้นไป"),
@@ -25,7 +26,18 @@ export const partSchema = z.object({
     .optional(),
 });
 
-export const partUpdateSchema = partSchema.omit({ quantity: true }).partial();
+export const partUpdateSchema = partSchema
+  .omit({ quantity: true })
+  .partial()
+  .superRefine((data, ctx) => {
+    if (data.buildingId !== undefined && !data.buildingId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "กรุณาเลือกอาคาร",
+        path: ["buildingId"],
+      });
+    }
+  });
 
 export type PartInput = z.infer<typeof partSchema>;
 export type PartInputRaw = z.input<typeof partSchema>;

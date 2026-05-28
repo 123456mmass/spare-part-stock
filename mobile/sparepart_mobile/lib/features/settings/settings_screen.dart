@@ -296,6 +296,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 8),
               Card(
                 child: ListTile(
+                  leading: const Icon(Icons.apartment),
+                  title: const Text('อาคารที่เก็บ'),
+                  subtitle: const Text('ตั้งชื่ออาคาร ดูสถิติสต็อก'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push('/buildings'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Card(
+                child: ListTile(
                   leading: const Icon(Icons.business),
                   title: const Text('บล็อก / โรงงาน'),
                   subtitle: const Text('จัดการบล็อก เปลี่ยนชื่อ รวม ลบ'),

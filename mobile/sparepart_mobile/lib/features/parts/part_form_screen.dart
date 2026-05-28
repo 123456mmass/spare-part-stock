@@ -35,7 +35,9 @@ class _PartFormScreenState extends State<PartFormScreen> {
   final _imagePicker = ImagePicker();
 
   List<Category> _categories = [];
+  List<Map<String, dynamic>> _buildings = [];
   String? _selectedCategoryId;
+  String? _selectedBuildingId;
   bool _isLoading = false;
   bool _isSubmitting = false;
   bool _isUploadingImage = false;
@@ -63,9 +65,18 @@ class _PartFormScreenState extends State<PartFormScreen> {
       _minimumQuantityController.text = '${p.minimumQuantity}';
       _unitController.text = p.unit;
       _selectedCategoryId = p.category?.id;
+      _selectedBuildingId = p.building?.id;
       _currentImageUrl = p.imageUrl;
     }
     _fetchCategories();
+    _fetchBuildings();
+  }
+
+  Future<void> _fetchBuildings() async {
+    try {
+      final data = await context.read<ApiClient>().getBuildings();
+      if (mounted) setState(() => _buildings = data);
+    } catch (_) {}
   }
 
   @override
@@ -115,7 +126,7 @@ class _PartFormScreenState extends State<PartFormScreen> {
           'categoryId': _selectedCategoryId,
           'subcategory': _subcategoryController.text.trim(),
           'plant': _plantController.text.trim(),
-          'location': _locationController.text.trim(),
+          'buildingId': _selectedBuildingId,
           'barcodeValue': _barcodeController.text.trim(),
           'minimumQuantity': minimumQuantity,
           'unit': _unitController.text.trim(),
@@ -129,7 +140,7 @@ class _PartFormScreenState extends State<PartFormScreen> {
           'categoryName': _selectedCategoryId == null ? _subcategoryController.text.trim() : null,
           'subcategory': _subcategoryController.text.trim(),
           'plant': _plantController.text.trim(),
-          'location': _locationController.text.trim(),
+          'buildingId': _selectedBuildingId,
           'barcodeValue': _barcodeController.text.trim(),
           'quantity': quantity,
           'minimumQuantity': minimumQuantity,
@@ -571,6 +582,22 @@ class _PartFormScreenState extends State<PartFormScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: _selectedBuildingId,
+                      decoration: const InputDecoration(
+                        labelText: 'อาคาร',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        const DropdownMenuItem(value: null, child: Text('- ไม่ระบุ -')),
+                        ..._buildings.map((b) => DropdownMenuItem(
+                          value: b['id'] as String,
+                          child: Text(b['name']?.toString() ?? '-'),
+                        )),
+                      ],
+                      onChanged: (v) => setState(() => _selectedBuildingId = v),
+                    ),
+                    const SizedBox(height: 12),
                     TextFormField(
                       controller: _plantController,
                       decoration: const InputDecoration(
@@ -633,14 +660,6 @@ class _PartFormScreenState extends State<PartFormScreen> {
                           ),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _locationController,
-                      decoration: const InputDecoration(
-                        labelText: 'ที่เก็บ',
-                        border: OutlineInputBorder(),
-                      ),
                     ),
                     const SizedBox(height: 12),
                     Row(

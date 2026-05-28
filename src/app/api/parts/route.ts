@@ -13,6 +13,8 @@ export async function GET(request: Request) {
     const search = searchParams.get("search") || "";
     const categoryId = searchParams.get("categoryId");
     const stockStatus = searchParams.get("stockStatus");
+    const plant = searchParams.get("plant");
+    const buildingId = searchParams.get("buildingId");
 
     const where: Prisma.PartWhereInput = { isActive: true };
 
@@ -29,6 +31,14 @@ export async function GET(request: Request) {
       where.categoryId = categoryId;
     }
 
+    if (plant) {
+      where.plant = plant === "__none__" ? null : plant;
+    }
+
+    if (buildingId) {
+      where.buildingId = buildingId === "__none__" ? null : buildingId;
+    }
+
     if (stockStatus === "out-of-stock") {
       where.quantity = 0;
     } else if (stockStatus === "low-stock") {
@@ -42,6 +52,7 @@ export async function GET(request: Request) {
       where,
       include: {
         category: true,
+        building: true,
       },
       orderBy: { partNumber: "asc" },
     });
@@ -83,7 +94,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { partName, description, categoryId, categoryName, subcategory, plant, location, quantity, minimumQuantity, unit, barcodeValue } = parsed.data;
+    const { partName, description, categoryId, categoryName, subcategory, plant, buildingId, location, quantity, minimumQuantity, unit, barcodeValue } = parsed.data;
     let { partNumber } = parsed.data;
     if (!partNumber || partNumber === "-") {
       partNumber = generatePartNumber();
@@ -110,6 +121,7 @@ export async function POST(request: Request) {
           categoryId: resolvedCategoryId,
           subcategory: subcategory || null,
           plant: plant || null,
+          buildingId,
           createdBy: user.id,
           location,
           quantity: 0,
@@ -139,6 +151,7 @@ export async function POST(request: Request) {
         where: { id: created.id },
         include: {
           category: true,
+          building: true,
         },
       });
     });

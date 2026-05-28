@@ -1,27 +1,59 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { fetchWithAuth as fetch } from "@/lib/api";
-import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useToast } from "@/components/ui/toaster";
+import { cn } from "@/lib/utils";
 
-export function ExportDialog() {
+type ExportDialogProps = {
+  variant?: "default" | "hero";
+  className?: string;
+};
+
+/** Original export: GET /api/export?format=&plant= via new tab (session cookie). */
+export function ExportDialog({ variant = "default", className }: ExportDialogProps) {
+  const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [format, setFormat] = useState<"standard" | "plant">("plant");
   const [plant, setPlant] = useState("");
   const [plants, setPlants] = useState<string[]>([]);
 
   useEffect(() => {
-    if (open) {
-      fetch("/api/parts")
-        .then((r) => r.json())
-        .then((parts: { plant?: string }[]) => {
-          const unique = [...new Set(parts.map((p) => p.plant).filter(Boolean))] as string[];
-          unique.sort((a, b) => Number(a) - Number(b));
-          setPlants(unique);
-        })
-        .catch(() => {});
-    }
+    if (!open) return;
+    fetch("/api/parts")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((parts: { plant?: string | null }[]) => {
+        const unique = [
+          ...new Set(parts.map((p) => p.plant).filter(Boolean)),
+        ] as string[];
+        unique.sort((a, b) => {
+          const na = Number(a);
+          const nb = Number(b);
+          if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+          return a.localeCompare(b, "th");
+        });
+        setPlants(unique);
+      })
+      .catch(() => setPlants([]));
   }, [open]);
 
   const handleExport = () => {
@@ -29,60 +61,78 @@ export function ExportDialog() {
     if (plant) params.set("plant", plant);
     window.open(`/api/export?${params.toString()}`, "_blank");
     setOpen(false);
+    toast({ title: "กำลังดาวน์โหลด Excel", description: "ถ้าไม่ขึ้น ให้ตรวจสอบการบล็อก popup" });
   };
 
   return (
-    <>
-      <Button variant="outline" className="w-full h-20 flex-col gap-2" onClick={() => setOpen(true)}>
-        <Download className="h-6 w-6" />
-        <span className="text-xs">ส่งออก Excel</span>
-      </Button>
-
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setOpen(false)}>
-          <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold mb-4">ส่งออก Excel</h3>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">รูปแบบ</label>
-                <select
-                  value={format}
-                  onChange={(e) => setFormat(e.target.value as "standard" | "plant")}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                >
-                  <option value="standard">Standard (ข้อมูลครบ)</option>
-                  <option value="plant">Plant Format (No. Plant System Type ...)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">เลือก Block</label>
-                <select
-                  value={plant}
-                  onChange={(e) => setPlant(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                >
-                  <option value="">ทั้งหมด</option>
-                  {plants.map((p) => (
-                    <option key={p} value={p}>Block {p}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="flex gap-3 mt-6">
-              <Button variant="outline" className="flex-1" onClick={() => setOpen(false)}>
-                ยกเลิก
-              </Button>
-              <Button className="flex-1" onClick={handleExport}>
-                <Download className="h-4 w-4 mr-2" />
-                ดาวน์โหลด
-              </Button>
-            </div>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button
+          variant={variant === "hero" ? "ghost" : "outline"}
+          size="sm"
+          className={cn(
+            variant === "hero"
+              ? "shrink-0 border border-amber-300/40 bg-white/5 text-white shadow-sm hover:border-amber-300/70 hover:bg-white/10 hover:text-white"
+              : undefined,
+            className
+          )}
+        >
+          <Download className="h-4 w-4 sm:mr-2" />
+          <span className="hidden sm:inline">ส่งออก Excel</span>
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md border-slate-200/80 shadow-xl">
+        <DialogHeader>
+          <DialogTitle>ส่งออก Excel</DialogTitle>
+          <DialogDescription>
+            เลือกรูปแบบและ Block แล้วดาวน์โหลด (รูปแบบ Plant รองรับรูปในไฟล์)
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-2">
+            <Label>รูปแบบ</Label>
+            <Select
+              value={format}
+              onValueChange={(v) => setFormat(v as "standard" | "plant")}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="standard">Standard (ข้อมูลครบ)</SelectItem>
+                <SelectItem value="plant">
+                  Plant Format (No. Plant System Type …)
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>เลือก Block</Label>
+            <Select value={plant || "__all__"} onValueChange={(v) => setPlant(v === "__all__" ? "" : v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="ทั้งหมด" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">ทั้งหมด</SelectItem>
+                {plants.map((p) => (
+                  <SelectItem key={p} value={p}>
+                    Block {p}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
-      )}
-    </>
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            ยกเลิก
+          </Button>
+          <Button onClick={handleExport}>
+            <Download className="mr-2 h-4 w-4" />
+            ดาวน์โหลด
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

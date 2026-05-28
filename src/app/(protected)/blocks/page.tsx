@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toaster";
 import { Building2, Pencil, Trash2, GitMerge } from "lucide-react";
+import { PageHeader } from "@/components/layout";
 
 interface BlockInfo {
   name: string;
@@ -135,18 +136,23 @@ export default function BlocksPage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">บล็อก / โรงงาน</h1>
-          <p className="text-gray-500">จัดการบล็อก/โรงงาน {blocks.length} บล็อก</p>
-        </div>
-        {blocks.length >= 2 && (
-          <Button variant="outline" onClick={() => setMergeOpen(true)}>
-            <GitMerge className="h-4 w-4 mr-2" />
-            รวมบล็อก
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        title="บล็อก / โรงงาน"
+        description={`จัดการบล็อก ${blocks.length} รายการ`}
+        action={
+          blocks.length >= 2 ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-white/30 bg-white/10 text-white hover:bg-white/20"
+              onClick={() => setMergeOpen(true)}
+            >
+              <GitMerge className="h-4 w-4 mr-2" />
+              รวมบล็อก
+            </Button>
+          ) : undefined
+        }
+      />
 
       {/* Rename dialog */}
       <Dialog open={!!renameTarget} onOpenChange={(open) => { if (!open) { setRenameTarget(null); setNewName(""); } }}>

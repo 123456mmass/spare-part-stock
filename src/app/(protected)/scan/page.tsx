@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toaster";
 import { Search, Camera, XCircle, ImageIcon, Barcode, Loader2 } from "lucide-react";
+import { PageHeader } from "@/components/layout";
 
 type Mode = "barcode" | "image";
 
@@ -207,14 +208,14 @@ export default function ScanPage() {
 
   return (
     <div className="space-y-6 max-w-lg mx-auto">
-      <div className="text-center">
-        <h1 className="text-2xl font-bold text-gray-900">
-          {mode === "barcode" ? "สแกนบาร์โค้ด / QR Code" : "ค้นหาด้วยรูปภาพ"}
-        </h1>
-        <p className="text-gray-500">
-          {mode === "barcode" ? "เล็งกล้องไปที่บาร์โค้ดหรือ QR Code ของอะไหล่" : "ถ่ายรูปอะไหล่เพื่อจับคู่กับฐานข้อมูล"}
-        </p>
-      </div>
+      <PageHeader
+        title={mode === "barcode" ? "สแกนบาร์โค้ด / QR Code" : "ค้นหาด้วยรูปภาพ"}
+        description={
+          mode === "barcode"
+            ? "เล็งกล้องไปที่บาร์โค้ดหรือ QR Code ของอะไหล่"
+            : "ถ่ายรูปอะไหล่เพื่อจับคู่กับฐานข้อมูล"
+        }
+      />
 
       <div className="grid grid-cols-2 gap-2">
         <Button

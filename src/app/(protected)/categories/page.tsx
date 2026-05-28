@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toaster";
 import { Plus, Tag, Trash2 } from "lucide-react";
+import { PageHeader } from "@/components/layout";
 
 interface Category {
   id: string;
@@ -99,19 +100,17 @@ export default function CategoriesPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">หมวดหมู่</h1>
-          <p className="text-gray-500">จำนวน {categories.length} หมวดหมู่</p>
-        </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              เพิ่มหมวดหมู่
-            </Button>
-          </DialogTrigger>
+      <PageHeader
+        title="หมวดหมู่"
+        description={`จำนวน ${categories.length} หมวดหมู่`}
+        action={
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" className="bg-white text-indigo-700 hover:bg-indigo-50">
+                <Plus className="h-4 w-4 mr-2" />
+                เพิ่มหมวดหมู่
+              </Button>
+            </DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>เพิ่มหมวดหมู่ใหม่</DialogTitle>
@@ -134,7 +133,8 @@ export default function CategoriesPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      </div>
+        }
+      />
 
       {/* Delete confirmation dialog */}
       <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>

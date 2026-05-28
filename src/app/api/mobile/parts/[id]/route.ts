@@ -21,6 +21,7 @@ export const GET = withCors(async (
       where: { id, isActive: true },
       include: {
         category: true,
+        building: true,
         movements: {
           take: 20,
           orderBy: { createdAt: "desc" },
@@ -110,9 +111,10 @@ export const PUT = withCors(async (
         ...(data.barcodeValue !== undefined && { barcodeValue: data.barcodeValue || null }),
         ...(data.subcategory !== undefined && { subcategory: data.subcategory }),
         ...(data.plant !== undefined && { plant: data.plant }),
+        ...(data.buildingId !== undefined && { buildingId: data.buildingId || null }),
         categoryId: resolvedCategoryId ?? null,
       },
-      include: { category: true },
+      include: { category: true, building: true },
     });
 
     return NextResponse.json(part);

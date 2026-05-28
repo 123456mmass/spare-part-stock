@@ -15,6 +15,20 @@ class PartCategory {
   }
 }
 
+class PartBuilding {
+  final String id;
+  final String name;
+
+  PartBuilding({required this.id, required this.name});
+
+  factory PartBuilding.fromJson(Map<String, dynamic> json) {
+    return PartBuilding(
+      id: json['id'] as String,
+      name: json['name'] as String,
+    );
+  }
+}
+
 String? _resolveUrl(String? url) {
   if (url == null || url.isEmpty) return url;
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
@@ -37,6 +51,7 @@ class Part {
   final String? plant;
   final String? createdBy;
   final PartCategory? category;
+  final PartBuilding? building;
   final List<StockMovement>? movements;
 
   Part({
@@ -55,11 +70,13 @@ class Part {
     this.plant,
     this.createdBy,
     this.category,
+    this.building,
     this.movements,
   });
 
   factory Part.fromJson(Map<String, dynamic> json) {
     final categoryJson = json['category'] as Map<String, dynamic>?;
+    final buildingJson = json['building'] as Map<String, dynamic>?;
     final movementsJson = json['movements'] as List<dynamic>?;
     return Part(
       id: json['id'] as String,
@@ -78,6 +95,9 @@ class Part {
       createdBy: json['createdBy'] as String?,
       category: categoryJson != null
           ? PartCategory.fromJson(categoryJson)
+          : null,
+      building: buildingJson != null
+          ? PartBuilding.fromJson(buildingJson)
           : null,
       movements: movementsJson
           ?.map((e) => StockMovement.fromJson(e as Map<String, dynamic>))

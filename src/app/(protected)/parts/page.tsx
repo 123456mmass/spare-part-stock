@@ -13,12 +13,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/components/ui/toaster";
 import { Package, Plus, Search, QrCode, Grid3X3, List } from "lucide-react";
 import { getStockStatus, getStockStatusLabel } from "@/lib/utils";
+import { PageHeader } from "@/components/layout";
 
 interface Part {
   id: string;
   partNumber: string;
   partName: string;
   category: { id: string; name: string } | null;
+  building: { id: string; name: string } | null;
   subcategory: string | null;
   plant: string | null;
   location: string | null;
@@ -30,6 +32,7 @@ interface Part {
 }
 
 const NO_BLOCK_VALUE = "__none__";
+const NO_BUILDING_VALUE = "__none__";
 
 export default function PartsPage() {
   const router = useRouter();
@@ -41,9 +44,11 @@ export default function PartsPage() {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [subcategoryFilter, setSubcategoryFilter] = useState("all");
   const [plantFilter, setPlantFilter] = useState("all");
+  const [buildingFilter, setBuildingFilter] = useState("all");
   const [stockFilter, setStockFilter] = useState("all");
   const [viewMode, setViewMode] = useState<"table" | "card">("card");
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+  const [buildings, setBuildings] = useState<{ id: string; name: string }[]>([]);
 
   const fetchParts = async () => {
     try {
@@ -71,14 +76,31 @@ export default function PartsPage() {
     }
   };
 
+  const fetchBuildings = async () => {
+    try {
+      const response = await fetch("/api/buildings");
+      if (response.ok) {
+        const data = await response.json();
+        setBuildings(data);
+      }
+    } catch {
+      // Silent fail
+    }
+  };
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchParts();
     fetchCategories();
+    fetchBuildings();
     const status = searchParams.get("stockStatus");
     if (status && ["in-stock", "low-stock", "out-of-stock"].includes(status)) {
       setStockFilter(status);
     }
+    const plant = searchParams.get("plant");
+    if (plant) setPlantFilter(plant);
+    const buildingId = searchParams.get("buildingId");
+    if (buildingId) setBuildingFilter(buildingId);
   }, [searchParams]);
 
   const filteredParts = parts.filter((part) => {
@@ -97,6 +119,12 @@ export default function PartsPage() {
       plantFilter === "all" ||
       (plantFilter === NO_BLOCK_VALUE ? !part.plant : part.plant === plantFilter);
 
+    const matchesBuilding =
+      buildingFilter === "all" ||
+      (buildingFilter === NO_BUILDING_VALUE
+        ? !part.building
+        : part.building?.id === buildingFilter);
+
     let matchesStock = true;
     if (stockFilter === "in-stock") {
       matchesStock = part.quantity > part.minimumQuantity && part.quantity > 0;
@@ -106,29 +134,25 @@ export default function PartsPage() {
       matchesStock = part.quantity === 0;
     }
 
-    return matchesSearch && matchesCategory && matchesSubcategory && matchesPlant && matchesStock;
+    return matchesSearch && matchesCategory && matchesSubcategory && matchesPlant && matchesBuilding && matchesStock;
   });
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">อะไหล่</h1>
-          <p className="text-gray-500">จำนวน {filteredParts.length} รายการ</p>
-        </div>
-        <div className="flex gap-2">
+      <PageHeader
+        title="อะไหล่"
+        description={`จำนวน ${filteredParts.length} รายการ`}
+        action={
           <Link href="/parts/new">
-            <Button size="sm">
+            <Button size="sm" className="bg-white text-indigo-700 hover:bg-indigo-50">
               <Plus className="h-4 w-4 mr-2" />
               เพิ่มอะไหล่
             </Button>
           </Link>
-        </div>
-      </div>
+        }
+      />
 
-      {/* Search and Filters */}
-      <Card>
+      <Card className="premium-card border-0 shadow-md">
         <CardContent className="p-4">
           <div className="space-y-4">
             {/* Search */}
@@ -179,6 +203,19 @@ export default function PartsPage() {
                   <SelectItem value={NO_BLOCK_VALUE}>ไม่มี Block</SelectItem>
                   {[...new Set(parts.map(p => p.plant).filter(Boolean))].sort().map((p) => (
                     <SelectItem key={p!} value={p!}>{p}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={buildingFilter} onValueChange={setBuildingFilter}>
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue placeholder="อาคาร" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">ทุกอาคาร</SelectItem>
+                  <SelectItem value={NO_BUILDING_VALUE}>ไม่ระบุอาคาร</SelectItem>
+                  {buildings.map((b) => (
+                    <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -271,8 +308,11 @@ export default function PartsPage() {
                         {part.category && (
                           <Badge variant="secondary">{part.category.name}</Badge>
                         )}
-                        {part.location && (
-                          <Badge variant="outline">{part.location}</Badge>
+                        {part.building && (
+                          <Badge variant="outline">{part.building.name}</Badge>
+                        )}
+                        {part.plant && (
+                          <Badge variant="outline">Block {part.plant}</Badge>
                         )}
                       </div>
                       <div className="flex items-center justify-between pt-2 border-t">
@@ -309,7 +349,8 @@ export default function PartsPage() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">ชื่อ</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">รหัสอะไหล่</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">หมวดหมู่</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">ที่เก็บ</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">อาคาร</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Block</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500">จำนวน</th>
                     <th className="px-4 py-3 text-center text-xs font-medium text-gray-500">สถานะ</th>
                   </tr>
@@ -326,7 +367,8 @@ export default function PartsPage() {
                         <td className="px-4 py-3 font-medium">{part.partName}</td>
                         <td className="px-4 py-3 text-gray-500">{part.partNumber}</td>
                         <td className="px-4 py-3">{part.category?.name || "-"}</td>
-                        <td className="px-4 py-3">{part.location || "-"}</td>
+                        <td className="px-4 py-3">{part.building?.name || "-"}</td>
+                        <td className="px-4 py-3">{part.plant || "-"}</td>
                         <td className="px-4 py-3 text-right font-medium">
                           {part.quantity} {part.unit}
                         </td>

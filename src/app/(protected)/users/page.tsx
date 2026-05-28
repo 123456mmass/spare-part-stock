@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toaster";
 import { Plus, Edit2, KeyRound, Trash2, PowerOff, Power, Copy, Check, AlertTriangle } from "lucide-react";
+import { PageHeader } from "@/components/layout";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -329,26 +330,33 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">จัดการผู้ใช้</h1>
-          <p className="text-gray-500">จำนวน {users.length} คน</p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="destructive" onClick={() => setClearDbOpen(true)}>
-            <AlertTriangle className="h-4 w-4 mr-2" />
-            ล้างฐานข้อมูล
-          </Button>
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            เพิ่มผู้ใช้
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="จัดการผู้ใช้"
+        description={`จำนวน ${users.length} คน`}
+        action={
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-red-300/50 bg-red-500/20 text-white hover:bg-red-500/30"
+              onClick={() => setClearDbOpen(true)}
+            >
+              <AlertTriangle className="h-4 w-4 mr-2" />
+              ล้างฐานข้อมูล
+            </Button>
+            <Button
+              size="sm"
+              className="bg-white text-indigo-700 hover:bg-indigo-50"
+              onClick={() => setCreateOpen(true)}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              เพิ่มผู้ใช้
+            </Button>
+          </div>
+        }
+      />
 
-      {/* Users Table */}
-      <Card>
+      <Card className="premium-card border-0 shadow-md overflow-hidden">
         <CardContent className="p-0">
           {loading ? (
             <div className="p-8 text-center text-gray-500">กำลังโหลด...</div>

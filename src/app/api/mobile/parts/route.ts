@@ -15,6 +15,8 @@ const querySchema = z.object({
   search: z.string().optional(),
   categoryId: z.string().optional(),
   stockStatus: z.string().optional(),
+  plant: z.string().optional(),
+  buildingId: z.string().optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
@@ -45,7 +47,7 @@ export const GET = withCors(async (request: Request) => {
       );
     }
 
-    const { search, categoryId, stockStatus, page, limit } = parsed.data;
+    const { search, categoryId, stockStatus, plant, buildingId, page, limit } = parsed.data;
 
     const where: Prisma.PartWhereInput = { isActive: true };
 
@@ -60,6 +62,14 @@ export const GET = withCors(async (request: Request) => {
 
     if (categoryId) {
       where.categoryId = categoryId;
+    }
+
+    if (plant) {
+      where.plant = plant === "__none__" ? null : plant;
+    }
+
+    if (buildingId) {
+      where.buildingId = buildingId === "__none__" ? null : buildingId;
     }
 
     if (stockStatus === "out-of-stock") {
@@ -82,7 +92,7 @@ export const GET = withCors(async (request: Request) => {
       prisma.part.count({ where }),
       prisma.part.findMany({
         where,
-        include: { category: true },
+        include: { category: true, building: true },
         orderBy: { partNumber: "asc" },
         skip: (page - 1) * limit,
         take: limit,
@@ -130,7 +140,7 @@ export const POST = withCors(async (request: Request) => {
       );
     }
 
-    const { partName, description, categoryId, categoryName, subcategory, plant, location, quantity, minimumQuantity, unit, barcodeValue } = parsed.data;
+    const { partName, description, categoryId, categoryName, subcategory, plant, buildingId, location, quantity, minimumQuantity, unit, barcodeValue } = parsed.data;
     let { partNumber } = parsed.data;
     if (!partNumber || partNumber === "-") {
       partNumber = generatePartNumber();
@@ -156,6 +166,7 @@ export const POST = withCors(async (request: Request) => {
           categoryId: resolvedCategoryId,
           subcategory: subcategory || null,
           plant: plant || null,
+          buildingId: buildingId || null,
           createdBy: user.id,
           location,
           quantity: 0,
@@ -181,7 +192,7 @@ export const POST = withCors(async (request: Request) => {
 
       return tx.part.findUnique({
         where: { id: created.id },
-        include: { category: true },
+        include: { category: true, building: true },
       });
     });
 

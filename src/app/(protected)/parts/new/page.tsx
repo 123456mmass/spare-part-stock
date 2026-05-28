@@ -32,7 +32,7 @@ interface FormValues {
   categoryName?: string;
   subcategory?: string;
   plant?: string;
-  location?: string;
+  buildingId?: string;
   barcodeValue?: string;
 }
 
@@ -40,6 +40,8 @@ export default function NewPartPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [categories, setCategories] = useState<Category[]>([]);
+  const [buildings, setBuildings] = useState<{ id: string; name: string }[]>([]);
+  const [selectedBuildingId, setSelectedBuildingId] = useState<string | undefined>();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAiSuggesting, setIsAiSuggesting] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -73,9 +75,22 @@ export default function NewPartPage() {
     }
   };
 
+  const fetchBuildings = async () => {
+    try {
+      const response = await fetch("/api/buildings");
+      if (response.ok) {
+        const data = await response.json();
+        setBuildings(data);
+      }
+    } catch {
+      // Silent
+    }
+  };
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchCategories();
+    fetchBuildings();
   }, []);
 
   const onSubmit = async (data: FormValues) => {
@@ -147,7 +162,6 @@ export default function NewPartPage() {
       if (suggestion.partNumber) setValue("partNumber", suggestion.partNumber);
       if (suggestion.partName) setValue("partName", suggestion.partName);
       if (suggestion.description) setValue("description", suggestion.description);
-      if (suggestion.location) setValue("location", suggestion.location);
       if (suggestion.unit) setValue("unit", suggestion.unit);
       if (suggestion.barcodeValue) setValue("barcodeValue", suggestion.barcodeValue);
       if (suggestion.subcategory) setValue("subcategory", suggestion.subcategory);
@@ -278,23 +292,42 @@ export default function NewPartPage() {
                 )}
               </div>
               <div>
-                <Label htmlFor="location">ที่เก็บ</Label>
-                <Input
-                  id="location"
-                  {...register("location")}
-                  placeholder="เช่น ชั้น A-1"
-                />
+                <Label>อาคาร *</Label>
+                <Select
+                  value={selectedBuildingId}
+                  onValueChange={(value) => {
+                    setSelectedBuildingId(value);
+                    setValue("buildingId", value);
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="เลือกอาคาร" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {buildings.map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {errors.buildingId && (
+                  <p className="text-sm text-red-500 mt-1">{errors.buildingId.message}</p>
+                )}
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="plant">Block</Label>
+                <Label htmlFor="plant">Block *</Label>
                 <Input
                   id="plant"
                   {...register("plant")}
-                  placeholder="เช่น 1, 2, 3"
+                  placeholder="เช่น 1, 2"
                 />
+                {errors.plant && (
+                  <p className="text-sm text-red-500 mt-1">{errors.plant.message}</p>
+                )}
               </div>
             </div>
 

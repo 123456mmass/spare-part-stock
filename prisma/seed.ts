@@ -30,6 +30,16 @@ async function main() {
   });
 
   console.log(`Admin seed complete: ${username}`);
+
+  const buildingNames = ["อาคาร 1", "อาคาร 2"];
+  for (let i = 0; i < buildingNames.length; i++) {
+    await prisma.building.upsert({
+      where: { name: buildingNames[i] },
+      update: { sortOrder: i, isActive: true },
+      create: { name: buildingNames[i], sortOrder: i },
+    });
+  }
+  console.log("Buildings seeded:", buildingNames.join(", "));
 }
 
 main()
