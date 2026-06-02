@@ -39,7 +39,11 @@ export function gatewayBaseUrl(): string {
 }
 
 export function gatewayModel(): string {
-  return process.env.SPARE_PART_AI_MODEL || process.env.LLM_GATEWAY_MODEL || "gemini-3-flash";
+  return (
+    process.env.SPARE_PART_AI_MODEL ||
+    process.env.LLM_GATEWAY_MODEL ||
+    "claude-sonnet-4.6"
+  );
 }
 
 export function gatewayKey(): string {
@@ -131,24 +135,6 @@ function toReverseproxyMessages(content: AiContentBlock[]): Array<{ role: string
   return [{ role: "user", content: parts }];
 }
 
-function toAnthropicContent(content: AiContentBlock[]): unknown[] {
-  const parts: unknown[] = [];
-  for (const block of content) {
-    if (block.type === "text" && block.text) {
-      parts.push({ type: "text", text: block.text });
-    } else if (block.type === "image" && block.imageBase64) {
-      parts.push({
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: block.mediaType || "image/jpeg",
-          data: block.imageBase64,
-        },
-      });
-    }
-  }
-  return parts;
-}
 
 async function callReverseproxy(content: AiContentBlock[], opts: AiCallOptions): Promise<string> {
   const response = await fetch(`${reverseproxyUrl()}/v1/chat/completions`, {
@@ -209,15 +195,43 @@ async function callReverseproxy(content: AiContentBlock[], opts: AiCallOptions):
   return text;
 }
 
+function extractTextFromOpenAI(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "";
+  const choices = (payload as { choices?: unknown }).choices;
+  if (!Array.isArray(choices) || choices.length === 0) return "";
+  const message = (choices[0] as { message?: unknown }).message;
+  if (!message || typeof message !== "object") return "";
+  const content = (message as { content?: unknown }).content;
+  return typeof content === "string" ? content.trim() : "";
+}
+
 async function callGateway(content: AiContentBlock[], opts: AiCallOptions): Promise<string> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
-    "anthropic-version": "2023-06-01",
   };
   const apiKey = gatewayKey();
   if (apiKey) headers.authorization = `Bearer ${apiKey}`;
 
-  const response = await fetch(`${gatewayBaseUrl()}/v1/messages`, {
+  // Convert to OpenAI format
+  const messages = content.map((block) => {
+    if (block.type === "text") {
+      return { role: "user", content: block.text || "" };
+    }
+    // Image block
+    const mediaType = block.mediaType || "image/jpeg";
+    return {
+      role: "user",
+      content: [
+        { type: "text", text: block.text || "" },
+        {
+          type: "image_url",
+          image_url: { url: `data:${mediaType};base64,${block.imageBase64}` },
+        },
+      ],
+    };
+  });
+
+  const response = await fetch(`${gatewayBaseUrl()}/v1/chat/completions`, {
     method: "POST",
     headers,
     signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
@@ -225,14 +239,15 @@ async function callGateway(content: AiContentBlock[], opts: AiCallOptions): Prom
       model: gatewayModel(),
       max_tokens: opts.maxTokens ?? 4096,
       temperature: opts.temperature ?? 0,
-      messages: [{ role: "user", content: toAnthropicContent(content) }],
+      messages,
     }),
   });
 
   if (!response.ok) {
     throw new Error(`gateway returned ${response.status}`);
   }
-  return extractTextFromAnthropic(await response.json());
+  const data = await response.json();
+  return extractTextFromOpenAI(data);
 }
 
 export async function callPartAi(

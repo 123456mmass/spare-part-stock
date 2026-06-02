@@ -16,6 +16,7 @@ import {
   Users,
   KeyRound,
   Warehouse,
+  Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ const navigation = [
   { name: "บล็อก", href: "/blocks", icon: Building2, adminOnly: true },
   { name: "อาคาร", href: "/buildings", icon: Warehouse, adminOnly: true },
   { name: "จัดการผู้ใช้", href: "/users", icon: Users, adminOnly: true },
+  { name: "ตั้งค่า AI", href: "/settings/ai", icon: Bot, adminOnly: true },
 ];
 
 interface SidebarProps {
