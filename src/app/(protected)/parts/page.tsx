@@ -39,7 +39,6 @@ interface PartsResponse {
   totalPages: number;
 }
 
-const NO_BLOCK_VALUE = "__none__";
 const NO_BUILDING_VALUE = "__none__";
 const PAGE_SIZE = 24;
 
@@ -230,7 +229,6 @@ export default function PartsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">ทุก Block</SelectItem>
-                  <SelectItem value={NO_BLOCK_VALUE}>ไม่มี Block</SelectItem>
                   {[...new Set(parts.map(p => p.plant).filter(Boolean))].sort().map((p) => (
                     <SelectItem key={p!} value={p!}>{p}</SelectItem>
                   ))}
