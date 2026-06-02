@@ -6,6 +6,26 @@ import { requireAuth } from "@/lib/auth";
 import { generatePartBarcodeValue, generatePartNumber } from "@/lib/barcode";
 import { createStockMovement } from "@/lib/stock";
 
+const PAGE_SIZE_DEFAULT = 24;
+const PAGE_SIZE_MAX = 200;
+
+// Fields returned to the list view (avoids fetching description, embeddings, etc.)
+const partListSelect = {
+  id: true,
+  partNumber: true,
+  partName: true,
+  subcategory: true,
+  plant: true,
+  location: true,
+  quantity: true,
+  minimumQuantity: true,
+  unit: true,
+  imageUrl: true,
+  qrCodeUrl: true,
+  category: { select: { id: true, name: true } },
+  building: { select: { id: true, name: true } },
+} satisfies Prisma.PartSelect;
+
 export async function GET(request: Request) {
   try {
     await requireAuth();
@@ -15,6 +35,12 @@ export async function GET(request: Request) {
     const stockStatus = searchParams.get("stockStatus");
     const plant = searchParams.get("plant");
     const buildingId = searchParams.get("buildingId");
+
+    // Pagination
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+    const rawSize = parseInt(searchParams.get("pageSize") || String(PAGE_SIZE_DEFAULT), 10);
+    const pageSize = Math.min(Math.max(1, rawSize), PAGE_SIZE_MAX);
+    const skip = (page - 1) * pageSize;
 
     const where: Prisma.PartWhereInput = { isActive: true };
 
@@ -48,23 +74,32 @@ export async function GET(request: Request) {
       where.quantity = { gt: 0 };
     }
 
-    let parts = await prisma.part.findMany({
-      where,
-      include: {
-        category: true,
-        building: true,
-      },
-      orderBy: { partNumber: "asc" },
-    });
+    const [parts, total] = await Promise.all([
+      prisma.part.findMany({
+        where,
+        select: partListSelect,
+        orderBy: { partNumber: "asc" },
+        skip,
+        take: pageSize,
+      }),
+      prisma.part.count({ where }),
+    ]);
 
     // Filter low-stock server-side (field-to-field comparison not supported in Prisma where)
+    let filtered = parts;
     if (stockStatus === "low-stock") {
-      parts = parts.filter(p => p.quantity <= p.minimumQuantity);
+      filtered = parts.filter(p => p.quantity <= p.minimumQuantity);
     } else if (stockStatus === "in-stock") {
-      parts = parts.filter(p => p.quantity > p.minimumQuantity || p.minimumQuantity === 0);
+      filtered = parts.filter(p => p.quantity > p.minimumQuantity || p.minimumQuantity === 0);
     }
 
-    return NextResponse.json(parts);
+    return NextResponse.json({
+      parts: filtered,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    });
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

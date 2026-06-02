@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { fetchWithAuth as fetch } from "@/lib/api";
@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toaster";
-import { Package, Plus, Search, QrCode, Grid3X3, List } from "lucide-react";
+import { Package, Plus, Search, QrCode, Grid3X3, List, Loader2 } from "lucide-react";
 import { getStockStatus, getStockStatusLabel } from "@/lib/utils";
 import { PageHeader } from "@/components/layout";
 
@@ -31,8 +31,26 @@ interface Part {
   qrCodeUrl: string | null;
 }
 
+interface PartsResponse {
+  parts: Part[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
 const NO_BLOCK_VALUE = "__none__";
 const NO_BUILDING_VALUE = "__none__";
+const PAGE_SIZE = 24;
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
 
 export default function PartsPage() {
   const router = useRouter();
@@ -40,7 +58,9 @@ export default function PartsPage() {
   const searchParams = useSearchParams();
   const [parts, setParts] = useState<Part[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search, 350);
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [subcategoryFilter, setSubcategoryFilter] = useState("all");
   const [plantFilter, setPlantFilter] = useState("all");
@@ -49,20 +69,52 @@ export default function PartsPage() {
   const [viewMode, setViewMode] = useState<"table" | "card">("card");
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [buildings, setBuildings] = useState<{ id: string; name: string }[]>([]);
+  const [total, setTotal] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const abortRef = useRef<AbortController | null>(null);
 
-  const fetchParts = async () => {
+  const buildQueryString = useCallback((page: number) => {
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("pageSize", String(PAGE_SIZE));
+    if (debouncedSearch) params.set("search", debouncedSearch);
+    if (categoryFilter !== "all") params.set("categoryId", categoryFilter);
+    if (buildingFilter !== "all") params.set("buildingId", buildingFilter);
+    if (stockFilter !== "all") params.set("stockStatus", stockFilter);
+    if (plantFilter !== "all") params.set("plant", plantFilter);
+    return params.toString();
+  }, [debouncedSearch, categoryFilter, buildingFilter, stockFilter, plantFilter]);
+
+  const fetchParts = useCallback(async (page: number, append = false) => {
+    // Cancel previous in-flight request
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    if (append) setIsLoadingMore(true);
+    else setIsLoading(true);
+
     try {
-      const response = await fetch("/api/parts");
+      const qs = buildQueryString(page);
+      const response = await fetch(`/api/parts?${qs}`, { signal: controller.signal });
       if (response.ok) {
-        const data = await response.json();
-        setParts(data);
+        const data: PartsResponse = await response.json();
+        setParts(prev => append ? [...prev, ...data.parts] : data.parts);
+        setTotal(data.total);
+        setCurrentPage(data.page);
+        setTotalPages(data.totalPages);
       }
-    } catch {
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
       toast({ title: "เกิดข้อผิดพลาด", description: "ไม่สามารถดึงข้อมูลอะไหล่", variant: "destructive" });
     } finally {
-      setIsLoading(false);
+      if (!controller.signal.aborted) {
+        setIsLoading(false);
+        setIsLoadingMore(false);
+      }
     }
-  };
+  }, [buildQueryString, toast]);
 
   const fetchCategories = async () => {
     try {
@@ -88,10 +140,11 @@ export default function PartsPage() {
     }
   };
 
+  // Read URL params on mount
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchParts();
     fetchCategories();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchBuildings();
     const status = searchParams.get("stockStatus");
     if (status && ["in-stock", "low-stock", "out-of-stock"].includes(status)) {
@@ -103,45 +156,22 @@ export default function PartsPage() {
     if (buildingId) setBuildingFilter(buildingId);
   }, [searchParams]);
 
-  const filteredParts = parts.filter((part) => {
-    const matchesSearch =
-      search === "" ||
-      part.partNumber.toLowerCase().includes(search.toLowerCase()) ||
-      part.partName.toLowerCase().includes(search.toLowerCase());
+  // Re-fetch when server-side filters change (resets to page 1)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchParts(1);
+  }, [fetchParts]);
 
-    const matchesCategory =
-      categoryFilter === "all" || part.category?.id === categoryFilter;
-
-    const matchesSubcategory =
-      subcategoryFilter === "all" || part.subcategory === subcategoryFilter;
-
-    const matchesPlant =
-      plantFilter === "all" ||
-      (plantFilter === NO_BLOCK_VALUE ? !part.plant : part.plant === plantFilter);
-
-    const matchesBuilding =
-      buildingFilter === "all" ||
-      (buildingFilter === NO_BUILDING_VALUE
-        ? !part.building
-        : part.building?.id === buildingFilter);
-
-    let matchesStock = true;
-    if (stockFilter === "in-stock") {
-      matchesStock = part.quantity > part.minimumQuantity && part.quantity > 0;
-    } else if (stockFilter === "low-stock") {
-      matchesStock = part.quantity <= part.minimumQuantity && part.quantity > 0;
-    } else if (stockFilter === "out-of-stock") {
-      matchesStock = part.quantity === 0;
-    }
-
-    return matchesSearch && matchesCategory && matchesSubcategory && matchesPlant && matchesBuilding && matchesStock;
-  });
+  // Client-side filters for subcategory & plant (derived from loaded parts)
+  const filteredParts = subcategoryFilter === "all"
+    ? parts
+    : parts.filter(p => p.subcategory === subcategoryFilter);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="อะไหล่"
-        description={`จำนวน ${filteredParts.length} รายการ`}
+        description={`จำนวน ${total} รายการ`}
         action={
           <Link href="/parts/new">
             <Button size="sm" className="bg-white text-indigo-700 hover:bg-indigo-50">
@@ -286,6 +316,8 @@ export default function PartsPage() {
                         <img
                           src={part.imageUrl}
                           alt={part.partName}
+                          loading="lazy"
+                          decoding="async"
                           className="w-full h-full object-cover"
                         />
                       </div>
@@ -393,6 +425,26 @@ export default function PartsPage() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Load more */}
+      {currentPage < totalPages && (
+        <div className="flex justify-center py-4">
+          <Button
+            variant="outline"
+            onClick={() => fetchParts(currentPage + 1, true)}
+            disabled={isLoadingMore}
+          >
+            {isLoadingMore ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                กำลังโหลด...
+              </>
+            ) : (
+              `โหลดเพิ่ม (${parts.length}/${total})`
+            )}
+          </Button>
+        </div>
       )}
 
       {/* Bottom padding for mobile */}
