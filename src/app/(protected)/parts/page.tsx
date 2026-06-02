@@ -39,7 +39,6 @@ interface PartsResponse {
   totalPages: number;
 }
 
-const NO_BUILDING_VALUE = "__none__";
 const PAGE_SIZE = 24;
 
 function useDebounce<T>(value: T, delay: number): T {
@@ -241,7 +240,6 @@ export default function PartsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">ทุกอาคาร</SelectItem>
-                  <SelectItem value={NO_BUILDING_VALUE}>ไม่ระบุอาคาร</SelectItem>
                   {buildings.map((b) => (
                     <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
                   ))}
