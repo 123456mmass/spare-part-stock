@@ -205,6 +205,26 @@ function extractTextFromOpenAI(payload: unknown): string {
   return typeof content === "string" ? content.trim() : "";
 }
 
+function extractTextFromOpenAIStream(raw: string): string {
+  let text = "";
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) continue;
+    const data = trimmed.slice(5).trim();
+    if (!data || data === "[DONE]") continue;
+    try {
+      const parsed = JSON.parse(data) as {
+        choices?: Array<{ delta?: { content?: string } }>;
+      };
+      const delta = parsed.choices?.[0]?.delta?.content;
+      if (delta) text += delta;
+    } catch {
+      // Ignore malformed event chunks and keep reading the stream.
+    }
+  }
+  return text.trim();
+}
+
 async function callGateway(content: AiContentBlock[], opts: AiCallOptions): Promise<string> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -246,8 +266,11 @@ async function callGateway(content: AiContentBlock[], opts: AiCallOptions): Prom
   if (!response.ok) {
     throw new Error(`gateway returned ${response.status}`);
   }
-  const data = await response.json();
-  return extractTextFromOpenAI(data);
+  const raw = await response.text();
+  if (raw.trim().startsWith("data:")) {
+    return extractTextFromOpenAIStream(raw);
+  }
+  return extractTextFromOpenAI(JSON.parse(raw));
 }
 
 export async function callPartAi(

@@ -8,7 +8,13 @@ import {
 import { signSessionToken } from "@/lib/session";
 import { corsOptions, withCors } from "@/lib/cors";
 import { rateLimit, RateLimitError } from "@/lib/rate-limit";
-import { verifyLineIdToken, LineTokenError } from "@/lib/line";
+import {
+  createFlexMessage,
+  pushLineMessage,
+  verifyLineIdToken,
+  LineTokenError,
+} from "@/lib/line";
+import { createHelpFlex, createLoginSuccessFlex } from "@/lib/line-chat/flex-messages";
 import { prisma } from "@/lib/prisma";
 
 export const OPTIONS = corsOptions();
@@ -41,9 +47,13 @@ export const POST = withCors(async (request: Request) => {
     }
 
     // Check if this LINE user is already linked
-    const existing = await prisma.user.findUnique({
+    const existingLineAccount = await prisma.lineAccount.findUnique({
       where: { lineUserId: payload.sub },
+      include: { user: true },
     });
+    const existing =
+      existingLineAccount?.user ??
+      (await prisma.user.findUnique({ where: { lineUserId: payload.sub } }));
     if (existing) {
       return NextResponse.json(
         { error: "ALREADY_LINKED" },
@@ -72,11 +82,24 @@ export const POST = withCors(async (request: Request) => {
       );
     }
 
-    // Link LINE user ID
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { lineUserId: payload.sub },
+    // Link LINE user ID. One internal account can have multiple LINE accounts.
+    await prisma.lineAccount.upsert({
+      where: { lineUserId: payload.sub },
+      update: { userId: user.id },
+      create: {
+        lineUserId: payload.sub,
+        userId: user.id,
+      },
     });
+
+    try {
+      await pushLineMessage(payload.sub, [
+        createFlexMessage("ล็อกอินสำเร็จ", createLoginSuccessFlex(user.name || user.username)),
+        createFlexMessage("เมนู Spare Part Stock", createHelpFlex()),
+      ]);
+    } catch (error) {
+      console.error("LINE post-link menu push failed:", error);
+    }
 
     const { token, expiresAt } = await signSessionToken(
       user.id,

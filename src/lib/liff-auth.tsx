@@ -27,6 +27,7 @@ interface AuthState {
 
 interface LiffAuthContextValue extends AuthState {
   reauth: () => Promise<void>;
+  logout: () => Promise<void>;
 }
 
 const LiffAuthContext = createContext<LiffAuthContextValue | null>(null);
@@ -42,13 +43,17 @@ const LIFF_ID = process.env.NEXT_PUBLIC_LIFF_ID;
 const API_KEY = process.env.NEXT_PUBLIC_MOBILE_API_KEY;
 
 async function getLiffProfile(): Promise<{ idToken: string }> {
+  if (!LIFF_ID) throw new Error("NEXT_PUBLIC_LIFF_ID is not configured");
+
   const mod = await import("@line/liff");
   const liff = mod.default;
-  await liff.init({ liffId: LIFF_ID! });
+  await liff.init({ liffId: LIFF_ID, withLoginOnExternalBrowser: true });
+
   if (!liff.isLoggedIn()) {
-    liff.login();
+    liff.login({ redirectUri: window.location.href });
     return new Promise(() => {});
   }
+
   const idToken = liff.getIDToken();
   if (!idToken) throw new Error("LIFF getIDToken returned empty");
   return { idToken };
@@ -137,13 +142,28 @@ export function LiffAuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const logout = useCallback(async () => {
+    clearStoredToken();
+    try {
+      if (!MOCK_MODE && LIFF_ID) {
+        const mod = await import("@line/liff");
+        const liff = mod.default;
+        await liff.init({ liffId: LIFF_ID, withLoginOnExternalBrowser: true });
+        if (liff.isLoggedIn()) liff.logout();
+      }
+    } catch (error) {
+      console.warn("LIFF logout failed:", error);
+    }
+    setState({ status: "unlinked", user: null, idToken: null, error: null });
+  }, []);
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void authenticate();
   }, [authenticate]);
 
   return (
-    <LiffAuthContext.Provider value={{ ...state, reauth: authenticate }}>
+    <LiffAuthContext.Provider value={{ ...state, reauth: authenticate, logout }}>
       {children}
     </LiffAuthContext.Provider>
   );

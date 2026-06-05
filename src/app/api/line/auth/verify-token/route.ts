@@ -33,9 +33,13 @@ export const POST = withCors(async (request: Request) => {
       );
     }
 
-    const user = await prisma.user.findUnique({
+    const linked = await prisma.lineAccount.findUnique({
       where: { lineUserId: payload.sub },
+      include: { user: true },
     });
+    const user =
+      linked?.user ??
+      (await prisma.user.findUnique({ where: { lineUserId: payload.sub } }));
 
     if (!user) {
       return NextResponse.json({ status: "UNLINKED" });

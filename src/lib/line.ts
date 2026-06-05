@@ -110,6 +110,24 @@ export async function pushLineMessage(
   await sendLineMessages("push", { to, messages });
 }
 
+export async function getLineMessageContent(messageId: string): Promise<Buffer> {
+  const accessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  if (!accessToken) {
+    throw new Error("LINE_CHANNEL_ACCESS_TOKEN is not configured");
+  }
+
+  const res = await fetch(`https://api-data.line.me/v2/bot/message/${messageId}/content`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`LINE content download failed: ${res.status} ${text}`);
+  }
+
+  return Buffer.from(await res.arrayBuffer());
+}
+
 async function sendLineMessages(
   endpoint: "reply" | "push",
   payload: { replyToken?: string; to?: string; messages: LineReplyMessage[] }

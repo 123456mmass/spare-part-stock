@@ -15,13 +15,14 @@ const defaultCSP = `
 
 const liffCSP = `
   default-src 'self';
-  script-src 'self' 'unsafe-inline';
+  script-src 'self' 'unsafe-inline' https://static.line-scdn.net https://*.line-scdn.net;
   style-src 'self' 'unsafe-inline';
-  img-src 'self' data: blob:;
+  img-src 'self' data: blob: https://profile.line-scdn.net https://*.line-scdn.net;
   font-src 'self' data:;
-  connect-src 'self' https://api.line.me;
+  connect-src 'self' https://api.line.me https://*.line.me https://*.line-scdn.net;
+  frame-src https://liff.line.me https://liff-apps.line.me https://access.line.me;
   frame-ancestors https://liff.line.me https://liff-apps.line.me;
-  form-action 'self';
+  form-action 'self' https://access.line.me;
   base-uri 'self';
   object-src 'none';
 `;
@@ -30,6 +31,27 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["sharp"],
   async headers() {
     return [
+      {
+        source: "/liff",
+        headers: [
+          {
+            key: "Content-Security-Policy",
+            value: liffCSP.replace(/\n/g, ""),
+          },
+          {
+            key: "X-Content-Type-Options",
+            value: "nosniff",
+          },
+          {
+            key: "Referrer-Policy",
+            value: "strict-origin-when-cross-origin",
+          },
+          {
+            key: "Permissions-Policy",
+            value: "camera=(self), microphone=(), geolocation=()",
+          },
+        ],
+      },
       {
         source: "/liff/(.*)",
         headers: [
@@ -52,7 +74,7 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        source: "/((?!liff/).*)",
+        source: "/((?!liff(?:/|$)).*)",
         headers: [
           {
             key: "Content-Security-Policy",

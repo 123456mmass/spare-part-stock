@@ -66,6 +66,16 @@ export default function LiffLinkPage() {
       }
 
       storeToken(data.token);
+      try {
+        const mod = await import("@line/liff");
+        const liff = mod.default;
+        if (liff.isInClient()) {
+          liff.closeWindow();
+          return;
+        }
+      } catch {
+        // Fall back to LIFF menu below.
+      }
       router.replace("/liff");
     } catch {
       setError("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้");

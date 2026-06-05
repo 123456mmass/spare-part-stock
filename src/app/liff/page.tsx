@@ -3,7 +3,8 @@
 import { useEffect } from "react";
 import { useLiffAuth } from "@/lib/liff-auth";
 import { Card } from "@/components/ui/card";
-import { QrCode, PackageOpen, PlusCircle, Image } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { QrCode, PackageOpen, PlusCircle, Image, LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 const MENU = [
@@ -43,7 +44,7 @@ const MENU = [
 ];
 
 export default function LiffHome() {
-  const { user, status } = useLiffAuth();
+  const { user, status, logout } = useLiffAuth();
   const router = useRouter();
 
   useEffect(() => {
@@ -54,10 +55,28 @@ export default function LiffHome() {
 
   if (status !== "authenticated" || !user) return null;
 
+  async function handleLogout() {
+    await logout();
+    router.replace("/liff/link");
+  }
+
   return (
     <div className="space-y-4">
-      <div className="text-sm text-muted-foreground">
-        ยินดีต้อนรับ, <span className="font-medium text-foreground">{user.name || user.username}</span>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 text-sm text-muted-foreground">
+          ยินดีต้อนรับ,{" "}
+          <span className="font-medium text-foreground">{user.name || user.username}</span>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="shrink-0 gap-1.5"
+          onClick={handleLogout}
+        >
+          <LogOut className="size-4" />
+          ออกจากระบบ
+        </Button>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
