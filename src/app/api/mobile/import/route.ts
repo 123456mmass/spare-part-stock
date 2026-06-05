@@ -3,7 +3,7 @@ import { importPartsFromExcel } from "@/lib/excel";
 import { requireAuthFromRequest } from "@/lib/auth";
 import { corsOptions, withCors } from "@/lib/cors";
 
-const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 export const OPTIONS = corsOptions();
 
@@ -27,7 +27,7 @@ export const POST = withCors(async (request: Request) => {
 
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: "ไฟล์มีขนาดใหญ่เกิน 100MB" },
+        { error: "ไฟล์มีขนาดใหญ่เกิน 50MB" },
         { status: 400 }
       );
     }

@@ -109,17 +109,9 @@ export function validateImportRows(
 
     const partNumberKey = normalized.partNumber.toUpperCase();
     if (seenPartNumbers.has(partNumberKey)) {
-      // Same part — merge: sum quantity, keep higher minimumQuantity
-      const existingIdx = validatedRows.findIndex(
-        (r) => r.partNumber.toUpperCase() === partNumberKey
+      errors.push(
+        `แถว ${row.rowNum}: รหัสอะไหล่ "${normalized.partNumber}" ซ้ำกับแถว ${seenPartNumbers.get(partNumberKey)}`
       );
-      if (existingIdx >= 0) {
-        validatedRows[existingIdx].quantity += normalized.quantity;
-        validatedRows[existingIdx].minimumQuantity = Math.max(
-          validatedRows[existingIdx].minimumQuantity,
-          normalized.minimumQuantity
-        );
-      }
       continue;
     }
     seenPartNumbers.set(partNumberKey, row.rowNum);

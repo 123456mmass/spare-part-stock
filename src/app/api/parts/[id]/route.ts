@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { prisma, getP2002Fields } from "@/lib/prisma";
 import { partUpdateSchema } from "@/lib/validators";
-import { requireAuth, requireRole } from "@/lib/auth";
-import { createStockMovement } from "@/lib/stock";
+import { requireAuth } from "@/lib/auth";
 
 export async function GET(
   request: Request,
@@ -87,6 +86,7 @@ export async function PUT(
     const data = parsed.data;
 
     let resolvedCategoryId = data.categoryId ?? undefined;
+    const shouldUpdateCategory = data.categoryId !== undefined || data.categoryName !== undefined;
     if (!resolvedCategoryId && data.categoryName) {
       const cat = await prisma.category.upsert({
         where: { name: data.categoryName },
@@ -109,7 +109,7 @@ export async function PUT(
         ...(data.subcategory !== undefined && { subcategory: data.subcategory }),
         ...(data.plant !== undefined && { plant: data.plant }),
         ...(data.buildingId !== undefined && { buildingId: data.buildingId }),
-        categoryId: resolvedCategoryId ?? null,
+        ...(shouldUpdateCategory && { categoryId: resolvedCategoryId ?? null }),
       },
       include: {
         category: true,
@@ -131,8 +131,8 @@ export async function PUT(
       }
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      const target = (error.meta?.target as string[] | undefined)?.[0] ?? "";
-      if (target === "barcodeValue") {
+      const fields = getP2002Fields(error);
+      if (fields.includes("barcodeValue")) {
         return NextResponse.json({ error: "บาร์โค้ดนี้มีอยู่แล้ว" }, { status: 400 });
       }
       return NextResponse.json({ error: "รหัสอะไหล่นี้มีอยู่แล้ว" }, { status: 400 });
@@ -165,7 +165,7 @@ export async function DELETE(
         throw new Error("FORBIDDEN");
       }
 
-      await tx.part.delete({ where: { id } });
+      await tx.part.update({ where: { id }, data: { isActive: false } });
     });
 
     return NextResponse.json({ success: true });

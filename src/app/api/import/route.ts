@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { importPartsFromExcel } from "@/lib/excel";
 import { requireAuth, requireRole } from "@/lib/auth";
 
-const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 const ALLOWED_TYPES = [
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "application/vnd.ms-excel",
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
 
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: "ไฟล์มีขนาดใหญ่เกิน 2GB" },
+        { error: "ไฟล์มีขนาดใหญ่เกิน 50MB" },
         { status: 400 }
       );
     }

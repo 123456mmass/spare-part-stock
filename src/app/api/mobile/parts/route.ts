@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { prisma, getP2002Fields } from "@/lib/prisma";
 import { partSchema } from "@/lib/validators";
 import { requireAuthFromRequest } from "@/lib/auth";
 import { corsOptions, withCors } from "@/lib/cors";
@@ -208,14 +208,8 @@ export const POST = withCors(async (request: Request) => {
       );
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      const meta = error.meta as { target?: unknown; driverAdapterError?: { cause?: { constraint?: { fields?: string[] } } } } | undefined;
-      const adapterFields = meta?.driverAdapterError?.cause?.constraint?.fields;
-      const targetStr = Array.isArray(adapterFields)
-        ? adapterFields.join(",")
-        : Array.isArray(meta?.target)
-          ? meta.target.join(",")
-          : String(meta?.target ?? error.message ?? "");
-      if (targetStr.includes("barcodeValue")) {
+      const fields = getP2002Fields(error);
+      if (fields.includes("barcodeValue")) {
         return NextResponse.json({ error: "บาร์โค้ดนี้มีอยู่แล้ว" }, { status: 400 });
       }
       return NextResponse.json({ error: "รหัสอะไหล่นี้มีอยู่แล้ว" }, { status: 400 });

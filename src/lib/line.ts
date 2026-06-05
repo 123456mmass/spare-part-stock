@@ -48,7 +48,7 @@ export async function verifyLineIdToken(idToken: string): Promise<LineIdTokenPay
 export interface LineWebhookEvent {
   type: "message" | "follow" | "unfollow" | "join" | "leave" | "postback";
   replyToken?: string;
-  source?: { type: "user" | "group" | "room"; userId: string };
+  source?: { type: "user" | "group" | "room"; userId?: string; groupId?: string; roomId?: string };
   message?: {
     type: "text" | "image" | "video" | "audio" | "location" | "sticker";
     id: string;
@@ -80,8 +80,10 @@ export function verifyLineSignature(body: string, signature: string): boolean {
 }
 
 interface LineReplyMessage {
-  type: "text";
-  text: string;
+  type: "text" | "flex";
+  text?: string;
+  altText?: string;
+  contents?: unknown;
 }
 
 export async function sendLineReply(
@@ -89,6 +91,16 @@ export async function sendLineReply(
   messages: LineReplyMessage[]
 ): Promise<void> {
   await sendLineMessages("reply", { replyToken, messages });
+}
+
+// Helper: สร้าง text message
+export function createTextMessage(text: string): LineReplyMessage {
+  return { type: "text", text };
+}
+
+// Helper: สร้าง flex message
+export function createFlexMessage(altText: string, contents: unknown): LineReplyMessage {
+  return { type: "flex", altText, contents };
 }
 
 export async function pushLineMessage(
@@ -107,13 +119,25 @@ async function sendLineMessages(
     throw new Error("LINE_CHANNEL_ACCESS_TOKEN is not configured");
   }
 
+  // Convert Flex messages to LINE API format
+  const formattedMessages = payload.messages.map((msg) => {
+    if (msg.type === "flex") {
+      return {
+        type: "flex",
+        altText: msg.altText || "ข้อความ",
+        contents: msg.contents,
+      };
+    }
+    return msg;
+  });
+
   const res = await fetch(`https://api.line.me/v2/bot/message/${endpoint}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, messages: formattedMessages }),
   });
 
   if (!res.ok) {

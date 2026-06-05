@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toaster";
-import { Bot } from "lucide-react";
+import { Bot, Play } from "lucide-react";
 
 interface AiModelData {
   currentModel: string;
@@ -25,6 +25,13 @@ export default function AiSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [data, setData] = useState<AiModelData | null>(null);
   const [selectedModel, setSelectedModel] = useState("");
+
+  // Playground state
+  const [testPrompt, setTestPrompt] = useState("");
+  const [testResponse, setTestResponse] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [testElapsedMs, setTestElapsedMs] = useState<number | null>(null);
+  const [testModel, setTestModel] = useState("");
 
   const fetchData = useCallback(async () => {
     try {
@@ -56,6 +63,70 @@ export default function AiSettingsPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchData();
   }, [fetchData]);
+
+  const handleTest = async () => {
+    if (!testPrompt.trim()) {
+      toast({
+        title: "กรุณากรอก prompt",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setTesting(true);
+    setTestResponse("");
+    setTestElapsedMs(null);
+
+    try {
+      const res = await fetch("/api/admin/ai-model/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: testPrompt,
+          model: testModel || selectedModel,
+        }),
+      });
+
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        const text = await res.text();
+        console.error("Non-JSON response:", res.status, text.slice(0, 200));
+        toast({
+          title: "เกิดข้อผิดพลาด",
+          description: `Server returned ${res.status}: ${res.statusText || "ไม่ใช่ JSON"}`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const json = await res.json();
+
+      if (res.ok && json.success) {
+        setTestResponse(json.response);
+        setTestElapsedMs(json.elapsedMs);
+        setTestModel(json.model);
+        toast({
+          title: "ทดสอบสำเร็จ",
+          description: `ใช้ ${json.provider} (${json.elapsedMs}ms)`,
+        });
+      } else {
+        toast({
+          title: "ทดสอบล้มเหลว",
+          description: json.error || "Unknown error",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Error testing AI:", error);
+      toast({
+        title: "เกิดข้อผิดพลาด",
+        description: error instanceof Error ? error.message : "ไม่สามารถเชื่อมต่อกับ server",
+        variant: "destructive",
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!selectedModel) return;
@@ -199,6 +270,79 @@ export default function AiSettingsPage() {
             <p className="text-sm text-amber-600 mt-2">
               ⚠️ การเปลี่ยนแปลงจะมีผลทันที ไม่ต้อง restart server
             </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Play className="h-5 w-5" />
+            Playground
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <label className="text-sm font-medium text-gray-700 block mb-2">
+              Model (optional - ใช้ current model ถ้าไม่เลือก)
+            </label>
+            <Select value={testModel} onValueChange={setTestModel}>
+              <SelectTrigger className="w-full max-w-md">
+                <SelectValue placeholder={selectedModel} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">ใช้ current ({selectedModel})</SelectItem>
+                {data.availableModels.map((model) => (
+                  <SelectItem key={model} value={model}>
+                    {model}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-gray-700 block mb-2">
+              Prompt
+            </label>
+            <textarea
+              value={testPrompt}
+              onChange={(e) => setTestPrompt(e.target.value)}
+              placeholder="เช่น อธิบายอะไหล่คืออะไร..."
+              className="w-full h-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+            />
+          </div>
+
+          <Button
+            onClick={handleTest}
+            disabled={testing || !testPrompt.trim()}
+            className="w-full md:w-auto"
+          >
+            {testing ? (
+              <>
+                <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full mr-2" />
+                กำลังทดสอบ...
+              </>
+            ) : (
+              <>
+                <Play className="mr-2 h-4 w-4" />
+                ทดสอบ
+              </>
+            )}
+          </Button>
+
+          {testResponse && (
+            <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="font-medium text-gray-900">Response</h4>
+                <div className="text-xs text-gray-500">
+                  {testModel && `Model: ${testModel}`} • {testElapsedMs}ms • ~{Math.ceil(testResponse.length / 4)} tokens
+                </div>
+              </div>
+              <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">
+                {testResponse}
+              </pre>
+            </div>
           )}
         </CardContent>
       </Card>

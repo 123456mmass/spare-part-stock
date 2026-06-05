@@ -27,7 +27,23 @@ interface RateLimitOptions {
   windowSeconds: number;
 }
 
-// MAX_STORE_SIZE moved out
+function pruneExpired(store: Map<string, { count: number; resetAt: number }>, now: number): void {
+  for (const [key, entry] of store) {
+    if (now > entry.resetAt) store.delete(key);
+  }
+}
+
+function enforceStoreSize(store: Map<string, { count: number; resetAt: number }>, now: number): void {
+  if (store.size <= MAX_STORE_SIZE) return;
+  pruneExpired(store, now);
+  while (store.size > MAX_STORE_SIZE) {
+    const oldestKey = store.keys().next().value;
+    if (oldestKey === undefined) return;
+    store.delete(oldestKey);
+  }
+}
+
+// Bound each in-memory rate-limit bucket.
 function checkRateLimit(ip: string, opts: RateLimitOptions): void {
   const now = Date.now();
   const windowMs = opts.windowSeconds * 1000;
@@ -42,6 +58,7 @@ function checkRateLimit(ip: string, opts: RateLimitOptions): void {
 
   if (!entry || now > entry.resetAt) {
     store.set(ip, { count: 1, resetAt: now + windowMs });
+    enforceStoreSize(store, now);
     return;
   }
 
@@ -69,9 +86,7 @@ if (typeof setInterval !== "undefined") {
   setInterval(() => {
     const now = Date.now();
     for (const store of windows.values()) {
-      for (const [key, entry] of store) {
-        if (now > entry.resetAt) store.delete(key);
-      }
+      pruneExpired(store, now);
     }
   }, 10 * 60 * 1000);
 }

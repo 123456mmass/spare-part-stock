@@ -65,18 +65,18 @@ export const POST = withCors(async (request: Request) => {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Link LINE user ID
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { lineUserId: payload.sub },
-    });
-
     if (user.mustChangePassword) {
       return NextResponse.json(
         { error: "PASSWORD_CHANGE_REQUIRED" },
         { status: 403 }
       );
     }
+
+    // Link LINE user ID
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lineUserId: payload.sub },
+    });
 
     const { token, expiresAt } = await signSessionToken(
       user.id,

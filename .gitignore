@@ -64,6 +64,7 @@ test-results/
 secrets.zip
 KEYS.md
 DEPLOY_KEYS.md
+/key/
 
 # Temporary scripts and patches
 test-ai-*.ts

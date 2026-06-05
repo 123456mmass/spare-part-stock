@@ -58,8 +58,7 @@ export const GET = withCors(async (request: Request) => {
           try {
             await fs.access(imgPath);
             const imgBuffer = await fs.readFile(imgPath);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const imageId = workbook.addImage({ buffer: imgBuffer as any, extension: "jpeg" });
+            const imageId = workbook.addImage({ base64: imgBuffer.toString("base64"), extension: "jpeg" });
             sheet.addImage(imageId, { tl: { col: 8, row: i + 1 }, ext: { width: 100, height: 75 } });
           } catch { /* skip */ }
         }
@@ -101,8 +100,7 @@ export const GET = withCors(async (request: Request) => {
           try {
             await fs.access(imgPath);
             const imgBuffer = await fs.readFile(imgPath);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const imageId = workbook.addImage({ buffer: imgBuffer as any, extension: "jpeg" });
+            const imageId = workbook.addImage({ base64: imgBuffer.toString("base64"), extension: "jpeg" });
             sheet.addImage(imageId, { tl: { col: 10, row: i + 1 }, ext: { width: 100, height: 75 } });
           } catch { /* skip */ }
         }

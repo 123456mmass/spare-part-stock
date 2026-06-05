@@ -4,8 +4,22 @@ import { resolvePartFromCode } from "@/lib/part-lookup";
 import {
   verifyLineSignature,
   sendLineReply,
+  createTextMessage,
+  createFlexMessage,
   type LineWebhookBody,
 } from "@/lib/line";
+import { orchestrate } from "@/lib/line-chat/orchestrator";
+import {
+  createHelpFlex,
+  createSearchResultsFlex,
+  createStockInfoFlex,
+  createStatsFlex,
+  createNotFoundFlex,
+} from "@/lib/line-chat/flex-messages";
+
+// Bot name สำหรับ group mention detection
+// ใช้ environment variable หรือ fallback เป็นค่า default
+const BOT_MENTION = process.env.LINE_BOT_NAME || "@SpareBot";
 
 export async function POST(request: Request) {
   try {
@@ -24,15 +38,101 @@ export async function POST(request: Request) {
     const events = parsed.events || [];
 
     for (const event of events) {
-      if (event.type !== "message" || event.message?.type !== "text") continue;
+      // Process only message events
+      if (event.type !== "message") continue;
 
       const replyToken = event.replyToken;
       if (!replyToken) continue;
 
-      const text = (event.message?.text || "").trim();
-      const reply = await handleCommand(text);
+      const source = event.source;
+      const isGroup = source?.type === "group";
+      const lineUserId = source?.userId;
+      const lineGroupId = isGroup ? source?.groupId : undefined;
 
-      await sendLineReply(replyToken, [{ type: "text", text: reply }]);
+      // Handle image messages (Phase 2 - placeholder)
+      if (event.message?.type === "image") {
+        // Group chat: only respond if @mentioned
+        if (isGroup) {
+          const rawText = event.message?.text || "";
+          if (!rawText.includes(BOT_MENTION)) continue;
+        }
+        await sendLineReply(replyToken, [
+          createTextMessage("📷 ฟีเจอร์ค้นหาด้วยรูปภาพจะเปิดให้ใช้เร็วๆ นี้!"),
+        ]);
+        continue;
+      }
+
+      // Skip non-text messages (sticker, video, audio, location, etc.)
+      if (event.message?.type !== "text") continue;
+
+      const rawText = (event.message?.text || "").trim();
+      if (!rawText) continue;
+
+      // Group chat: only respond if @mentioned
+      if (isGroup) {
+        if (!rawText.includes(BOT_MENTION)) {
+          // Not mentioned, skip
+          continue;
+        }
+      }
+
+      // Get user's linked account
+      const user = lineUserId
+        ? await prisma.user.findUnique({ where: { lineUserId } })
+        : null;
+
+      if (isGroup && !lineUserId) {
+        await sendLineReply(replyToken, [
+          createTextMessage("ไม่สามารถระบุตัวตนผู้ใช้ในกลุ่มนี้ได้ กรุณา link account ผ่าน LIFF ก่อนใช้งาน"),
+        ]);
+        continue;
+      }
+
+      // If user not linked and trying to use AI features, suggest linking
+      if (!user && isGroup) {
+        await sendLineReply(replyToken, [
+          createTextMessage(
+            "คุณยังไม่ได้ link account กับระบบ\nกรุณา link ผ่าน LIFF: https://liff.line.me/..."
+          ),
+        ]);
+        continue;
+      }
+
+      // Strip @mention from text for processing
+      const text = isGroup
+        ? rawText.replace(new RegExp(BOT_MENTION.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "").trim()
+        : rawText;
+
+      if (!text) {
+        // Only @mention, no actual message - show help only in 1-on-1
+        if (!isGroup) {
+          await sendLineReply(replyToken, [createFlexMessage("ผู้ช่วยสต็อก", createHelpFlex())]);
+        }
+        continue;
+      }
+
+      // Check for legacy commands (backward compatibility)
+      const legacyReply = await tryLegacyCommand(text, replyToken);
+      if (legacyReply) continue;
+
+      // Use AI orchestrator for all other messages
+      try {
+        const userId = user?.id || "anonymous";
+        const result = await orchestrate(userId, lineGroupId, text, isGroup || false);
+
+        // Try to format as Flex Message if possible
+        const flexReply = await tryFormatAsFlex(result.reply, text);
+        if (flexReply) {
+          await sendLineReply(replyToken, [flexReply]);
+        } else {
+          await sendLineReply(replyToken, [createTextMessage(result.reply)]);
+        }
+      } catch (error) {
+        console.error("Orchestrator error:", error);
+        await sendLineReply(replyToken, [
+          createTextMessage("ขออภัย เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"),
+        ]);
+      }
     }
 
     return NextResponse.json({ success: true });
@@ -45,87 +145,86 @@ export async function POST(request: Request) {
   }
 }
 
-async function handleCommand(text: string): Promise<string> {
-  const trimmed = text.trim();
-  const command = trimmed.toLowerCase();
+// Legacy command support (backward compatibility)
+async function tryLegacyCommand(text: string, replyToken: string): Promise<boolean> {
+  const command = text.toLowerCase();
 
-  const stockMatch = trimmed.match(/^stock\s+(.+)$/i);
+  // stock <code>
+  const stockMatch = text.match(/^stock\s+(.+)$/i);
   if (stockMatch) {
-    return lookupPart(stockMatch[1].trim());
+    const part = await resolvePartFromCode(stockMatch[1].trim());
+    if (part) {
+      await sendLineReply(replyToken, [
+        createFlexMessage(`สต็อก ${part.partNumber}`, createStockInfoFlex(part)),
+      ]);
+    } else {
+      await sendLineReply(replyToken, [
+        createFlexMessage("ไม่พบ", createNotFoundFlex(stockMatch[1].trim())),
+      ]);
+    }
+    return true;
   }
 
-  const searchMatch = trimmed.match(/^(?:ค้นหา|search)\s+(.+)$/i);
+  // search <keyword>
+  const searchMatch = text.match(/^(?:ค้นหา|search)\s+(.+)$/i);
   if (searchMatch) {
-    return searchParts(searchMatch[1].trim());
+    const keyword = searchMatch[1].trim();
+    const parts = await prisma.part.findMany({
+      where: {
+        isActive: true,
+        OR: [
+          { partNumber: { contains: keyword } },
+          { partName: { contains: keyword } },
+        ],
+      },
+      include: {
+        category: { select: { name: true } },
+        building: { select: { name: true } },
+      },
+      take: 5,
+      orderBy: { partNumber: "asc" },
+    });
+
+    await sendLineReply(replyToken, [
+      createFlexMessage(`ค้นหา ${keyword}`, createSearchResultsFlex(keyword, parts)),
+    ]);
+    return true;
   }
 
+  // help
   if (command === "help" || command === "ช่วยเหลือ") {
-    return helpText();
+    await sendLineReply(replyToken, [createFlexMessage("วิธีใช้", createHelpFlex())]);
+    return true;
   }
 
-  if (trimmed.length >= 3 && trimmed.length <= 100) {
-    return lookupPart(trimmed);
-  }
-
-  return helpText();
+  return false;
 }
 
-async function lookupPart(code: string): Promise<string> {
-  const part = await resolvePartFromCode(code);
-
-  if (!part) {
-    return `ไม่พบ "${code}" ในระบบ`;
+// Try to format orchestrator reply as Flex Message
+async function tryFormatAsFlex(reply: string, originalText: string) {
+  // If reply contains stock info pattern, try to format as Flex
+  const stockMatch = reply.match(/📦\s*(\S+)\s*-\s*(.+)/);
+  if (stockMatch) {
+    const partNumber = stockMatch[1];
+    const part = await prisma.part.findFirst({
+      where: { partNumber, isActive: true },
+      include: { category: { select: { name: true } }, building: { select: { name: true } } },
+    });
+    if (part) {
+      return createFlexMessage(`สต็อก ${partNumber}`, createStockInfoFlex(part));
+    }
   }
 
-  const status = part.quantity <= 0
-    ? "หมด"
-    : part.quantity <= part.minimumQuantity
-      ? "ต่ำกว่าขั้นต่ำ"
-      : "คงเหลือ";
-
-  return [
-    `อะไหล่: ${part.partName}`,
-    `รหัส: ${part.partNumber}`,
-    `สถานที่: ${part.location || "-"}`,
-    `จำนวน: ${part.quantity} ${part.unit || "pcs"}`,
-    `ขั้นต่ำ: ${part.minimumQuantity}`,
-    `สถานะ: ${status}`,
-  ].join("\n");
-}
-
-async function searchParts(keyword: string): Promise<string> {
-  const parts = await prisma.part.findMany({
-    where: {
-      isActive: true,
-      OR: [
-        { partNumber: { contains: keyword } },
-        { partName: { contains: keyword } },
-      ],
-    },
-    take: 5,
-    orderBy: { partNumber: "asc" },
-  });
-
-  if (parts.length === 0) {
-    return `ไม่พบอะไหล่ที่ตรงกับ "${keyword}"`;
+  // If reply mentions "สรุปสต็อก" or stats, try to format as Flex
+  if (reply.includes("📊 สรุปสต็อก") || originalText.includes("สรุปสต็อก")) {
+    try {
+      const { getStorageSummary } = await import("@/lib/storage-summary");
+      const stats = await getStorageSummary();
+      return createFlexMessage("สรุปสต็อก", createStatsFlex(stats));
+    } catch {
+      // Fallback to text
+    }
   }
 
-  const lines = parts.map(
-    (p) => `- ${p.partNumber}: ${p.partName} (${p.quantity} ${p.unit || "pcs"})`
-  );
-
-  if (parts.length === 5) {
-    lines.push("... พิมพ์คำค้นให้เจาะจงขึ้นเพื่อดูเพิ่มเติม");
-  }
-
-  return `ค้นหา "${keyword}":\n${lines.join("\n")}`;
-}
-
-function helpText(): string {
-  return [
-    "คำสั่ง:",
-    "stock <รหัส> — ดูสถานะอะไหล่",
-    "ค้นหา <คำ> — ค้นหาอะไหล่",
-    "หรือส่งรหัส/บาร์โค้ดโดยตรง",
-  ].join("\n");
+  return null;
 }

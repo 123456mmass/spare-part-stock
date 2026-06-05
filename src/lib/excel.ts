@@ -355,7 +355,7 @@ export async function applyImportedRows(params: {
               {
                 partId: row.existingId,
                 userId,
-                type: "STOCK_IN",
+                type: "ADJUSTMENT",
                 quantity: row.quantity,
                 note: "นำเข้าจาก Excel",
               },

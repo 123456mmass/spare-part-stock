@@ -62,8 +62,7 @@ export async function GET(request: Request) {
           try {
             await fs.access(imgPath);
             const imgBuffer = await fs.readFile(imgPath);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const imageId = workbook.addImage({ buffer: imgBuffer as any, extension: "jpeg" });
+            const imageId = workbook.addImage({ base64: imgBuffer.toString("base64"), extension: "jpeg" });
             sheet.addImage(imageId, {
               tl: { col: 8, row: i + 1 },
               ext: { width: 130, height: 95 },
@@ -113,7 +112,7 @@ export async function GET(request: Request) {
             const imgBuffer = await fs.readFile(imgPath);
             const ext = path.extname(imgPath).toLowerCase();
             const imgType = ext === ".png" ? "png" : ext === ".gif" ? "gif" : "jpeg";
-            const imageId = workbook.addImage({ buffer: imgBuffer as any, extension: imgType as "png" | "jpeg" | "gif" });
+            const imageId = workbook.addImage({ base64: imgBuffer.toString("base64"), extension: imgType as "png" | "jpeg" | "gif" });
             sheet.addImage(imageId, {
               tl: { col: 10, row: i + 1 },
               ext: { width: 100, height: 75 },

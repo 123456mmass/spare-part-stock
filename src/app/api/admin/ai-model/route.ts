@@ -4,19 +4,45 @@ import { gatewayBaseUrl, gatewayKey, gatewayModel } from "@/lib/ai-client";
 
 // Hardcoded fallback models (from gateway provider registry)
 const FALLBACK_MODELS = [
-  "gpt-5.5-xhigh",
+  "claude-opus-4.8",
   "claude-opus-4.7",
-  "deepseek-3.2",
-  "composer-2.5",
   "claude-sonnet-4.6",
-  "deepseek-v4-pro",
+  "claude-haiku-4.5",
+  "gpt-5.5-xhigh",
+  "gpt-5.5",
   "mimo-v2.5-pro",
-  "MiniMax-M2.7",
   "MiniMax-M3",
+  "MiniMax-M2.7",
+  "deepseek-v4-pro",
+  "composer-2.5",
   "composer-2.5-fast",
-  "deepseek-v4-flash",
-  "gpt-5.5-low",
 ];
+
+async function getAvailableModels(baseUrl: string, apiKey: string): Promise<string[]> {
+  if (!apiKey) return FALLBACK_MODELS;
+
+  try {
+    const response = await fetch(`${baseUrl}/admin/providers`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!response.ok) return FALLBACK_MODELS;
+
+    const data = await response.json();
+    const models =
+      data.configs
+        ?.map((c: { model_id?: string }) => c.model_id)
+        .filter(Boolean) || [];
+
+    return models.length > 0 ? models : FALLBACK_MODELS;
+  } catch {
+    return FALLBACK_MODELS;
+  }
+}
 
 // GET /api/admin/ai-model - ดึง current model + available models
 export async function GET() {
@@ -27,48 +53,12 @@ export async function GET() {
     const currentModel = gatewayModel();
     const baseUrl = gatewayBaseUrl();
     const apiKey = gatewayKey();
+    const availableModels = await getAvailableModels(baseUrl, apiKey);
 
-    if (!apiKey) {
-      return NextResponse.json({
-        currentModel,
-        availableModels: FALLBACK_MODELS,
-      });
-    }
-
-    // Try to fetch providers from gateway
-    try {
-      const response = await fetch(`${baseUrl}/admin/providers`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-        },
-        signal: AbortSignal.timeout(10_000),
-      });
-
-      if (!response.ok) {
-        return NextResponse.json({
-          currentModel,
-          availableModels: FALLBACK_MODELS,
-        });
-      }
-
-      const data = await response.json();
-      const models =
-        data.configs
-          ?.map((c: { model_id?: string }) => c.model_id)
-          .filter(Boolean) || [];
-
-      return NextResponse.json({
-        currentModel,
-        availableModels: models.length > 0 ? models : FALLBACK_MODELS,
-      });
-    } catch {
-      // Gateway unreachable, return fallback
-      return NextResponse.json({
-        currentModel,
-        availableModels: FALLBACK_MODELS,
-      });
-    }
+    return NextResponse.json({
+      currentModel,
+      availableModels,
+    });
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -102,6 +92,14 @@ export async function PUT(request: Request) {
 
     const baseUrl = gatewayBaseUrl();
     const apiKey = gatewayKey();
+    const availableModels = await getAvailableModels(baseUrl, apiKey);
+
+    if (!availableModels.includes(model)) {
+      return NextResponse.json(
+        { error: `Model "${model}" ไม่พบในรายการที่รองรับ` },
+        { status: 400 }
+      );
+    }
 
     if (!apiKey) {
       return NextResponse.json(

@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { prisma, getP2002Fields } from "@/lib/prisma";
 import { partUpdateSchema } from "@/lib/validators";
 import { requireAuthFromRequest } from "@/lib/auth";
-import { createStockMovement } from "@/lib/stock";
 import { corsOptions, withCors } from "@/lib/cors";
 
 export const OPTIONS = corsOptions();
@@ -90,6 +89,7 @@ export const PUT = withCors(async (
 
     // Resolve categoryName to categoryId if provided
     let resolvedCategoryId = data.categoryId ?? undefined;
+    const shouldUpdateCategory = data.categoryId !== undefined || data.categoryName !== undefined;
     if (!resolvedCategoryId && data.categoryName) {
       const cat = await prisma.category.upsert({
         where: { name: data.categoryName },
@@ -112,7 +112,7 @@ export const PUT = withCors(async (
         ...(data.subcategory !== undefined && { subcategory: data.subcategory }),
         ...(data.plant !== undefined && { plant: data.plant }),
         ...(data.buildingId !== undefined && { buildingId: data.buildingId || null }),
-        categoryId: resolvedCategoryId ?? null,
+        ...(shouldUpdateCategory && { categoryId: resolvedCategoryId ?? null }),
       },
       include: { category: true, building: true },
     });
@@ -133,8 +133,8 @@ export const PUT = withCors(async (
         return NextResponse.json({ error: "ไม่พบอะไหล่นี้" }, { status: 404 });
       }
       if (error.code === "P2002") {
-        const target = (error.meta?.target as string[] | undefined)?.[0] ?? "";
-        if (target === "barcodeValue") {
+        const fields = getP2002Fields(error);
+        if (fields.includes("barcodeValue")) {
           return NextResponse.json({ error: "บาร์โค้ดนี้มีอยู่แล้ว" }, { status: 400 });
         }
         return NextResponse.json({ error: "รหัสอะไหล่นี้มีอยู่แล้ว" }, { status: 400 });
@@ -166,7 +166,9 @@ export const DELETE = withCors(async (
       return NextResponse.json({ error: "ไม่มีสิทธิ์ลบอะไหล่นี้ (ไม่ใช่ผู้สร้าง)" }, { status: 403 });
     }
 
-    await prisma.part.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      await tx.part.update({ where: { id }, data: { isActive: false } });
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

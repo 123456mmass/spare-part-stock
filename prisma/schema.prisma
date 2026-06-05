@@ -105,3 +105,30 @@ enum MovementType {
   STOCK_OUT
   ADJUSTMENT
 }
+
+model Conversation {
+  id          String   @id @default(cuid())
+  lineUserId  String?  // null for group-only conversations
+  lineGroupId String?  // null for 1-on-1 conversations
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  messages ConversationMessage[]
+
+  @@index([lineUserId])
+  @@index([lineGroupId])
+  @@index([updatedAt])
+}
+
+model ConversationMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String   // "user" | "assistant" | "system"
+  content        String
+  messageType    String   @default("text")  // "text" | "image" | "command"
+  metadata       String?  // JSON: tool calls, image URLs, import state, etc
+  createdAt      DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+}

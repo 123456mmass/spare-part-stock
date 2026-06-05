@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, getP2002Fields } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { partSchema } from "@/lib/validators";
 import { requireAuth } from "@/lib/auth";
@@ -69,9 +69,16 @@ export async function GET(request: Request) {
       where.quantity = 0;
     } else if (stockStatus === "low-stock") {
       where.quantity = { gt: 0 };
-      where.minimumQuantity = { gt: 0 };
+      where.AND = [{ quantity: { lte: prisma.part.fields.minimumQuantity } }];
     } else if (stockStatus === "in-stock") {
-      where.quantity = { gt: 0 };
+      where.AND = [
+        {
+          OR: [
+            { quantity: { gt: prisma.part.fields.minimumQuantity } },
+            { minimumQuantity: 0, quantity: { gt: 0 } },
+          ],
+        },
+      ];
     }
 
     const [parts, total] = await Promise.all([
@@ -85,16 +92,8 @@ export async function GET(request: Request) {
       prisma.part.count({ where }),
     ]);
 
-    // Filter low-stock server-side (field-to-field comparison not supported in Prisma where)
-    let filtered = parts;
-    if (stockStatus === "low-stock") {
-      filtered = parts.filter(p => p.quantity <= p.minimumQuantity);
-    } else if (stockStatus === "in-stock") {
-      filtered = parts.filter(p => p.quantity > p.minimumQuantity || p.minimumQuantity === 0);
-    }
-
     return NextResponse.json({
-      parts: filtered,
+      parts,
       total,
       page,
       pageSize,
@@ -200,14 +199,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "PASSWORD_CHANGE_REQUIRED", code: "PASSWORD_CHANGE_REQUIRED", message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน" }, { status: 403 });
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      const meta = error.meta as { target?: unknown; driverAdapterError?: { cause?: { constraint?: { fields?: string[] } } } } | undefined;
-      const adapterFields = meta?.driverAdapterError?.cause?.constraint?.fields;
-      const targetStr = Array.isArray(adapterFields)
-        ? adapterFields.join(",")
-        : Array.isArray(meta?.target)
-          ? meta.target.join(",")
-          : String(meta?.target ?? error.message ?? "");
-      if (targetStr.includes("barcodeValue")) {
+      const fields = getP2002Fields(error);
+      if (fields.includes("barcodeValue")) {
         return NextResponse.json({ error: "บาร์โค้ดนี้มีอยู่แล้ว" }, { status: 400 });
       }
       return NextResponse.json({ error: "รหัสอะไหล่นี้มีอยู่แล้ว" }, { status: 400 });
