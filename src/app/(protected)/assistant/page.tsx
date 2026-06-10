@@ -42,7 +42,8 @@ type StreamEvent =
 const WELCOME: ChatMessage = {
   id: "welcome",
   role: "assistant",
-  content: "พร้อมช่วยเรื่องสต็อกอะไหล่ครับ ถามหาอะไหล่ สรุปจำนวน หรือเตรียมรายการรับเข้า/เบิกออกได้เลย",
+  content:
+    "พร้อมช่วยเรื่องสต็อกอะไหล่ครับ ถามหาอะไหล่ สรุปจำนวน หรือเตรียมรายการรับเข้า/เบิกออกได้เลย",
 };
 
 const QUICK_PROMPTS = [
@@ -66,7 +67,10 @@ export default function AssistantPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    scrollRef.current?.scrollTo({
+      top: scrollRef.current.scrollHeight,
+      behavior: "smooth",
+    });
   }, [messages, sending, thinkingStatus]);
 
   useEffect(() => {
@@ -76,7 +80,12 @@ export default function AssistantPage() {
         const response = await fetch("/api/ai/chat/history");
         if (!response.ok) return;
         const data = await response.json();
-        if (!active || !Array.isArray(data.messages) || data.messages.length === 0) return;
+        if (
+          !active ||
+          !Array.isArray(data.messages) ||
+          data.messages.length === 0
+        )
+          return;
         setConversationId(data.conversationId || undefined);
         setMessages(
           data.messages.map(
@@ -88,10 +97,13 @@ export default function AssistantPage() {
             }) => ({
               id: item.id,
               role: item.role,
-              content: item.content,
+              content:
+                item.role === "assistant"
+                  ? cleanAssistantText(item.content)
+                  : item.content,
               pendingActionIds: item.metadata?.pendingActionIds || [],
-            })
-          )
+            }),
+          ),
         );
       } catch {
         // History is best-effort.
@@ -126,10 +138,14 @@ export default function AssistantPage() {
       content: trimmed || "วิเคราะห์รูปภาพ",
     };
     const assistantId = crypto.randomUUID();
-    setMessages((prev) => [...prev.filter((item) => item.id !== "welcome"), userMessage, { id: assistantId, role: "assistant", content: "" }]);
+    setMessages((prev) => [
+      ...prev.filter((item) => item.id !== "welcome"),
+      userMessage,
+      { id: assistantId, role: "assistant", content: "" },
+    ]);
     setMessage("");
     setSending(true);
-    setThinkingStatus("Thinking");
+    setThinkingStatus("กำลังคิด");
 
     try {
       const response = await fetch("/api/ai/chat/stream", {
@@ -152,12 +168,16 @@ export default function AssistantPage() {
 
       await readEventStream(response.body, (event) => {
         if (event.type === "status") {
-          setThinkingStatus(event.message || "Thinking");
+          setThinkingStatus(event.message || "กำลังคิด");
           return;
         }
         if (event.type === "delta") {
           setMessages((prev) =>
-            prev.map((item) => (item.id === assistantId ? { ...item, content: item.content + event.text } : item))
+            prev.map((item) =>
+              item.id === assistantId
+                ? { ...item, content: item.content + event.text }
+                : item,
+            ),
           );
           return;
         }
@@ -165,8 +185,10 @@ export default function AssistantPage() {
           setConversationId(event.conversationId || conversationId);
           setMessages((prev) =>
             prev.map((item) =>
-              item.id === assistantId ? { ...item, pendingActionIds: event.pendingActionIds || [] } : item
-            )
+              item.id === assistantId
+                ? { ...item, pendingActionIds: event.pendingActionIds || [] }
+                : item,
+            ),
           );
           setThinkingStatus("");
           return;
@@ -177,8 +199,10 @@ export default function AssistantPage() {
     } catch (error) {
       setMessages((prev) =>
         prev.map((item) =>
-          item.id === assistantId ? { ...item, content: "ขออภัย เกิดข้อผิดพลาดในการเรียกผู้ช่วย AI" } : item
-        )
+          item.id === assistantId
+            ? { ...item, content: "ขออภัย เกิดข้อผิดพลาดในการเรียกผู้ช่วย AI" }
+            : item,
+        ),
       );
       toast({
         title: "เรียก AI ไม่สำเร็จ",
@@ -194,7 +218,9 @@ export default function AssistantPage() {
   async function handleAction(id: string, action: "confirm" | "cancel") {
     setActionBusyId(id);
     try {
-      const response = await fetch(`/api/ai/actions/${id}/${action}`, { method: "POST" });
+      const response = await fetch(`/api/ai/actions/${id}/${action}`, {
+        method: "POST",
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Action failed");
       setMessages((prev) => [
@@ -202,7 +228,9 @@ export default function AssistantPage() {
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: data.message || (action === "confirm" ? "ทำรายการสำเร็จ" : "ยกเลิกรายการแล้ว"),
+          content:
+            data.message ||
+            (action === "confirm" ? "ทำรายการสำเร็จ" : "ยกเลิกรายการแล้ว"),
         },
       ]);
     } catch (error) {
@@ -220,11 +248,22 @@ export default function AssistantPage() {
     const file = fileList?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) {
-      toast({ title: "ไฟล์ไม่ถูกต้อง", description: "เลือกได้เฉพาะรูปภาพ", variant: "destructive" });
+      toast({
+        title: "ไฟล์ไม่ถูกต้อง",
+        description: "เลือกได้เฉพาะรูปภาพ",
+        variant: "destructive",
+      });
       return;
     }
     const base64 = await fileToBase64(file);
-    setAttachments([{ type: "image", imageBase64: base64, mediaType: file.type, name: file.name }]);
+    setAttachments([
+      {
+        type: "image",
+        imageBase64: base64,
+        mediaType: file.type,
+        name: file.name,
+      },
+    ]);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -235,7 +274,7 @@ export default function AssistantPage() {
     .reverse();
 
   return (
-    <div className="-m-4 flex h-[calc(100vh-5rem)] overflow-hidden bg-[#0b0b0b] text-white md:-m-6 md:h-screen">
+    <div className="flex h-[calc(100vh-7rem)] min-h-[640px] overflow-hidden rounded-2xl border border-slate-200 bg-[#0b0b0b] text-white shadow-sm">
       <aside
         className={`${
           sidebarOpen ? "w-72" : "w-0"
@@ -244,7 +283,10 @@ export default function AssistantPage() {
         <div className="flex h-full flex-col p-3">
           <div className="mb-4 flex items-center justify-between px-2 py-1">
             <div className="text-lg font-semibold">SpareGPT</div>
-            <button className="rounded-lg p-2 text-zinc-400 hover:bg-white/10 hover:text-white" onClick={() => setSidebarOpen(false)}>
+            <button
+              className="rounded-lg p-2 text-zinc-400 hover:bg-white/10 hover:text-white"
+              onClick={() => setSidebarOpen(false)}
+            >
               <PanelLeftClose className="h-4 w-4" />
             </button>
           </div>
@@ -259,27 +301,39 @@ export default function AssistantPage() {
             <Search className="h-4 w-4" />
             ค้นหาแชต
           </div>
-          <div className="mt-3 text-xs font-medium text-zinc-500">เมื่อเร็ว ๆ นี้</div>
+          <div className="mt-3 text-xs font-medium text-zinc-500">
+            เมื่อเร็ว ๆ นี้
+          </div>
           <div className="mt-2 flex-1 space-y-1 overflow-y-auto">
             {recentTitles.length === 0 ? (
-              <div className="rounded-lg px-3 py-2 text-sm text-zinc-500">ยังไม่มีประวัติ</div>
+              <div className="rounded-lg px-3 py-2 text-sm text-zinc-500">
+                ยังไม่มีประวัติ
+              </div>
             ) : (
               recentTitles.map((item) => (
-                <div key={item.id} className="truncate rounded-lg px-3 py-2 text-sm text-zinc-300 hover:bg-white/10">
+                <div
+                  key={item.id}
+                  className="truncate rounded-lg px-3 py-2 text-sm text-zinc-300 hover:bg-white/10"
+                >
                   {item.content}
                 </div>
               ))
             )}
           </div>
-          <div className="border-t border-white/10 pt-3 text-xs text-zinc-500">ระบบสต็อกอะไหล่</div>
+          <div className="border-t border-white/10 pt-3 text-xs text-zinc-500">
+            ระบบสต็อกอะไหล่
+          </div>
         </div>
       </aside>
 
       <main className="relative flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 items-center justify-between px-4">
+        <header className="flex h-14 shrink-0 items-center justify-between border-b border-white/10 bg-[#0f0f0f]/95 px-4">
           <div className="flex items-center gap-2">
             {!sidebarOpen && (
-              <button className="rounded-lg p-2 text-zinc-400 hover:bg-white/10 hover:text-white" onClick={() => setSidebarOpen(true)}>
+              <button
+                className="rounded-lg p-2 text-zinc-400 hover:bg-white/10 hover:text-white"
+                onClick={() => setSidebarOpen(true)}
+              >
                 <Menu className="h-5 w-5" />
               </button>
             )}
@@ -294,10 +348,12 @@ export default function AssistantPage() {
           </div>
         </header>
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pb-40 pt-4">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pb-40 pt-6">
           {!hasRealMessages ? (
             <div className="mx-auto flex min-h-[65vh] max-w-3xl flex-col items-center justify-center text-center">
-              <h1 className="mb-8 text-2xl font-semibold text-white md:text-3xl">วันนี้ให้ช่วยเรื่องสต็อกอะไรดี?</h1>
+              <h1 className="mb-8 text-2xl font-semibold text-white md:text-3xl">
+                วันนี้ให้ช่วยเรื่องสต็อกอะไรดี?
+              </h1>
               <div className="grid w-full gap-2 sm:grid-cols-2">
                 {QUICK_PROMPTS.map((prompt) => (
                   <button
@@ -311,13 +367,20 @@ export default function AssistantPage() {
               </div>
             </div>
           ) : (
-            <div className="mx-auto max-w-3xl space-y-7">
+            <div className="mx-auto max-w-3xl space-y-5">
               {messages
                 .filter((item) => item.id !== "welcome")
                 .map((item) => (
-                  <ChatBubble key={item.id} message={item} actionBusyId={actionBusyId} onAction={handleAction} />
+                  <ChatBubble
+                    key={item.id}
+                    message={item}
+                    actionBusyId={actionBusyId}
+                    onAction={handleAction}
+                  />
                 ))}
-              {sending && thinkingStatus && <ThinkingIndicator label={thinkingStatus} />}
+              {sending && thinkingStatus && (
+                <ThinkingIndicator label={thinkingStatus} />
+              )}
             </div>
           )}
         </div>
@@ -327,7 +390,11 @@ export default function AssistantPage() {
             {attachments.length > 0 && (
               <div className="mb-2 flex items-center justify-between rounded-xl border border-blue-400/30 bg-blue-500/10 px-3 py-2 text-sm text-blue-100">
                 <span className="truncate">{attachments[0].name}</span>
-                <Button size="icon" variant="ghost" onClick={() => setAttachments([])}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => setAttachments([])}
+                >
                   <X className="h-4 w-4" />
                 </Button>
               </div>
@@ -338,7 +405,9 @@ export default function AssistantPage() {
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={(event) => void handleImageSelected(event.target.files)}
+                onChange={(event) =>
+                  void handleImageSelected(event.target.files)
+                }
               />
               <button
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-zinc-300 hover:bg-white/10"
@@ -362,12 +431,20 @@ export default function AssistantPage() {
               <button
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-black disabled:cursor-not-allowed disabled:bg-zinc-600 disabled:text-zinc-400"
                 onClick={() => void handleSend()}
-                disabled={sending || (!message.trim() && attachments.length === 0)}
+                disabled={
+                  sending || (!message.trim() && attachments.length === 0)
+                }
               >
-                {sending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+                {sending ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Send className="h-5 w-5" />
+                )}
               </button>
             </div>
-            <div className="mt-2 text-center text-xs text-zinc-500">AI อาจตอบผิดได้ โปรดตรวจสอบก่อนยืนยันรายการสต็อก</div>
+            <div className="mt-2 text-center text-xs text-zinc-500">
+              AI อาจตอบผิดได้ โปรดตรวจสอบก่อนยืนยันรายการสต็อก
+            </div>
           </div>
         </div>
       </main>
@@ -385,27 +462,57 @@ function ChatBubble({
   onAction: (id: string, action: "confirm" | "cancel") => Promise<void>;
 }) {
   const isUser = message.role === "user";
+  const content = isUser
+    ? message.content
+    : cleanAssistantText(message.content);
+  if (
+    !isUser &&
+    !content &&
+    (!message.pendingActionIds || message.pendingActionIds.length === 0)
+  )
+    return null;
   return (
     <div className={isUser ? "flex justify-end" : "flex justify-start"}>
-      <div className={isUser ? "max-w-[75%]" : "max-w-full"}>
-        <div className={isUser ? "rounded-3xl bg-[#2f2f2f] px-5 py-3 text-[15px] leading-7 text-white" : "px-1 py-1 text-[15px] leading-7 text-zinc-100"}>
-          {isUser ? <div className="whitespace-pre-wrap">{message.content}</div> : <AssistantContent text={message.content || " "} />}
-          {!isUser && message.pendingActionIds && message.pendingActionIds.length > 0 && (
-            <div className="mt-4 flex flex-wrap gap-2">
-              {message.pendingActionIds.map((id) => (
-                <div key={id} className="flex gap-2">
-                  <Button size="sm" onClick={() => onAction(id, "confirm")} disabled={Boolean(actionBusyId)}>
-                    <Check className="mr-1 h-4 w-4" />
-                    ยืนยัน
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => onAction(id, "cancel")} disabled={Boolean(actionBusyId)}>
-                    <X className="mr-1 h-4 w-4" />
-                    ยกเลิก
-                  </Button>
-                </div>
-              ))}
-            </div>
+      <div className={isUser ? "max-w-[78%]" : "w-full max-w-[86%]"}>
+        <div
+          className={
+            isUser
+              ? "rounded-[22px] bg-[#303030] px-5 py-3 text-[15px] leading-7 text-white shadow-sm"
+              : "rounded-2xl border border-white/10 bg-[#181818] px-5 py-4 text-[15px] leading-7 text-zinc-100 shadow-[0_18px_60px_rgba(0,0,0,0.24)]"
+          }
+        >
+          {isUser ? (
+            <div className="whitespace-pre-wrap">{content}</div>
+          ) : (
+            <AssistantContent text={content} />
           )}
+          {!isUser &&
+            message.pendingActionIds &&
+            message.pendingActionIds.length > 0 && (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {message.pendingActionIds.map((id) => (
+                  <div key={id} className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => onAction(id, "confirm")}
+                      disabled={Boolean(actionBusyId)}
+                    >
+                      <Check className="mr-1 h-4 w-4" />
+                      ยืนยัน
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onAction(id, "cancel")}
+                      disabled={Boolean(actionBusyId)}
+                    >
+                      <X className="mr-1 h-4 w-4" />
+                      ยกเลิก
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
         </div>
       </div>
     </div>
@@ -415,14 +522,9 @@ function ChatBubble({
 function ThinkingIndicator({ label }: { label: string }) {
   return (
     <div className="flex justify-start">
-      <div className="flex items-center gap-2 rounded-full bg-[#1f1f1f] px-4 py-2 text-sm text-zinc-300">
+      <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-[#181818] px-4 py-3 text-sm text-zinc-300 shadow-[0_18px_60px_rgba(0,0,0,0.24)]">
         <Loader2 className="h-4 w-4 animate-spin" />
         <span>{label}</span>
-        <span className="flex gap-1">
-          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400 [animation-delay:-0.2s]" />
-          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400 [animation-delay:-0.1s]" />
-          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400" />
-        </span>
       </div>
     </div>
   );
@@ -434,13 +536,17 @@ function AssistantContent({ text }: { text: string }) {
     <div className="space-y-3">
       {blocks.map((block, index) => {
         const lines = block.split(/\n/).filter(Boolean);
-        const isList = lines.every((line) => /^\s*(?:[-*•]|\d+[.)])\s+/.test(line));
+        const isList = lines.every((line) =>
+          /^\s*(?:[-*•]|\d+[.)])\s+/.test(line),
+        );
         if (isList) {
           return (
             <ul key={index} className="space-y-1.5 pl-5">
               {lines.map((line, lineIndex) => (
                 <li key={lineIndex} className="list-disc">
-                  {renderInlineMarkdown(line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, ""))}
+                  {renderInlineMarkdown(
+                    line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, ""),
+                  )}
                 </li>
               ))}
             </ul>
@@ -466,15 +572,21 @@ function renderInlineMarkdown(text: string): ReactNode[] {
     const token = match[0];
     if (token.startsWith("`")) {
       nodes.push(
-        <code key={`${match.index}-code`} className="rounded bg-white/10 px-1.5 py-0.5 text-[0.9em] text-zinc-100">
+        <code
+          key={`${match.index}-code`}
+          className="rounded bg-white/10 px-1.5 py-0.5 text-[0.9em] text-zinc-100"
+        >
           {token.slice(1, -1)}
-        </code>
+        </code>,
       );
     } else {
       nodes.push(
-        <strong key={`${match.index}-strong`} className="font-semibold text-white">
+        <strong
+          key={`${match.index}-strong`}
+          className="font-semibold text-white"
+        >
           {token.slice(2, -2)}
-        </strong>
+        </strong>,
       );
     }
     lastIndex = match.index + token.length;
@@ -483,7 +595,17 @@ function renderInlineMarkdown(text: string): ReactNode[] {
   return nodes;
 }
 
-async function readEventStream(body: ReadableStream<Uint8Array>, onEvent: (event: StreamEvent) => void) {
+function cleanAssistantText(text: string): string {
+  return text
+    .replace(/<tool_call\b[^>]*>[\s\S]*?<\/tool_call>/gi, "")
+    .replace(/<function=[^>]+>[\s\S]*?<\/function>/gi, "")
+    .trim();
+}
+
+async function readEventStream(
+  body: ReadableStream<Uint8Array>,
+  onEvent: (event: StreamEvent) => void,
+) {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -513,13 +635,19 @@ function parseStreamEvent(rawEvent: string): StreamEvent | null {
   if (type === "done") {
     return {
       type,
-      conversationId: typeof data.conversationId === "string" ? data.conversationId : undefined,
+      conversationId:
+        typeof data.conversationId === "string"
+          ? data.conversationId
+          : undefined,
       pendingActionIds: Array.isArray(data.pendingActionIds)
-        ? data.pendingActionIds.filter((item): item is string => typeof item === "string")
+        ? data.pendingActionIds.filter(
+            (item): item is string => typeof item === "string",
+          )
         : [],
     };
   }
-  if (type === "error") return { type, message: String(data.message || "Unknown error") };
+  if (type === "error")
+    return { type, message: String(data.message || "Unknown error") };
   return null;
 }
 
@@ -530,7 +658,8 @@ function fileToBase64(file: File): Promise<string> {
       const result = String(reader.result || "");
       resolve(result.includes(",") ? result.split(",")[1] : result);
     };
-    reader.onerror = () => reject(reader.error || new Error("Cannot read file"));
+    reader.onerror = () =>
+      reject(reader.error || new Error("Cannot read file"));
     reader.readAsDataURL(file);
   });
 }

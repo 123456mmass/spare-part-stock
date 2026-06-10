@@ -14,7 +14,8 @@ export const TOOL_DEFINITIONS = [
     type: "function" as const,
     function: {
       name: "search_parts",
-      description: "ค้นหาอะไหล่จากชื่อ, รหัส, หรือตำแหน่ง คืนผลลัพธ์สูงสุด 5 รายการ",
+      description:
+        "ค้นหาอะไหล่จากชื่อ, รหัส, หรือตำแหน่ง คืนผลลัพธ์สูงสุด 5 รายการ",
       parameters: {
         type: "object",
         properties: {
@@ -60,7 +61,8 @@ export const TOOL_DEFINITIONS = [
     type: "function" as const,
     function: {
       name: "get_stock_stats",
-      description: "ดูสถิติสต็อกโดยรวม: จำนวนอะไหล่ทั้งหมด, ต่ำกว่าขั้นต่ำ, หมด",
+      description:
+        "ดูสถิติสต็อกโดยรวม: จำนวนอะไหล่ทั้งหมด, ต่ำกว่าขั้นต่ำ, หมด",
       parameters: {
         type: "object",
         properties: {},
@@ -123,29 +125,47 @@ export type LinePartSearchResult = Prisma.PartGetPayload<{
   };
 }>;
 
-export function parseLineInventoryQuery(text: string): LinePartSearchArgs | null {
+export function parseLineInventoryQuery(
+  text: string,
+): LinePartSearchArgs | null {
   const normalized = text.replace(/\s+/g, " ").trim();
   if (!normalized) return null;
 
-  const hasPartTerm = hasKnownPartTerm(normalized) || isLikelyPartCode(normalized);
+  const hasPartTerm =
+    hasKnownPartTerm(normalized) || isLikelyPartCode(normalized);
   const findMatch = normalized.match(/(?:^|\s)หา\s*(\S+)/i);
   const findTarget = findMatch?.[1]?.trim() || "";
-  const isWorkflowQuestion = /(วิธี|ยังไง|อย่างไร|ทำไง|ขั้นตอน|คู่มือ|ใช้งาน|ทำอะไรได้บ้าง|ทำไรได้บ้าง|ช่วยอะไรได้บ้าง)/i.test(
-    normalized
+  const isWorkflowQuestion =
+    /(วิธี|ยังไง|อย่างไร|ทำไง|ขั้นตอน|คู่มือ|ใช้งาน|ทำอะไรได้บ้าง|ทำไรได้บ้าง|ช่วยอะไรได้บ้าง)/i.test(
+      normalized,
+    );
+  const isInventoryIntent =
+    /(stock|สต็อก|สต๊อก|อะไหล่|เหลือ|จำนวน|ค้นหา|เช็ค|ตรวจ|มีไหม|มีกี่|กี่ตัว|กี่ชิ้น)/i.test(
+      normalized,
+    );
+  const isFindPartIntent = Boolean(
+    findMatch && (hasPartTerm || isLikelyPartCode(findTarget)),
   );
-  const isInventoryIntent = /(stock|สต็อก|สต๊อก|อะไหล่|เหลือ|จำนวน|ค้นหา|เช็ค|ตรวจ|มีไหม|มีกี่|กี่ตัว|กี่ชิ้น)/i.test(
-    normalized
-  );
-  const isFindPartIntent = Boolean(findMatch && (hasPartTerm || isLikelyPartCode(findTarget)));
-  const isAvailabilityQuestion = /(มี|หา).*(ไหม|มั้ย|หรือเปล่า)/i.test(normalized) && hasPartTerm;
+  const isAvailabilityQuestion =
+    /(มี|หา).*(ไหม|มั้ย|หรือเปล่า)/i.test(normalized) && hasPartTerm;
   const hasLocator = /(block|บล็อก|อาคาร|ตึก)\s*[\wก-ฮ.]+/i.test(normalized);
   const isLocatorOverview =
-    /(อาคาร|ตึก|block|บล็อก)\s*(อะไร|ไหน|ทั้งหมด|บ้าง|กี่|รายการ)/i.test(normalized) ||
-    /(อะไร|ไหน|ทั้งหมด|บ้าง|กี่|รายการ).*(อาคาร|ตึก|block|บล็อก)/i.test(normalized);
+    /(อาคาร|ตึก|block|บล็อก)\s*(อะไร|ไหน|ทั้งหมด|บ้าง|กี่|รายการ)/i.test(
+      normalized,
+    ) ||
+    /(อะไร|ไหน|ทั้งหมด|บ้าง|กี่|รายการ).*(อาคาร|ตึก|block|บล็อก)/i.test(
+      normalized,
+    );
 
   if (isWorkflowQuestion && !hasPartTerm && !hasLocator) return null;
   if (isLocatorOverview && !hasPartTerm) return null;
-  if (!isInventoryIntent && !isFindPartIntent && !isAvailabilityQuestion && !hasLocator) return null;
+  if (
+    !isInventoryIntent &&
+    !isFindPartIntent &&
+    !isAvailabilityQuestion &&
+    !hasLocator
+  )
+    return null;
 
   const buildingMatch = normalized.match(/(?:อาคาร|ตึก)\s*([^\s,]+)/i);
   const blockMatch = normalized.match(/(?:block|บล็อก)\s*([^\s,]+)/i);
@@ -157,14 +177,17 @@ export function parseLineInventoryQuery(text: string): LinePartSearchArgs | null
     .replace(/(?:block|บล็อก)\s*[^\s,]+/gi, " ")
     .replace(
       /(stock|สต็อก|สต๊อก|อะไหล่|คงเหลือ|เหลือเท่าไหร่|เหลือกี่ตัว|เหลือกี่ชิ้น|เหลือกี่|จำนวน|ค้นหา|หา|เช็ค|ตรวจ|ในระบบ|ให้หน่อย|ครับ|ค่ะ|คะ|หน่อย|แบบนี้|แลบนี้|ตัวนี้|อันนี้)/gi,
-      " "
+      " ",
     )
     .replace(/(สรุป|สถานะ|รายงาน|summary|report|ของ|สำหรับ)/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 
   if (!keyword && !building && !plant) return null;
-  if (!keyword) keyword = [plant ? `BLOCK ${plant}` : null, building].filter(Boolean).join(" ");
+  if (!keyword)
+    keyword = [plant ? `BLOCK ${plant}` : null, building]
+      .filter(Boolean)
+      .join(" ");
 
   return {
     keyword,
@@ -174,29 +197,73 @@ export function parseLineInventoryQuery(text: string): LinePartSearchArgs | null
 }
 
 const SEARCH_SYNONYMS: Array<{ triggers: string[]; terms: string[] }> = [
-  { triggers: ["เบรกเกอร์", "เบรกเกอร", "เบรคเกอร์", "เบรคเกอร", "breaker", "mcb", "mccb"], terms: ["breaker", "circuit breaker", "MCB", "MCCB", "เบรกเกอร์"] },
-  { triggers: ["รีเลย์", "รีเลย", "relay"], terms: ["relay", "power relay", "relay socket", "รีเลย์"] },
-  { triggers: ["คอนแทคเตอร์", "คอนแทกเตอร์", "contactor"], terms: ["contactor", "magnetic contactor", "คอนแทคเตอร์"] },
+  {
+    triggers: [
+      "เบรกเกอร์",
+      "เบรกเกอร",
+      "เบรคเกอร์",
+      "เบรคเกอร",
+      "breaker",
+      "mcb",
+      "mccb",
+    ],
+    terms: ["breaker", "circuit breaker", "MCB", "MCCB", "เบรกเกอร์"],
+  },
+  {
+    triggers: ["รีเลย์", "รีเลย", "relay"],
+    terms: ["relay", "power relay", "relay socket", "รีเลย์"],
+  },
+  {
+    triggers: ["คอนแทคเตอร์", "คอนแทกเตอร์", "contactor"],
+    terms: ["contactor", "magnetic contactor", "คอนแทคเตอร์"],
+  },
   { triggers: ["ฟิวส์", "fuse"], terms: ["fuse", "ฟิวส์"] },
-  { triggers: ["เซนเซอร์", "เซนเซอร", "เซ็นเซอร์", "เซ็นเซอร", "sensor"], terms: ["sensor", "เซนเซอร์"] },
+  {
+    triggers: ["เซนเซอร์", "เซนเซอร", "เซ็นเซอร์", "เซ็นเซอร", "sensor"],
+    terms: ["sensor", "เซนเซอร์"],
+  },
   { triggers: ["วาล์ว", "valve"], terms: ["valve", "solenoid valve", "วาล์ว"] },
   { triggers: ["มอเตอร์", "motor"], terms: ["motor", "มอเตอร์"] },
-  { triggers: ["ลูกปืน", "bearing"], terms: ["bearing", "ball bearing", "ลูกปืน"] },
-  { triggers: ["อินเวอร์เตอร์", "inverter"], terms: ["inverter", "drive", "อินเวอร์เตอร์"] },
-  { triggers: ["โอเวอร์โหลด", "overload"], terms: ["overload", "thermal overload relay", "โอเวอร์โหลด"] },
-  { triggers: ["สวิตช์", "switch"], terms: ["switch", "limit switch", "สวิตช์"] },
+  {
+    triggers: ["ลูกปืน", "bearing"],
+    terms: ["bearing", "ball bearing", "ลูกปืน"],
+  },
+  {
+    triggers: ["อินเวอร์เตอร์", "inverter"],
+    terms: ["inverter", "drive", "อินเวอร์เตอร์"],
+  },
+  {
+    triggers: ["โอเวอร์โหลด", "overload"],
+    terms: ["overload", "thermal overload relay", "โอเวอร์โหลด"],
+  },
+  {
+    triggers: ["สวิตช์", "switch"],
+    terms: ["switch", "limit switch", "สวิตช์"],
+  },
 ];
 
 function hasKnownPartTerm(keyword: string): boolean {
   const normalized = keyword.toLowerCase();
   return SEARCH_SYNONYMS.some((group) =>
-    [...group.triggers, ...group.terms].some((term) => normalized.includes(term.toLowerCase()))
+    [...group.triggers, ...group.terms].some((term) =>
+      normalized.includes(term.toLowerCase()),
+    ),
   );
 }
 
 function isLikelyPartCode(keyword: string): boolean {
   const compact = keyword.replace(/\s+/g, "");
   return /^[A-Z0-9][A-Z0-9._/-]{2,}$/i.test(compact) && /\d/.test(compact);
+}
+
+function extractLikelyPartCodes(text: string): string[] {
+  const seen = new Set<string>();
+  const matches = text.match(/[A-Z0-9][A-Z0-9._/-]{2,}/gi) || [];
+  for (const match of matches) {
+    const cleaned = match.replace(/^[._/-]+|[._/-]+$/g, "");
+    if (cleaned.length >= 3 && /\d/.test(cleaned)) seen.add(cleaned);
+  }
+  return [...seen].slice(0, 8);
 }
 
 function parseKeywordList(text: string): string[] {
@@ -207,7 +274,7 @@ function parseKeywordList(text: string): string[] {
       term
         .replace(/^\s*[-*\d.)]+/, "")
         .replace(/^\s*(keywords?|คำค้นหา)\s*:\s*/i, "")
-        .trim()
+        .trim(),
     )
     .filter((term) => term.length >= 2 && term.length <= 48)
     .slice(0, 8);
@@ -220,10 +287,15 @@ async function expandSearchKeywords(keyword: string): Promise<string[]> {
     .trim();
   const keywords = new Set<string>();
   if (cleaned) keywords.add(cleaned);
+  for (const code of extractLikelyPartCodes(cleaned)) keywords.add(code);
 
   const cleanedLower = cleaned.toLowerCase();
   for (const synonymGroup of SEARCH_SYNONYMS) {
-    if (synonymGroup.triggers.some((trigger) => cleanedLower.includes(trigger.toLowerCase()))) {
+    if (
+      synonymGroup.triggers.some((trigger) =>
+        cleanedLower.includes(trigger.toLowerCase()),
+      )
+    ) {
       for (const synonym of synonymGroup.terms) keywords.add(synonym);
     }
   }
@@ -258,7 +330,7 @@ async function expandSearchKeywords(keyword: string): Promise<string[]> {
             ].join("\n"),
           },
         ],
-        { maxTokens: 512, temperature: 0, timeoutMs: 20_000 }
+        { maxTokens: 512, temperature: 0, timeoutMs: 20_000 },
       );
       try {
         const parsed = parseJsonObject(result.text) as { keywords?: unknown };
@@ -280,9 +352,7 @@ async function expandSearchKeywords(keyword: string): Promise<string[]> {
       keywords.add(term.toLowerCase());
       keywords.add(term.toUpperCase());
       keywords.add(
-        term
-          .toLowerCase()
-          .replace(/\b[a-z]/g, (char) => char.toUpperCase())
+        term.toLowerCase().replace(/\b[a-z]/g, (char) => char.toUpperCase()),
       );
     }
   }
@@ -291,7 +361,7 @@ async function expandSearchKeywords(keyword: string): Promise<string[]> {
 }
 
 export async function searchPartsForLine(
-  args: LinePartSearchArgs
+  args: LinePartSearchArgs,
 ): Promise<LinePartSearchResult[]> {
   const keyword = args.keyword.trim();
   const limit = args.limit ?? 10;
@@ -325,7 +395,9 @@ export async function searchPartsForLine(
       if (args.buildingId) {
         locatorFilters.push({ buildingId: args.buildingId });
       } else if (args.building) {
-        locatorFilters.push({ building: { is: { name: { contains: args.building } } } });
+        locatorFilters.push({
+          building: { is: { name: { contains: args.building } } },
+        });
       }
 
       if (args.plant) {
@@ -394,12 +466,16 @@ export async function searchPartsForLine(
 
   const hasLocators = Boolean(args.buildingId || args.building || args.plant);
   const strictResults = await runSearch(hasLocators);
-  if (strictResults.length > 0 || !hasLocators || !keyword) return strictResults;
+  if (strictResults.length > 0 || !hasLocators || !keyword)
+    return strictResults;
 
   return runSearch(false);
 }
 
-function scorePartSearchMatch(part: LinePartSearchResult, keywords: string[]): number {
+function scorePartSearchMatch(
+  part: LinePartSearchResult,
+  keywords: string[],
+): number {
   const partNumber = part.partNumber.toLowerCase();
   const partName = part.partName.toLowerCase();
   const subcategory = (part.subcategory || "").toLowerCase();
@@ -424,7 +500,7 @@ function scorePartSearchMatch(part: LinePartSearchResult, keywords: string[]): n
 // Execute tool and return result
 export async function executeTool(
   name: string,
-  args: Record<string, string>
+  args: Record<string, string>,
 ): Promise<string> {
   try {
     switch (name) {
@@ -450,10 +526,11 @@ export async function executeTool(
 }
 
 async function handleSearchParts(
-  args: Record<string, string>
+  args: Record<string, string>,
 ): Promise<string> {
-  const { keyword, buildingId, plant, building } = args;
-  if (!keyword) return "กรุณาระบุคำค้นหา";
+  const { buildingId, plant, building } = args;
+  const keyword = args.keyword === "*" ? "" : (args.keyword || "").trim();
+  if (!keyword && !buildingId && !plant && !building) return "กรุณาระบุคำค้นหา";
 
   const parts = await searchPartsForLine({
     keyword,
@@ -464,7 +541,13 @@ async function handleSearchParts(
   });
 
   if (parts.length === 0) {
-    return `ไม่พบอะไหล่ที่ตรงกับ "${keyword}"`;
+    const scope = [
+      building ? `อาคาร ${building}` : null,
+      plant ? `Block ${plant}` : null,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return `ไม่พบอะไหล่ที่ตรงกับ "${keyword || scope || "เงื่อนไขที่ระบุ"}"`;
   }
 
   const lines = parts.map((p) => {
@@ -472,8 +555,8 @@ async function handleSearchParts(
       p.quantity <= 0
         ? "❌ หมด"
         : p.quantity <= p.minimumQuantity
-        ? "⚠️ ต่ำกว่าขั้นต่ำ"
-        : "✅ คงเหลือ";
+          ? "⚠️ ต่ำกว่าขั้นต่ำ"
+          : "✅ คงเหลือ";
     return [
       `📦 ${p.partNumber} - ${p.partName}`,
       `   จำนวน: ${p.quantity} ${p.unit || "pcs"} | ${status}`,
@@ -487,12 +570,15 @@ async function handleSearchParts(
       .join("\n");
   });
 
-  return `ค้นหา "${keyword}" พบ ${parts.length} รายการ:\n\n${lines.join("\n\n")}`;
+  const label =
+    keyword ||
+    [building ? `อาคาร ${building}` : null, plant ? `Block ${plant}` : null]
+      .filter(Boolean)
+      .join(" ");
+  return `ค้นหา "${label}" พบ ${parts.length} รายการ:\n\n${lines.join("\n\n")}`;
 }
 
-async function handleGetStock(
-  args: Record<string, string>
-): Promise<string> {
+async function handleGetStock(args: Record<string, string>): Promise<string> {
   const { code } = args;
   if (!code) return "กรุณาระบุรหัสอะไหล่";
 
@@ -505,8 +591,8 @@ async function handleGetStock(
     part.quantity <= 0
       ? "❌ หมด"
       : part.quantity <= part.minimumQuantity
-      ? "⚠️ ต่ำกว่าขั้นต่ำ"
-      : "✅ คงเหลือ";
+        ? "⚠️ ต่ำกว่าขั้นต่ำ"
+        : "✅ คงเหลือ";
 
   return [
     `📦 ${part.partNumber} - ${part.partName}`,
@@ -525,7 +611,9 @@ async function handleGetStockStats(): Promise<string> {
   const { totals, buildings } = summary;
 
   const buildingLines = buildings
-    .map((b) => `  🏢 ${b.name}: ${b.partCount} รายการ, ${b.totalQuantity} ชิ้น`)
+    .map(
+      (b) => `  🏢 ${b.name}: ${b.partCount} รายการ, ${b.totalQuantity} ชิ้น`,
+    )
     .join("\n");
 
   return [
@@ -554,9 +642,7 @@ async function handleListBuildings(): Promise<string> {
     return "ยังไม่มีอาคารในระบบ";
   }
 
-  const lines = buildings.map(
-    (b) => `🏢 ${b.name}: ${b._count.parts} รายการ`
-  );
+  const lines = buildings.map((b) => `🏢 ${b.name}: ${b._count.parts} รายการ`);
 
   return `อาคารทั้งหมด ${buildings.length} แห่ง:\n${lines.join("\n")}`;
 }
@@ -575,14 +661,14 @@ async function handleListBlocks(): Promise<string> {
   }
 
   const lines = blocks.map(
-    (b) => `🧱 ${b.plant}: ${b._count.id} รายการ, ${b._sum.quantity || 0} ชิ้น`
+    (b) => `🧱 ${b.plant}: ${b._count.id} รายการ, ${b._sum.quantity || 0} ชิ้น`,
   );
 
   return `Block ทั้งหมด ${blocks.length} แห่ง:\n${lines.join("\n")}`;
 }
 
 async function handleSearchByImage(
-  args: Record<string, string>
+  args: Record<string, string>,
 ): Promise<string> {
   const { imageBase64 } = args;
   if (!imageBase64) return "กรุณาส่งรูปภาพ";
@@ -631,7 +717,7 @@ async function handleSearchByImage(
 
   const lines = matches.map(
     (m, i) =>
-      `${i + 1}. ${m.part.partNumber} - ${m.part.partName} (ความคล้าย: ${Math.round(m.similarity * 100)}%)`
+      `${i + 1}. ${m.part.partNumber} - ${m.part.partName} (ความคล้าย: ${Math.round(m.similarity * 100)}%)`,
   );
 
   return `พบอะไหล่ที่คล้ายกับรูปภาพ ${matches.length} รายการ:\n${lines.join("\n")}`;

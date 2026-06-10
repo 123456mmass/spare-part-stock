@@ -63,17 +63,56 @@ function requireAdmin(role: string, actionType: PendingActionType) {
 }
 
 async function resolveActivePart(partNumber: string) {
+  const lookupTerms = buildPartLookupTerms(partNumber);
+
+  const exactPart = await prisma.part.findFirst({
+    where: {
+      isActive: true,
+      OR: lookupTerms.flatMap((term) => [
+        { partNumber: term },
+        { barcodeValue: term },
+      ]),
+    },
+    include: {
+      building: { select: { name: true } },
+      category: { select: { name: true } },
+    },
+    orderBy: { partNumber: "asc" },
+  });
+  if (exactPart) return exactPart;
+
   const part = await prisma.part.findFirst({
     where: {
       isActive: true,
-      OR: [{ partNumber }, { barcodeValue: partNumber }, { partNumber: { contains: partNumber } }],
+      OR: lookupTerms.flatMap((term) => [
+        { partNumber: { contains: term } },
+        { barcodeValue: { contains: term } },
+        { partName: { contains: term } },
+      ]),
     },
-    include: { building: { select: { name: true } }, category: { select: { name: true } } },
+    include: {
+      building: { select: { name: true } },
+      category: { select: { name: true } },
+    },
     orderBy: { partNumber: "asc" },
   });
 
   if (!part) throw new Error(`ไม่พบอะไหล่ "${partNumber}"`);
   return part;
+}
+
+function buildPartLookupTerms(input: string): string[] {
+  const cleaned = input.trim();
+  const terms = new Set<string>();
+  if (cleaned) terms.add(cleaned);
+
+  const codeMatches = cleaned.match(/[A-Z0-9][A-Z0-9._/-]{2,}/gi) || [];
+  for (const match of codeMatches) {
+    const code = match.replace(/^[._/-]+|[._/-]+$/g, "");
+    if (code.length >= 3 && /\d/.test(code)) terms.add(code);
+  }
+
+  return [...terms].slice(0, 8);
 }
 
 export async function createPendingAction(params: {
@@ -100,7 +139,10 @@ export async function createPendingAction(params: {
   };
 }
 
-export async function draftStockIn(context: ToolExecutionContext, raw: unknown) {
+export async function draftStockIn(
+  context: ToolExecutionContext,
+  raw: unknown,
+) {
   const payload = stockInOutPayloadSchema.parse(raw);
   const part = await resolveActivePart(payload.partNumber);
   return createPendingAction({
@@ -111,11 +153,16 @@ export async function draftStockIn(context: ToolExecutionContext, raw: unknown) 
   });
 }
 
-export async function draftStockOut(context: ToolExecutionContext, raw: unknown) {
+export async function draftStockOut(
+  context: ToolExecutionContext,
+  raw: unknown,
+) {
   const payload = stockInOutPayloadSchema.parse(raw);
   const part = await resolveActivePart(payload.partNumber);
   if (part.quantity < payload.qty) {
-    throw new Error(`จำนวนไม่พอ คงเหลือ ${part.quantity} ${part.unit || "pcs"}`);
+    throw new Error(
+      `จำนวนไม่พอ คงเหลือ ${part.quantity} ${part.unit || "pcs"}`,
+    );
   }
   return createPendingAction({
     context,
@@ -125,7 +172,10 @@ export async function draftStockOut(context: ToolExecutionContext, raw: unknown)
   });
 }
 
-export async function draftAdjustStock(context: ToolExecutionContext, raw: unknown) {
+export async function draftAdjustStock(
+  context: ToolExecutionContext,
+  raw: unknown,
+) {
   requireAdmin(context.user.role, "adjust_stock");
   const payload = adjustPayloadSchema.parse(raw);
   const part = await resolveActivePart(payload.partNumber);
@@ -137,7 +187,10 @@ export async function draftAdjustStock(context: ToolExecutionContext, raw: unkno
   });
 }
 
-export async function draftUpdatePartLocation(context: ToolExecutionContext, raw: unknown) {
+export async function draftUpdatePartLocation(
+  context: ToolExecutionContext,
+  raw: unknown,
+) {
   requireAdmin(context.user.role, "update_part_location");
   const payload = locationPayloadSchema.parse(raw);
   const part = await resolveActivePart(payload.partNumber);
@@ -149,10 +202,15 @@ export async function draftUpdatePartLocation(context: ToolExecutionContext, raw
   });
 }
 
-export async function draftCreatePart(context: ToolExecutionContext, raw: unknown) {
+export async function draftCreatePart(
+  context: ToolExecutionContext,
+  raw: unknown,
+) {
   requireAdmin(context.user.role, "create_part");
   const payload = createPartPayloadSchema.parse(raw);
-  const existing = await prisma.part.findUnique({ where: { partNumber: payload.partNumber } });
+  const existing = await prisma.part.findUnique({
+    where: { partNumber: payload.partNumber },
+  });
   if (existing) throw new Error(`มีรหัสอะไหล่ ${payload.partNumber} อยู่แล้ว`);
 
   return createPendingAction({
@@ -173,7 +231,10 @@ export async function findPendingActionByCode(userId: string, code: string) {
   return actions.find((action) => shortCode(action.id) === normalized) || null;
 }
 
-export async function cancelPendingAction(params: { id: string; userId: string }) {
+export async function cancelPendingAction(params: {
+  id: string;
+  userId: string;
+}) {
   const action = await prisma.aiPendingAction.findFirst({
     where: { id: params.id, userId: params.userId },
   });
@@ -202,8 +263,10 @@ export async function confirmPendingAction(params: {
     include: { user: true },
   });
   if (!action) throw new Error("ไม่พบรายการที่รอยืนยัน");
-  if (action.status === "EXECUTED") return { action, message: "รายการนี้ทำสำเร็จแล้ว" };
-  if (action.status !== "PENDING") throw new Error(`รายการนี้อยู่ในสถานะ ${action.status}`);
+  if (action.status === "EXECUTED")
+    return { action, message: "รายการนี้ทำสำเร็จแล้ว" };
+  if (action.status !== "PENDING")
+    throw new Error(`รายการนี้อยู่ในสถานะ ${action.status}`);
   if (action.expiresAt.getTime() < Date.now()) {
     const expired = await prisma.aiPendingAction.update({
       where: { id: action.id },
@@ -218,8 +281,11 @@ export async function confirmPendingAction(params: {
     data: { status: "CONFIRMED", confirmedAt: new Date() },
   });
   if (claimed.count === 0) {
-    const latest = await prisma.aiPendingAction.findUnique({ where: { id: action.id } });
-    if (latest?.status === "EXECUTED") return { action: latest, message: "รายการนี้ทำสำเร็จแล้ว" };
+    const latest = await prisma.aiPendingAction.findUnique({
+      where: { id: action.id },
+    });
+    if (latest?.status === "EXECUTED")
+      return { action: latest, message: "รายการนี้ทำสำเร็จแล้ว" };
     throw new Error(`รายการนี้อยู่ในสถานะ ${latest?.status || "UNKNOWN"}`);
   }
 
@@ -257,7 +323,9 @@ async function executePendingAction(action: {
   const payload = parsePayload(action.payloadJson);
 
   if (action.actionType === "stock_in" || action.actionType === "stock_out") {
-    const parsed = stockInOutPayloadSchema.extend({ partId: z.string().min(1) }).parse(payload);
+    const parsed = stockInOutPayloadSchema
+      .extend({ partId: z.string().min(1) })
+      .parse(payload);
     const movement = await createStockMovement({
       partId: parsed.partId,
       userId: action.userId,
@@ -271,7 +339,9 @@ async function executePendingAction(action: {
 
   if (action.actionType === "adjust_stock") {
     requireAdmin(action.user.role, "adjust_stock");
-    const parsed = adjustPayloadSchema.extend({ partId: z.string().min(1) }).parse(payload);
+    const parsed = adjustPayloadSchema
+      .extend({ partId: z.string().min(1) })
+      .parse(payload);
     const movement = await createStockMovement({
       partId: parsed.partId,
       userId: action.userId,
@@ -285,7 +355,9 @@ async function executePendingAction(action: {
 
   if (action.actionType === "update_part_location") {
     requireAdmin(action.user.role, "update_part_location");
-    const parsed = locationPayloadSchema.extend({ partId: z.string().min(1) }).parse(payload);
+    const parsed = locationPayloadSchema
+      .extend({ partId: z.string().min(1) })
+      .parse(payload);
     const part = await prisma.part.update({
       where: { id: parsed.partId },
       data: { location: parsed.location },
@@ -321,7 +393,11 @@ async function executePendingAction(action: {
   throw new Error(`ไม่รองรับ action type ${action.actionType}`);
 }
 
-export function formatPendingActionForChat(action: { id: string; summary: string; expiresAt: Date }) {
+export function formatPendingActionForChat(action: {
+  id: string;
+  summary: string;
+  expiresAt: Date;
+}) {
   const code = shortCode(action.id);
   return [
     `ต้องยืนยันก่อนทำรายการ`,
