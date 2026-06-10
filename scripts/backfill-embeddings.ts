@@ -47,7 +47,9 @@ async function main() {
       imageUrl: { not: null },
       OR: [
         { imageEmbedding: null },
+        { imageEmbeddingProvider: null },
         { imageEmbeddingProvider: { not: current.provider } },
+        { imageEmbeddingModel: null },
         { imageEmbeddingModel: { not: current.model } },
       ],
     },
