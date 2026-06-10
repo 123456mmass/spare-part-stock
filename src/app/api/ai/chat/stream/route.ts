@@ -1,0 +1,80 @@
+import { z } from "zod";
+import { AuthError, requireAuth } from "@/lib/auth";
+import { runAiAssistantStream } from "@/lib/ai-assistant/orchestrator";
+
+const chatRequestSchema = z.object({
+  message: z.string().min(1),
+  conversationId: z.string().optional(),
+  attachments: z
+    .array(
+      z.object({
+        type: z.literal("image"),
+        imageBase64: z.string().min(1),
+        mediaType: z.string().optional(),
+      })
+    )
+    .max(3)
+    .optional(),
+});
+
+function sse(event: string, data: unknown) {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+export async function POST(request: Request) {
+  try {
+    const user = await requireAuth();
+    const parsed = chatRequestSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return Response.json(
+        { error: "ข้อมูลไม่ถูกต้อง", details: parsed.error.issues },
+        { status: 400 }
+      );
+    }
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          await runAiAssistantStream(
+            {
+              user: { id: user.id, role: user.role, name: user.name },
+              channel: "web",
+              conversationId: parsed.data.conversationId,
+              message: parsed.data.message,
+              attachments: parsed.data.attachments,
+              responseStyle: "web",
+            },
+            (event) => {
+              controller.enqueue(encoder.encode(sse(event.type, event)));
+            }
+          );
+        } catch (error) {
+          controller.enqueue(
+            encoder.encode(
+              sse("error", {
+                message: error instanceof Error ? error.message : "เกิดข้อผิดพลาดในการเรียกผู้ช่วย AI",
+              })
+            )
+          );
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+      },
+    });
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return Response.json({ error: error.message }, { status: error.message === "Forbidden" ? 403 : 401 });
+    }
+    console.error("AI chat stream route error:", error);
+    return Response.json({ error: "เกิดข้อผิดพลาดในการเรียกผู้ช่วย AI" }, { status: 500 });
+  }
+}

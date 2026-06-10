@@ -28,6 +28,11 @@ type ToolCall = {
   };
 };
 
+type StreamEvent =
+  | { type: "status"; message: string }
+  | { type: "delta"; text: string }
+  | { type: "done"; reply: string; conversationId?: string; pendingActionIds: string[] };
+
 const MAX_CONTEXT_MESSAGES = 20;
 const TOOL_EXECUTION_TIMEOUT_MS = 25_000;
 
@@ -40,6 +45,7 @@ const SYSTEM_PROMPT = `คุณเป็นผู้ช่วยจัดกา
 
 กฎสำคัญ:
 - ตอบภาษาไทย กระชับ ตรงประเด็น
+- ถ้า channel เป็น LINE ให้ตอบเป็นข้อความธรรมชาติ 2-6 บรรทัด ห้ามใช้ markdown, ห้ามใช้ตาราง, ห้ามโชว์ **ตัวหนา**
 - ถ้าถามข้อมูล stock, part, location, building หรือจำนวนคงเหลือ ต้องใช้ tool ก่อนตอบ ห้ามเดา
 - การแก้ DB ทุกชนิดต้องใช้ draft_* tool เท่านั้น และต้องให้ผู้ใช้ยืนยันก่อน ระบบจะไม่เขียน DB จากคำตอบของคุณโดยตรง
 - stock_out ต้องไม่ทำให้ stock ติดลบ
@@ -90,8 +96,99 @@ export async function runAiAssistant(input: AiAssistantInput): Promise<AiAssista
   return { reply, conversationId, pendingActionIds };
 }
 
+export async function runAiAssistantStream(
+  input: AiAssistantInput,
+  onEvent: (event: StreamEvent) => void | Promise<void>
+): Promise<AiAssistantResult> {
+  const conversationId = await resolveConversationId(input);
+  if (conversationId) {
+    await saveMessage(conversationId, "user", input.message, input.attachments?.length ? "image" : "text", {
+      channel: input.channel,
+      attachments: input.attachments?.map((attachment) => ({
+        type: attachment.type,
+        mediaType: attachment.mediaType,
+      })),
+    });
+  }
+
+  const history = conversationId ? await getRecentMessages(conversationId, MAX_CONTEXT_MESSAGES) : [];
+  const messages = buildMessages(history, input);
+  const context: ToolExecutionContext = {
+    user: input.user,
+    channel: input.channel,
+    conversationId,
+  };
+
+  const pendingActionIds: string[] = [];
+  let reply = "";
+  try {
+    await onEvent({ type: "status", message: "กำลังทำความเข้าใจคำถาม" });
+    const first = await callGateway(messages, true);
+    const choice = first.choices?.[0];
+    if (!choice?.message) throw new Error("No response from LLM");
+
+    const toolCalls = choice.message.tool_calls || [];
+    if (toolCalls.length > 0) {
+      messages.push(choice.message);
+      await onEvent({ type: "status", message: "กำลังค้นข้อมูลในระบบสต็อก" });
+      for (const toolCall of toolCalls) {
+        const name = toolCall.function?.name;
+        if (!name) {
+          messages.push({ role: "tool", tool_call_id: toolCall.id, content: "ไม่พบชื่อ tool" });
+          continue;
+        }
+
+        const args = parseToolArguments(toolCall.function?.arguments);
+        let content: string;
+        try {
+          const result = await withTimeout(
+            executeAiTool(name, args, context),
+            TOOL_EXECUTION_TIMEOUT_MS,
+            `Tool ${name}`
+          );
+          content = result.content;
+          if (result.pendingActionId) pendingActionIds.push(result.pendingActionId);
+        } catch (error) {
+          console.error(`AI tool ${name} failed:`, error);
+          content = error instanceof Error ? error.message : "เกิดข้อผิดพลาดในการเรียก tool";
+        }
+
+        messages.push({ role: "tool", tool_call_id: toolCall.id, content });
+      }
+
+      await onEvent({ type: "status", message: "กำลังเรียบเรียงคำตอบ" });
+      reply = await callGatewayStream(messages, false, async (delta) => {
+        reply += delta;
+        await onEvent({ type: "delta", text: delta });
+      });
+    } else {
+      reply = messageText(choice.message) || "ขออภัย ไม่สามารถประมวลผลได้";
+      await streamTextFallback(reply, onEvent);
+    }
+  } catch (error) {
+    console.error("AI assistant stream failed:", error);
+    reply = "ขออภัย เกิดข้อผิดพลาดในการประมวลผล กรุณาลองใหม่อีกครั้ง";
+    await streamTextFallback(reply, onEvent);
+  }
+
+  reply = input.responseStyle === "line" ? sanitizeLineReply(reply) : sanitizeWebReply(reply);
+  if (conversationId) {
+    await saveMessage(conversationId, "assistant", reply, "text", {
+      channel: input.channel,
+      pendingActionIds,
+    });
+  }
+
+  await onEvent({ type: "done", reply, conversationId, pendingActionIds });
+  return { reply, conversationId, pendingActionIds };
+}
+
 async function resolveConversationId(input: AiAssistantInput): Promise<string | undefined> {
   if (input.conversationId) return input.conversationId;
+  if (input.channel === "web") {
+    const ctx = await getOrCreateConversation(`web:${input.user.id}`, undefined);
+    return ctx.conversationId;
+  }
   if (input.channel !== "line") return undefined;
 
   const ctx = await getOrCreateConversation(
@@ -208,11 +305,108 @@ async function callGateway(messages: ChatMessage[], includeTools: boolean) {
     throw new Error(`Gateway returned ${response.status}: ${text}`);
   }
 
-  return (await response.json()) as {
+  const raw = await response.text();
+  return parseGatewayResponse(raw) as {
     choices?: Array<{
       message?: ChatMessage;
     }>;
   };
+}
+
+async function callGatewayStream(
+  messages: ChatMessage[],
+  includeTools: boolean,
+  onDelta: (delta: string) => void | Promise<void>
+): Promise<string> {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  const apiKey = gatewayKey();
+  if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+
+  const response = await fetch(`${gatewayBaseUrl()}/v1/chat/completions`, {
+    method: "POST",
+    headers,
+    signal: AbortSignal.timeout(60_000),
+    body: JSON.stringify({
+      model: gatewayModel(),
+      max_tokens: 1200,
+      temperature: 0.2,
+      stream: true,
+      messages,
+      ...(includeTools ? { tools: AI_TOOL_DEFINITIONS, tool_choice: "auto" } : {}),
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Gateway returned ${response.status}: ${text}`);
+  }
+
+  if (!response.body) {
+    const parsed = parseGatewayResponse(await response.text());
+    return messageText(parsed.choices?.[0]?.message);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let index: number;
+    while ((index = buffer.indexOf("\n\n")) >= 0) {
+      const event = buffer.slice(0, index);
+      buffer = buffer.slice(index + 2);
+      const delta = parseSseDelta(event);
+      if (delta) {
+        text += delta;
+        await onDelta(delta);
+      }
+    }
+  }
+
+  return text.trim();
+}
+
+function parseGatewayResponse(raw: string): {
+  choices?: Array<{
+    message?: ChatMessage;
+  }>;
+} {
+  if (!raw.trim().startsWith("data:")) {
+    return JSON.parse(raw) as { choices?: Array<{ message?: ChatMessage }> };
+  }
+
+  let content = "";
+  for (const event of raw.split(/\n\n/)) {
+    const delta = parseSseDelta(event);
+    if (delta) content += delta;
+  }
+
+  return {
+    choices: [{ message: { role: "assistant", content: content.trim() } }],
+  };
+}
+
+function parseSseDelta(event: string): string {
+  const line = event.split(/\r?\n/).find((item) => item.startsWith("data:"));
+  if (!line) return "";
+  const data = line.slice(5).trim();
+  if (!data || data === "[DONE]") return "";
+  try {
+    const parsed = JSON.parse(data) as {
+      choices?: Array<{
+        delta?: { content?: string };
+        message?: { content?: string };
+      }>;
+    };
+    return parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.message?.content || "";
+  } catch {
+    return "";
+  }
 }
 
 function parseToolArguments(raw?: string): Record<string, unknown> {
@@ -243,6 +437,16 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
     ]);
   } finally {
     if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function streamTextFallback(
+  text: string,
+  onEvent: (event: StreamEvent) => void | Promise<void>
+): Promise<void> {
+  const chunks = text.match(/.{1,28}(\s|$)/g) || [text];
+  for (const chunk of chunks) {
+    await onEvent({ type: "delta", text: chunk });
   }
 }
 

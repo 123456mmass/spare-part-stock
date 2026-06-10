@@ -14,6 +14,7 @@ export const OPTIONS = corsOptions();
 const querySchema = z.object({
   search: z.string().optional(),
   categoryId: z.string().optional(),
+  subcategory: z.string().optional(),
   stockStatus: z.string().optional(),
   plant: z.string().optional(),
   buildingId: z.string().optional(),
@@ -47,7 +48,7 @@ export const GET = withCors(async (request: Request) => {
       );
     }
 
-    const { search, categoryId, stockStatus, plant, buildingId, page, limit } = parsed.data;
+    const { search, categoryId, subcategory, stockStatus, plant, buildingId, page, limit } = parsed.data;
 
     const where: Prisma.PartWhereInput = { isActive: true };
 
@@ -62,6 +63,10 @@ export const GET = withCors(async (request: Request) => {
 
     if (categoryId) {
       where.categoryId = categoryId;
+    }
+
+    if (subcategory) {
+      where.subcategory = subcategory === "__none__" ? null : subcategory;
     }
 
     if (plant) {

@@ -32,6 +32,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search") || "";
     const categoryId = searchParams.get("categoryId");
+    const subcategory = searchParams.get("subcategory");
     const stockStatus = searchParams.get("stockStatus");
     const plant = searchParams.get("plant");
     const buildingId = searchParams.get("buildingId");
@@ -55,6 +56,10 @@ export async function GET(request: Request) {
 
     if (categoryId) {
       where.categoryId = categoryId;
+    }
+
+    if (subcategory) {
+      where.subcategory = subcategory === "__none__" ? null : subcategory;
     }
 
     if (plant) {

@@ -10,7 +10,7 @@ import {
   type LineWebhookBody,
 } from "@/lib/line";
 import { orchestrate } from "@/lib/line-chat/orchestrator";
-import { parseLineInventoryQuery, searchPartsForLine } from "@/lib/line-chat/tools";
+import { searchPartsForLine } from "@/lib/line-chat/tools";
 import {
   cancelPendingActionByCode,
   confirmPendingActionByCode,
@@ -26,7 +26,6 @@ import {
   createStatsFlex,
   createNotFoundFlex,
   createExportFlex,
-  createBuildingListFlex,
 } from "@/lib/line-chat/flex-messages";
 
 // Bot name สำหรับ group mention detection
@@ -47,40 +46,9 @@ function parsePendingActionCommand(text: string): { action: "confirm" | "cancel"
   };
 }
 
-function isStockStatsRequest(text: string): boolean {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  return (
-    /^(stock summary|stats)$/i.test(normalized) ||
-    /(สรุป|รายงาน|summary|report|สถิติ).*(สต็อก|สต๊อก|คงเหลือ|อะไหล่)/i.test(normalized) ||
-    /(คงเหลือ|เหลือ).*(ทั้งหมด|รวม)/i.test(normalized)
-  );
-}
-
 function isExcelExportRequest(text: string): boolean {
   const normalized = text.replace(/\s+/g, " ").trim();
   return /(excel|xlsx|เอ็กเซล|เอกเซล|ส่งออก|export|ดาวน์โหลด|download|โหลด).*(อะไหล่|สต็อก|สต๊อก|รายการ|ไฟล์)?/i.test(normalized);
-}
-
-function isBuildingOverviewRequest(text: string): boolean {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  return (
-    /(มีกี่|กี่|ทั้งหมด|รายการ|มีอะไร|อะไรบ้าง).*(อาคาร|ตึก)/i.test(normalized) ||
-    /(อาคาร|ตึก).*(มีกี่|กี่|ทั้งหมด|รายการ|มีอะไร|อะไรบ้าง|อะไร|ไหน|บ้าง)/i.test(normalized)
-  );
-}
-
-function parseLocationPartsRequest(text: string): { building?: string; plant?: string } | null {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (!/(มีอะไร|อะไรบ้าง|ทั้งหมด|รายการ|ใน.*มี)/i.test(normalized)) return null;
-
-  const building = normalized.match(/(?:อาคาร|ตึก)\s*([^\s,]+)/i)?.[1]?.trim();
-  const block = normalized.match(/(?:block|บล็อก)\s*([^\s,]+)/i)?.[1]?.trim();
-  if (!building && !block) return null;
-
-  return {
-    building,
-    plant: block,
-  };
 }
 
 function lineRateLimitKey(event: LineWebhookBody["events"][number]): string {
@@ -292,74 +260,10 @@ export async function POST(request: Request) {
         continue;
       }
 
-      if (isStockStatsRequest(text)) {
-        const { getStorageSummary } = await import("@/lib/storage-summary");
-        const stats = await getStorageSummary();
-        await sendLineReply(replyToken, [
-          createFlexMessage("สรุปสต็อก", createStatsFlex(stats)),
-        ]);
-        continue;
-      }
-
       if (isExcelExportRequest(text)) {
         const exportUri = await createLineExportUrl({ userId: user.id });
         await sendLineReply(replyToken, [
           createFlexMessage("ส่งออก Excel", createExportFlex(exportUri)),
-        ]);
-        continue;
-      }
-
-      const locationPartsRequest = parseLocationPartsRequest(text);
-      if (locationPartsRequest) {
-        const keyword = [
-          locationPartsRequest.building ? `อาคาร ${locationPartsRequest.building}` : null,
-          locationPartsRequest.plant ? `Block ${locationPartsRequest.plant}` : null,
-        ]
-          .filter(Boolean)
-          .join(" ");
-        const parts = await searchPartsForLine({
-          keyword: "",
-          building: locationPartsRequest.building,
-          plant: locationPartsRequest.plant,
-          limit: 10,
-        });
-        await sendLineReply(replyToken, [
-          createFlexMessage(
-            parts.length > 0 ? `รายการใน ${keyword}` : "ไม่พบอะไหล่",
-            createSearchResultsFlex(keyword || "ตำแหน่งที่เลือก", parts)
-          ),
-        ]);
-        continue;
-      }
-
-      if (isBuildingOverviewRequest(text)) {
-        const buildings = await prisma.building.findMany({
-          where: { isActive: true },
-          include: { _count: { select: { parts: true } } },
-          orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-        });
-        await sendLineReply(replyToken, [
-          createFlexMessage(
-            "อาคารที่มีในระบบ",
-            createBuildingListFlex(
-              buildings.map((building) => ({
-                name: building.name,
-                partCount: building._count.parts,
-              }))
-            )
-          ),
-        ]);
-        continue;
-      }
-
-      const inventoryQuery = parseLineInventoryQuery(text);
-      if (inventoryQuery) {
-        const parts = await searchPartsForLine({ ...inventoryQuery, limit: 10 });
-        await sendLineReply(replyToken, [
-          createFlexMessage(
-            parts.length > 0 ? `ค้นหา ${inventoryQuery.keyword}` : "ไม่พบอะไหล่",
-            createSearchResultsFlex(inventoryQuery.keyword, parts)
-          ),
         ]);
         continue;
       }

@@ -78,11 +78,12 @@ export default function PartsPage() {
     params.set("pageSize", String(PAGE_SIZE));
     if (debouncedSearch) params.set("search", debouncedSearch);
     if (categoryFilter !== "all") params.set("categoryId", categoryFilter);
+    if (subcategoryFilter !== "all") params.set("subcategory", subcategoryFilter);
     if (buildingFilter !== "all") params.set("buildingId", buildingFilter);
     if (stockFilter !== "all") params.set("stockStatus", stockFilter);
     if (plantFilter !== "all") params.set("plant", plantFilter);
     return params.toString();
-  }, [debouncedSearch, categoryFilter, buildingFilter, stockFilter, plantFilter]);
+  }, [debouncedSearch, categoryFilter, subcategoryFilter, buildingFilter, stockFilter, plantFilter]);
 
   const fetchParts = useCallback(async (page: number, append = false) => {
     // Cancel previous in-flight request
@@ -160,10 +161,7 @@ export default function PartsPage() {
     fetchParts(1);
   }, [fetchParts]);
 
-  // Client-side filters for subcategory & plant (derived from loaded parts)
-  const filteredParts = subcategoryFilter === "all"
-    ? parts
-    : parts.filter(p => p.subcategory === subcategoryFilter);
+  const displayedParts = parts;
 
   return (
     <div className="space-y-6">
@@ -292,7 +290,7 @@ export default function PartsPage() {
             </Card>
           ))}
         </div>
-      ) : filteredParts.length === 0 ? (
+      ) : displayedParts.length === 0 ? (
         <Card>
           <CardContent className="p-8 text-center">
             <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
@@ -301,7 +299,7 @@ export default function PartsPage() {
         </Card>
       ) : viewMode === "card" ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredParts.map((part) => {
+          {displayedParts.map((part) => {
             const status = getStockStatus(part.quantity, part.minimumQuantity);
             return (
               <Link key={part.id} href={`/parts/${part.id}`}>
@@ -384,7 +382,7 @@ export default function PartsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {filteredParts.map((part) => {
+                  {displayedParts.map((part) => {
                     const status = getStockStatus(part.quantity, part.minimumQuantity);
                     return (
                       <tr

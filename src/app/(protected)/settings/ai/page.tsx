@@ -31,7 +31,7 @@ export default function AiSettingsPage() {
   const [testResponse, setTestResponse] = useState("");
   const [testing, setTesting] = useState(false);
   const [testElapsedMs, setTestElapsedMs] = useState<number | null>(null);
-  const [testModel, setTestModel] = useState("");
+  const [testModel, setTestModel] = useState("__current__");
 
   const fetchData = useCallback(async () => {
     try {
@@ -83,7 +83,7 @@ export default function AiSettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: testPrompt,
-          model: testModel || selectedModel,
+          model: testModel === "__current__" ? selectedModel : testModel,
         }),
       });
 
@@ -104,7 +104,7 @@ export default function AiSettingsPage() {
       if (res.ok && json.success) {
         setTestResponse(json.response);
         setTestElapsedMs(json.elapsedMs);
-        setTestModel(json.model);
+        setTestModel(json.model || "__current__");
         toast({
           title: "ทดสอบสำเร็จ",
           description: `ใช้ ${json.provider} (${json.elapsedMs}ms)`,
@@ -291,7 +291,7 @@ export default function AiSettingsPage() {
                 <SelectValue placeholder={selectedModel} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">ใช้ current ({selectedModel})</SelectItem>
+                <SelectItem value="__current__">ใช้ current ({selectedModel})</SelectItem>
                 {data.availableModels.map((model) => (
                   <SelectItem key={model} value={model}>
                     {model}

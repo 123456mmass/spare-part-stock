@@ -159,6 +159,7 @@ export function parseLineInventoryQuery(text: string): LinePartSearchArgs | null
       /(stock|สต็อก|สต๊อก|อะไหล่|คงเหลือ|เหลือเท่าไหร่|เหลือกี่ตัว|เหลือกี่ชิ้น|เหลือกี่|จำนวน|ค้นหา|หา|เช็ค|ตรวจ|ในระบบ|ให้หน่อย|ครับ|ค่ะ|คะ|หน่อย|แบบนี้|แลบนี้|ตัวนี้|อันนี้)/gi,
       " "
     )
+    .replace(/(สรุป|สถานะ|รายงาน|summary|report|ของ|สำหรับ)/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 
