@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { callPartAi, parseJsonObject } from "@/lib/ai-client";
 import { resolvePartFromCode } from "@/lib/part-lookup";
 import { getStorageSummary } from "@/lib/storage-summary";
-import { embedImage, cosineSimilarity, bytesToFloat32 } from "@/lib/embeddings";
+import { embedImageWithMetadata, cosineSimilarity, bytesToFloat32 } from "@/lib/embeddings";
 
 // Tool definitions สำหรับ OpenAI function calling format
 export const TOOL_DEFINITIONS = [
@@ -675,16 +675,21 @@ async function handleSearchByImage(
 
   const buffer = Buffer.from(imageBase64, "base64");
 
-  let queryVec: Float32Array;
+  let queryEmbedding: Awaited<ReturnType<typeof embedImageWithMetadata>>;
   try {
-    queryVec = await embedImage(buffer);
+    queryEmbedding = await embedImageWithMetadata(buffer, "query");
   } catch (err) {
     console.error("embedImage failed:", (err as Error).message);
     return "ระบบค้นหาด้วยรูปไม่พร้อมใช้งาน";
   }
 
   const parts = await prisma.part.findMany({
-    where: { isActive: true, imageEmbedding: { not: null } },
+    where: {
+      isActive: true,
+      imageEmbedding: { not: null },
+      imageEmbeddingProvider: queryEmbedding.provider,
+      imageEmbeddingModel: queryEmbedding.model,
+    },
     select: {
       id: true,
       partNumber: true,
@@ -702,12 +707,12 @@ async function handleSearchByImage(
   const matches = parts
     .map((p) => {
       const vec = bytesToFloat32(p.imageEmbedding as Buffer);
-      const similarity = cosineSimilarity(queryVec, vec);
+      const similarity = cosineSimilarity(queryEmbedding.vector, vec);
       const { imageEmbedding, ...part } = p;
       void imageEmbedding;
       return { part, similarity };
     })
-    .filter((m) => m.similarity >= 0.5)
+    .filter((m) => m.similarity >= (queryEmbedding.provider === "voyage" ? 0.35 : 0.5))
     .sort((a, b) => b.similarity - a.similarity)
     .slice(0, 5);
 

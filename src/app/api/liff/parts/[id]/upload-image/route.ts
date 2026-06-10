@@ -39,11 +39,23 @@ export const POST = withCors(async (
       return NextResponse.json({ error: "ไฟล์ต้องมีขนาดไม่เกิน 5MB" }, { status: 400 });
     }
 
-    const { url: imageUrl, embedding } = await savePartImage(buffer, file.name, id);
+    const {
+      url: imageUrl,
+      embedding,
+      embeddingProvider,
+      embeddingModel,
+      embeddingDimension,
+    } = await savePartImage(buffer, file.name, id);
 
     await prisma.part.update({
       where: { id },
-      data: { imageUrl, imageEmbedding: embedding },
+      data: {
+        imageUrl,
+        imageEmbedding: embedding,
+        imageEmbeddingProvider: embeddingProvider,
+        imageEmbeddingModel: embeddingModel,
+        imageEmbeddingDimension: embeddingDimension,
+      },
     });
 
     return NextResponse.json({ imageUrl });

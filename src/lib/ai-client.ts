@@ -42,7 +42,7 @@ export function gatewayModel(): string {
   return (
     process.env.SPARE_PART_AI_MODEL ||
     process.env.LLM_GATEWAY_MODEL ||
-    "mimo-v2.5-pro"
+    "mistral-agent"
   );
 }
 

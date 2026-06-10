@@ -1,6 +1,20 @@
 import sharp from "sharp";
 
 const MAX_INPUT_SIZE = 5 * 1024 * 1024;
+const VOYAGE_ENDPOINT = "https://api.voyageai.com/v1/multimodalembeddings";
+const DEFAULT_VOYAGE_MODEL = "voyage-multimodal-3.5";
+
+export type ImageEmbeddingProvider = "clip" | "voyage";
+
+export type ImageEmbeddingMetadata = {
+  provider: ImageEmbeddingProvider;
+  model: string;
+  dimension: number;
+};
+
+export type ImageEmbeddingResult = ImageEmbeddingMetadata & {
+  vector: Float32Array;
+};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let modelPromise: Promise<{ processor: any; model: any; RawImage: any }> | null = null;
@@ -22,7 +36,56 @@ async function getModel() {
   return modelPromise;
 }
 
-export async function embedImage(buffer: Buffer): Promise<Float32Array> {
+export function imageEmbeddingProvider(): ImageEmbeddingProvider {
+  const provider = process.env.IMAGE_EMBEDDING_PROVIDER?.trim().toLowerCase();
+  if (provider === "voyage") return "voyage";
+  if (provider === "clip") return "clip";
+  return process.env.VOYAGE_API_KEY ? "voyage" : "clip";
+}
+
+export function currentImageEmbeddingMetadata(): Omit<ImageEmbeddingMetadata, "dimension"> & {
+  dimension?: number;
+} {
+  const provider = imageEmbeddingProvider();
+  if (provider === "voyage") {
+    return {
+      provider,
+      model: process.env.VOYAGE_MULTIMODAL_MODEL || DEFAULT_VOYAGE_MODEL,
+      dimension: Number(process.env.VOYAGE_EMBEDDING_DIMENSION || 1024),
+    };
+  }
+
+  return {
+    provider,
+    model: process.env.CLIP_MODEL_ID || "Xenova/clip-vit-large-patch14",
+  };
+}
+
+export async function embedImageWithMetadata(
+  buffer: Buffer,
+  inputType: "query" | "document" = "document"
+): Promise<ImageEmbeddingResult> {
+  if (imageEmbeddingProvider() === "voyage") {
+    return embedImageWithVoyage(buffer, inputType);
+  }
+
+  const vector = await embedImageWithClip(buffer);
+  return {
+    vector,
+    provider: "clip",
+    model: process.env.CLIP_MODEL_ID || "Xenova/clip-vit-large-patch14",
+    dimension: vector.length,
+  };
+}
+
+export async function embedImage(
+  buffer: Buffer,
+  inputType: "query" | "document" = "document"
+): Promise<Float32Array> {
+  return (await embedImageWithMetadata(buffer, inputType)).vector;
+}
+
+async function embedImageWithClip(buffer: Buffer): Promise<Float32Array> {
   if (buffer.length > MAX_INPUT_SIZE) throw new Error("image too large");
 
   const pngBuf = await sharp(buffer)
@@ -41,6 +104,77 @@ export async function embedImage(buffer: Buffer): Promise<Float32Array> {
   }
   const data = embeds.data instanceof Float32Array ? embeds.data : new Float32Array(embeds.data);
 
+  let norm = 0;
+  for (let i = 0; i < data.length; i++) norm += data[i] * data[i];
+  norm = Math.sqrt(norm) || 1;
+  const normalized = new Float32Array(data.length);
+  for (let i = 0; i < data.length; i++) normalized[i] = data[i] / norm;
+  return normalized;
+}
+
+async function embedImageWithVoyage(
+  buffer: Buffer,
+  inputType: "query" | "document"
+): Promise<ImageEmbeddingResult> {
+  if (buffer.length > 20 * 1024 * 1024) throw new Error("image too large");
+
+  const apiKey = process.env.VOYAGE_API_KEY;
+  if (!apiKey) throw new Error("VOYAGE_API_KEY is not configured");
+
+  const model = process.env.VOYAGE_MULTIMODAL_MODEL || DEFAULT_VOYAGE_MODEL;
+  const imageBuffer = await sharp(buffer)
+    .resize(1600, 1600, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 85 })
+    .toBuffer();
+
+  const response = await fetch(VOYAGE_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    signal: AbortSignal.timeout(45_000),
+    body: JSON.stringify({
+      model,
+      input_type: inputType,
+      truncation: true,
+      inputs: [
+        {
+          content: [
+            {
+              type: "image_base64",
+              image_base64: `data:image/jpeg;base64,${imageBuffer.toString("base64")}`,
+            },
+          ],
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Voyage embedding failed ${response.status}: ${text}`);
+  }
+
+  const data = (await response.json()) as {
+    data?: Array<{ embedding?: number[] }>;
+    embeddings?: number[][];
+  };
+  const values = data.data?.[0]?.embedding || data.embeddings?.[0];
+  if (!Array.isArray(values) || values.length === 0) {
+    throw new Error(`Voyage embedding returned no vector`);
+  }
+
+  const vector = normalizeVector(new Float32Array(values));
+  return {
+    vector,
+    provider: "voyage",
+    model,
+    dimension: vector.length,
+  };
+}
+
+function normalizeVector(data: Float32Array): Float32Array {
   let norm = 0;
   for (let i = 0; i < data.length; i++) norm += data[i] * data[i];
   norm = Math.sqrt(norm) || 1;

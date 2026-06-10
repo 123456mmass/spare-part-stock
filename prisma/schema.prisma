@@ -78,6 +78,9 @@ model Part {
   unit            String   @default("pcs")
   imageUrl        String?
   imageEmbedding  Bytes?
+  imageEmbeddingProvider String?
+  imageEmbeddingModel    String?
+  imageEmbeddingDimension Int?
   qrCodeUrl       String?
   barcodeValue    String?   @unique
   isActive        Boolean  @default(true)

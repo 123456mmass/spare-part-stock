@@ -2,14 +2,20 @@ import "dotenv/config";
 import fs from "fs/promises";
 import path from "path";
 import { prisma } from "../src/lib/prisma";
-import { embedImage, float32ToBytes } from "../src/lib/embeddings";
+import {
+  currentImageEmbeddingMetadata,
+  embedImageWithMetadata,
+  float32ToBytes,
+} from "../src/lib/embeddings";
 
-async function embedWithRetry(buf: Buffer, attempts = 3): Promise<Uint8Array> {
+async function embedWithRetry(
+  buf: Buffer,
+  attempts = 3,
+): Promise<Awaited<ReturnType<typeof embedImageWithMetadata>>> {
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
     try {
-      const vec = await embedImage(buf);
-      return float32ToBytes(vec);
+      return embedImageWithMetadata(buf, "document");
     } catch (err) {
       lastErr = err;
       console.warn(`  attempt ${i + 1}/${attempts} failed: ${(err as Error).message}`);
@@ -20,12 +26,22 @@ async function embedWithRetry(buf: Buffer, attempts = 3): Promise<Uint8Array> {
 }
 
 async function main() {
+  const current = currentImageEmbeddingMetadata();
   const parts = await prisma.part.findMany({
-    where: { imageEmbedding: null, imageUrl: { not: null } },
+    where: {
+      imageUrl: { not: null },
+      OR: [
+        { imageEmbedding: null },
+        { imageEmbeddingProvider: { not: current.provider } },
+        { imageEmbeddingModel: { not: current.model } },
+      ],
+    },
     select: { id: true, partNumber: true, imageUrl: true },
   });
 
-  console.log(`Found ${parts.length} parts to backfill`);
+  console.log(
+    `Found ${parts.length} parts to backfill using ${current.provider}/${current.model}`,
+  );
   let ok = 0;
   let failed = 0;
 
@@ -34,12 +50,18 @@ async function main() {
     const filePath = path.join(process.cwd(), "public", p.imageUrl!);
     try {
       const buf = await fs.readFile(filePath);
-      const embedding = await embedWithRetry(buf);
+      const result = await embedWithRetry(buf);
+      const embedding = float32ToBytes(result.vector);
       const ab = new ArrayBuffer(embedding.byteLength);
       new Uint8Array(ab).set(embedding);
       await prisma.part.update({
         where: { id: p.id },
-        data: { imageEmbedding: new Uint8Array(ab) },
+        data: {
+          imageEmbedding: new Uint8Array(ab),
+          imageEmbeddingProvider: result.provider,
+          imageEmbeddingModel: result.model,
+          imageEmbeddingDimension: result.dimension,
+        },
       });
       ok++;
       if ((i + 1) % 10 === 0 || i === parts.length - 1) {

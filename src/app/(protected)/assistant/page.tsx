@@ -274,17 +274,17 @@ export default function AssistantPage() {
     .reverse();
 
   return (
-    <div className="flex h-[calc(100vh-7rem)] min-h-[640px] overflow-hidden rounded-2xl border border-slate-200 bg-[#0b0b0b] text-white shadow-sm">
+    <div className="flex h-[calc(100vh-7rem)] min-h-[640px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-slate-950 shadow-sm">
       <aside
         className={`${
           sidebarOpen ? "w-72" : "w-0"
-        } hidden shrink-0 overflow-hidden border-r border-white/10 bg-black transition-all duration-200 md:block`}
+        } hidden shrink-0 overflow-hidden border-r border-slate-200 bg-white transition-all duration-200 md:block`}
       >
         <div className="flex h-full flex-col p-3">
           <div className="mb-4 flex items-center justify-between px-2 py-1">
             <div className="text-lg font-semibold">SpareGPT</div>
             <button
-              className="rounded-lg p-2 text-zinc-400 hover:bg-white/10 hover:text-white"
+              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
               onClick={() => setSidebarOpen(false)}
             >
               <PanelLeftClose className="h-4 w-4" />
@@ -292,57 +292,57 @@ export default function AssistantPage() {
           </div>
           <button
             onClick={() => void startNewChat()}
-            className="mb-3 flex items-center gap-3 rounded-xl bg-white/10 px-3 py-3 text-sm font-medium text-white hover:bg-white/15"
+            className="mb-3 flex items-center gap-3 rounded-xl bg-slate-900 px-3 py-3 text-sm font-medium text-white hover:bg-slate-800"
           >
             <MessageSquarePlus className="h-4 w-4" />
             แชตใหม่
           </button>
-          <div className="mb-3 flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-zinc-400">
+          <div className="mb-3 flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-slate-500">
             <Search className="h-4 w-4" />
             ค้นหาแชต
           </div>
-          <div className="mt-3 text-xs font-medium text-zinc-500">
+          <div className="mt-3 text-xs font-medium text-slate-500">
             เมื่อเร็ว ๆ นี้
           </div>
           <div className="mt-2 flex-1 space-y-1 overflow-y-auto">
             {recentTitles.length === 0 ? (
-              <div className="rounded-lg px-3 py-2 text-sm text-zinc-500">
+              <div className="rounded-lg px-3 py-2 text-sm text-slate-500">
                 ยังไม่มีประวัติ
               </div>
             ) : (
               recentTitles.map((item) => (
                 <div
                   key={item.id}
-                  className="truncate rounded-lg px-3 py-2 text-sm text-zinc-300 hover:bg-white/10"
+                  className="truncate rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
                 >
                   {item.content}
                 </div>
               ))
             )}
           </div>
-          <div className="border-t border-white/10 pt-3 text-xs text-zinc-500">
+          <div className="border-t border-slate-200 pt-3 text-xs text-slate-500">
             ระบบสต็อกอะไหล่
           </div>
         </div>
       </aside>
 
       <main className="relative flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-white/10 bg-[#0f0f0f]/95 px-4">
+        <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white/95 px-4">
           <div className="flex items-center gap-2">
             {!sidebarOpen && (
               <button
-                className="rounded-lg p-2 text-zinc-400 hover:bg-white/10 hover:text-white"
+                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
                 onClick={() => setSidebarOpen(true)}
               >
                 <Menu className="h-5 w-5" />
               </button>
             )}
-            <div className="flex items-center gap-2 text-sm text-zinc-300">
+            <div className="flex items-center gap-2 text-sm text-slate-700">
               <Bot className="h-4 w-4" />
               AI Assistant
             </div>
           </div>
-          <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-300">
+          <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
             <Sparkles className="h-3.5 w-3.5" />
             Mistral Agent
           </div>
@@ -351,7 +351,7 @@ export default function AssistantPage() {
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pb-40 pt-6">
           {!hasRealMessages ? (
             <div className="mx-auto flex min-h-[65vh] max-w-3xl flex-col items-center justify-center text-center">
-              <h1 className="mb-8 text-2xl font-semibold text-white md:text-3xl">
+              <h1 className="mb-8 text-2xl font-semibold text-slate-950 md:text-3xl">
                 วันนี้ให้ช่วยเรื่องสต็อกอะไรดี?
               </h1>
               <div className="grid w-full gap-2 sm:grid-cols-2">
@@ -359,7 +359,7 @@ export default function AssistantPage() {
                   <button
                     key={prompt}
                     onClick={() => void handleSend(prompt)}
-                    className="rounded-2xl border border-white/10 bg-[#1f1f1f] px-4 py-3 text-left text-sm text-zinc-200 hover:bg-[#2a2a2a]"
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm text-slate-700 shadow-sm hover:bg-slate-100"
                   >
                     {prompt}
                   </button>
@@ -385,10 +385,10 @@ export default function AssistantPage() {
           )}
         </div>
 
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#0b0b0b] via-[#0b0b0b] to-transparent px-4 pb-5 pt-10">
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-50 via-slate-50 to-transparent px-4 pb-5 pt-10">
           <div className="mx-auto max-w-3xl">
             {attachments.length > 0 && (
-              <div className="mb-2 flex items-center justify-between rounded-xl border border-blue-400/30 bg-blue-500/10 px-3 py-2 text-sm text-blue-100">
+              <div className="mb-2 flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
                 <span className="truncate">{attachments[0].name}</span>
                 <Button
                   size="icon"
@@ -399,7 +399,7 @@ export default function AssistantPage() {
                 </Button>
               </div>
             )}
-            <div className="flex items-end gap-2 rounded-[28px] bg-[#2f2f2f] p-2 shadow-2xl">
+            <div className="flex items-end gap-2 rounded-[28px] border border-slate-200 bg-white p-2 shadow-xl">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -410,7 +410,7 @@ export default function AssistantPage() {
                 }
               />
               <button
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-zinc-300 hover:bg-white/10"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={sending}
               >
@@ -420,7 +420,7 @@ export default function AssistantPage() {
                 value={message}
                 onChange={(event) => setMessage(event.target.value)}
                 placeholder="ถามอะไรเกี่ยวกับสต็อกก็ได้"
-                className="max-h-40 min-h-10 flex-1 resize-none border-0 bg-transparent px-0 py-2 text-base text-white shadow-none placeholder:text-zinc-400 focus-visible:ring-0"
+                className="max-h-40 min-h-10 flex-1 resize-none border-0 bg-transparent px-0 py-2 text-base text-slate-950 shadow-none placeholder:text-slate-400 focus-visible:ring-0"
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
@@ -429,7 +429,7 @@ export default function AssistantPage() {
                 }}
               />
               <button
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-black disabled:cursor-not-allowed disabled:bg-zinc-600 disabled:text-zinc-400"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
                 onClick={() => void handleSend()}
                 disabled={
                   sending || (!message.trim() && attachments.length === 0)
@@ -442,7 +442,7 @@ export default function AssistantPage() {
                 )}
               </button>
             </div>
-            <div className="mt-2 text-center text-xs text-zinc-500">
+            <div className="mt-2 text-center text-xs text-slate-500">
               AI อาจตอบผิดได้ โปรดตรวจสอบก่อนยืนยันรายการสต็อก
             </div>
           </div>
@@ -477,8 +477,8 @@ function ChatBubble({
         <div
           className={
             isUser
-              ? "rounded-[22px] bg-[#303030] px-5 py-3 text-[15px] leading-7 text-white shadow-sm"
-              : "rounded-2xl border border-white/10 bg-[#181818] px-5 py-4 text-[15px] leading-7 text-zinc-100 shadow-[0_18px_60px_rgba(0,0,0,0.24)]"
+              ? "rounded-[22px] bg-blue-600 px-5 py-3 text-[15px] leading-7 text-white shadow-sm"
+              : "rounded-2xl border border-slate-200 bg-white px-5 py-4 text-[15px] leading-7 text-slate-900 shadow-sm"
           }
         >
           {isUser ? (
@@ -522,7 +522,7 @@ function ChatBubble({
 function ThinkingIndicator({ label }: { label: string }) {
   return (
     <div className="flex justify-start">
-      <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-[#181818] px-4 py-3 text-sm text-zinc-300 shadow-[0_18px_60px_rgba(0,0,0,0.24)]">
+      <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
         <Loader2 className="h-4 w-4 animate-spin" />
         <span>{label}</span>
       </div>
@@ -574,7 +574,7 @@ function renderInlineMarkdown(text: string): ReactNode[] {
       nodes.push(
         <code
           key={`${match.index}-code`}
-          className="rounded bg-white/10 px-1.5 py-0.5 text-[0.9em] text-zinc-100"
+          className="rounded bg-slate-100 px-1.5 py-0.5 text-[0.9em] text-slate-900"
         >
           {token.slice(1, -1)}
         </code>,
@@ -583,7 +583,7 @@ function renderInlineMarkdown(text: string): ReactNode[] {
       nodes.push(
         <strong
           key={`${match.index}-strong`}
-          className="font-semibold text-white"
+          className="font-semibold text-slate-950"
         >
           {token.slice(2, -2)}
         </strong>,

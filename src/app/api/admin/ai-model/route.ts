@@ -4,18 +4,7 @@ import { gatewayBaseUrl, gatewayKey, gatewayModel } from "@/lib/ai-client";
 
 // Hardcoded fallback models (from gateway provider registry)
 const FALLBACK_MODELS = [
-  "claude-opus-4.8",
-  "claude-opus-4.7",
-  "claude-sonnet-4.6",
-  "claude-haiku-4.5",
-  "gpt-5.5-xhigh",
-  "gpt-5.5",
-  "mimo-v2.5-pro",
-  "MiniMax-M3",
-  "MiniMax-M2.7",
-  "deepseek-v4-pro",
-  "composer-2.5",
-  "composer-2.5-fast",
+  "mistral-agent",
 ];
 
 async function getAvailableModels(baseUrl: string, apiKey: string): Promise<string[]> {

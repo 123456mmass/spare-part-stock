@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuthFromRequest } from "@/lib/auth";
 import { corsOptions, withCors } from "@/lib/cors";
 import { prisma } from "@/lib/prisma";
-import { embedImage, cosineSimilarity, bytesToFloat32 } from "@/lib/embeddings";
+import { embedImageWithMetadata, cosineSimilarity, bytesToFloat32 } from "@/lib/embeddings";
 
 const MAX_SIZE = 5 * 1024 * 1024;
 const TOP_K = 5;
@@ -28,16 +28,21 @@ export const POST = withCors(async (request: Request) => {
       return NextResponse.json({ error: "ไฟล์ต้องมีขนาดไม่เกิน 5MB" }, { status: 413 });
     }
 
-    let queryVec: Float32Array;
+    let queryEmbedding: Awaited<ReturnType<typeof embedImageWithMetadata>>;
     try {
-      queryVec = await embedImage(buffer);
+      queryEmbedding = await embedImageWithMetadata(buffer, "query");
     } catch (err) {
       console.error("embedImage failed:", (err as Error).message);
       return NextResponse.json({ error: "ระบบค้นหาด้วยรูปไม่พร้อมใช้งาน" }, { status: 503 });
     }
 
     const parts = await prisma.part.findMany({
-      where: { isActive: true, imageEmbedding: { not: null } },
+      where: {
+        isActive: true,
+        imageEmbedding: { not: null },
+        imageEmbeddingProvider: queryEmbedding.provider,
+        imageEmbeddingModel: queryEmbedding.model,
+      },
       select: {
         id: true,
         partNumber: true,
@@ -52,15 +57,16 @@ export const POST = withCors(async (request: Request) => {
       },
     });
 
+    const minSimilarity = queryEmbedding.provider === "voyage" ? 0.35 : MIN_SIMILARITY;
     const matches = parts
       .map((p) => {
         const vec = bytesToFloat32(p.imageEmbedding as Buffer);
-        const similarity = cosineSimilarity(queryVec, vec);
+        const similarity = cosineSimilarity(queryEmbedding.vector, vec);
         const { imageEmbedding, ...part } = p;
         void imageEmbedding;
         return { part, similarity };
       })
-      .filter((m) => m.similarity >= MIN_SIMILARITY)
+      .filter((m) => m.similarity >= minSimilarity)
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, TOP_K);
 

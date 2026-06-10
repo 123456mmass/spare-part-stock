@@ -49,11 +49,23 @@ export async function POST(
       );
     }
 
-    const { url: imageUrl, embedding } = await savePartImage(buffer, file.name, id);
+    const {
+      url: imageUrl,
+      embedding,
+      embeddingProvider,
+      embeddingModel,
+      embeddingDimension,
+    } = await savePartImage(buffer, file.name, id);
 
     await prisma.part.update({
       where: { id },
-      data: { imageUrl, imageEmbedding: embedding },
+      data: {
+        imageUrl,
+        imageEmbedding: embedding,
+        imageEmbeddingProvider: embeddingProvider,
+        imageEmbeddingModel: embeddingModel,
+        imageEmbeddingDimension: embeddingDimension,
+      },
     });
 
     return NextResponse.json({ imageUrl });
