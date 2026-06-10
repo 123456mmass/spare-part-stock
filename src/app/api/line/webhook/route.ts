@@ -10,7 +10,8 @@ import {
   type LineWebhookBody,
 } from "@/lib/line";
 import { orchestrate } from "@/lib/line-chat/orchestrator";
-import { searchPartsForLine } from "@/lib/line-chat/tools";
+import { runAiAssistant } from "@/lib/ai-assistant/orchestrator";
+import { executeTool as executeLineTool, searchPartsForLine } from "@/lib/line-chat/tools";
 import {
   cancelPendingActionByCode,
   confirmPendingActionByCode,
@@ -178,14 +179,57 @@ export async function POST(request: Request) {
 
         try {
           const imageBuffer = await getLineMessageContent(event.message.id);
-          const result = await searchPartsFromImage(imageBuffer);
-          if (result.parts.length > 0) {
+          const imageBase64 = imageBuffer.toString("base64");
+
+          try {
+            const textSearchResult = await searchPartsFromImage(imageBuffer);
+            if (textSearchResult.parts.length > 0) {
+              await sendLineReply(replyToken, [
+                createFlexMessage(
+                  `ค้นหาจากรูป ${textSearchResult.keyword}`,
+                  createSearchResultsFlex(textSearchResult.keyword, textSearchResult.parts)
+                ),
+              ]);
+              continue;
+            }
+          } catch (error) {
+            console.error("LINE image OCR/text search failed:", error);
+          }
+
+          const aiResult = await runAiAssistant({
+            user: { id: user.id, role: user.role, name: user.name },
+            channel: "line",
+            conversationScope: {
+              lineUserId,
+              lineGroupId,
+              isGroup,
+            },
+            message:
+              "วิเคราะห์รูปนี้ว่าเป็นอะไหล่หรืออุปกรณ์อะไร อ่านรหัส/ข้อความที่เห็น และถ้าไม่แน่ใจให้บอกความเป็นไปได้แบบกระชับ",
+            attachments: [
+              {
+                type: "image",
+                imageBase64,
+                mediaType: "image/jpeg",
+              },
+            ],
+            responseStyle: "line",
+          });
+
+          const aiReply = aiResult.reply.trim();
+          if (aiReply && !/ไม่สามารถวิเคราะห์รูปภาพนี้ได้/i.test(aiReply)) {
+            await sendLineReply(replyToken, [createTextMessage(aiReply)]);
+            continue;
+          }
+
+          const imageSearchReply = await executeLineTool("search_by_image", {
+            imageBase64,
+          });
+          if (/^พบอะไหล่ที่คล้ายกับรูปภาพ/.test(imageSearchReply)) {
             await sendLineReply(replyToken, [
-              createFlexMessage(
-                `ค้นหาด้วยรูป ${result.keyword}`,
-                createSearchResultsFlex(result.keyword, result.parts)
-              ),
+              createTextMessage(`ผลเทียบรูปใน DB (ใช้เป็นตัวช่วย ไม่ใช่ผลยืนยัน):\n${imageSearchReply}`),
             ]);
+            continue;
           } else {
             await sendLineReply(replyToken, [
               createTextMessage("ไม่พบข้อมูลอะไหล่ในสต๊อก"),
