@@ -196,45 +196,60 @@ export async function POST(request: Request) {
             console.error("LINE image OCR/text search failed:", error);
           }
 
-          const aiResult = await runAiAssistant({
-            user: { id: user.id, role: user.role, name: user.name },
-            channel: "line",
-            conversationScope: {
-              lineUserId,
-              lineGroupId,
-              isGroup,
-            },
-            message:
-              "วิเคราะห์รูปนี้ว่าเป็นอะไหล่หรืออุปกรณ์อะไร อ่านรหัส/ข้อความที่เห็น และถ้าไม่แน่ใจให้บอกความเป็นไปได้แบบกระชับ",
-            attachments: [
-              {
-                type: "image",
-                imageBase64,
-                mediaType: "image/jpeg",
+          try {
+            const imageSearchReply = await executeLineTool("search_by_image", {
+              imageBase64,
+            });
+            if (/^พบอะไหล่ที่คล้ายกับรูปภาพ/.test(imageSearchReply)) {
+              await sendLineReply(replyToken, [
+                createTextMessage(
+                  `ผลเทียบรูปใน DB (ใช้เป็นตัวช่วย ไม่ใช่ผลยืนยัน):\n${imageSearchReply}`,
+                ),
+              ]);
+              continue;
+            }
+          } catch (error) {
+            console.error("LINE image embedding search failed:", error);
+          }
+
+          try {
+            const aiResult = await runAiAssistant({
+              user: { id: user.id, role: user.role, name: user.name },
+              channel: "line",
+              conversationScope: {
+                lineUserId,
+                lineGroupId,
+                isGroup,
               },
-            ],
-            responseStyle: "line",
-          });
+              message:
+                "วิเคราะห์รูปนี้ว่าเป็นอะไหล่หรืออุปกรณ์อะไร อ่านรหัส/ข้อความที่เห็น และถ้าไม่แน่ใจให้บอกความเป็นไปได้แบบกระชับ",
+              attachments: [
+                {
+                  type: "image",
+                  imageBase64,
+                  mediaType: "image/jpeg",
+                },
+              ],
+              responseStyle: "line",
+            });
 
-          const aiReply = aiResult.reply.trim();
-          if (aiReply && !/ไม่สามารถวิเคราะห์รูปภาพนี้ได้/i.test(aiReply)) {
-            await sendLineReply(replyToken, [createTextMessage(aiReply)]);
-            continue;
+            const aiReply = aiResult.reply.trim();
+            if (
+              aiReply &&
+              !/ไม่สามารถวิเคราะห์รูปภาพนี้ได้|เกิดข้อผิดพลาด/i.test(aiReply)
+            ) {
+              await sendLineReply(replyToken, [createTextMessage(aiReply)]);
+              continue;
+            }
+          } catch (error) {
+            console.error("LINE image AI analysis failed:", error);
           }
 
-          const imageSearchReply = await executeLineTool("search_by_image", {
-            imageBase64,
-          });
-          if (/^พบอะไหล่ที่คล้ายกับรูปภาพ/.test(imageSearchReply)) {
-            await sendLineReply(replyToken, [
-              createTextMessage(`ผลเทียบรูปใน DB (ใช้เป็นตัวช่วย ไม่ใช่ผลยืนยัน):\n${imageSearchReply}`),
-            ]);
-            continue;
-          } else {
-            await sendLineReply(replyToken, [
-              createTextMessage("ไม่พบข้อมูลอะไหล่ในสต๊อก"),
-            ]);
-          }
+          await sendLineReply(replyToken, [
+            createTextMessage(
+              "ยังเทียบรูปกับอะไหล่ใน DB ไม่เจอครับ กรุณาถ่ายให้เห็นรหัสรุ่น/ป้ายชื่ออะไหล่ชัดขึ้น หรือพิมพ์รหัสที่เห็นมาได้เลย",
+            ),
+          ]);
         } catch (error) {
           console.error("LINE image search error:", error);
           await sendLineReply(replyToken, [

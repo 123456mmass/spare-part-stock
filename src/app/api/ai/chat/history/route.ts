@@ -1,28 +1,70 @@
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { AuthError, requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const user = await requireAuth();
-    const conversation = await prisma.conversation.findFirst({
-      where: { lineUserId: `web:${user.id}`, lineGroupId: null },
+    const webLineUserId = `web:${user.id}`;
+    const requestedConversationId =
+      request.nextUrl.searchParams.get("conversationId") || undefined;
+    const conversations = await prisma.conversation.findMany({
+      where: { lineUserId: webLineUserId, lineGroupId: null },
       orderBy: { updatedAt: "desc" },
+      take: 30,
       include: {
         messages: {
-          where: { role: { in: ["user", "assistant"] } },
+          where: { role: "user" },
           orderBy: { createdAt: "asc" },
-          take: 100,
+          take: 1,
         },
       },
     });
+    const selectedConversationId =
+      requestedConversationId &&
+      conversations.some(
+        (conversation) => conversation.id === requestedConversationId,
+      )
+        ? requestedConversationId
+        : conversations[0]?.id;
+
+    const conversation = selectedConversationId
+      ? await prisma.conversation.findFirst({
+          where: {
+            id: selectedConversationId,
+            lineUserId: webLineUserId,
+            lineGroupId: null,
+          },
+          include: {
+            messages: {
+              where: { role: { in: ["user", "assistant"] } },
+              orderBy: { createdAt: "asc" },
+              take: 100,
+            },
+          },
+        })
+      : null;
 
     if (!conversation) {
-      return NextResponse.json({ conversationId: null, messages: [] });
+      return NextResponse.json({
+        conversationId: null,
+        conversations: conversations.map((item) => ({
+          id: item.id,
+          title: item.messages[0]?.content || "แชตใหม่",
+          updatedAt: item.updatedAt,
+        })),
+        messages: [],
+      });
     }
 
     return NextResponse.json({
       conversationId: conversation.id,
+      conversations: conversations.map((item) => ({
+        id: item.id,
+        title: item.messages[0]?.content || "แชตใหม่",
+        updatedAt: item.updatedAt,
+      })),
       messages: conversation.messages.map((message) => ({
         id: message.id,
         role: message.role,

@@ -20,6 +20,43 @@ export type MessageRecord = {
   createdAt: Date;
 };
 
+export async function createConversation(
+  lineUserId?: string,
+  lineGroupId?: string
+): Promise<ConversationContext> {
+  if (!lineUserId && !lineGroupId) {
+    throw new Error("lineUserId or lineGroupId required");
+  }
+
+  const created = await prisma.conversation.create({
+    data: {
+      lineUserId: lineUserId || null,
+      lineGroupId: lineGroupId || null,
+    },
+  });
+
+  return {
+    conversationId: created.id,
+    lineUserId: created.lineUserId ?? undefined,
+    lineGroupId: created.lineGroupId ?? undefined,
+    isNewConversation: true,
+  };
+}
+
+export async function findConversationForLineUser(
+  conversationId: string,
+  lineUserId: string
+) {
+  return prisma.conversation.findFirst({
+    where: {
+      id: conversationId,
+      lineUserId,
+      lineGroupId: null,
+    },
+    select: { id: true },
+  });
+}
+
 // หรือสร้าง conversation ใหม่ (1 ต่อ user หรือ 1 ต่อ group)
 export async function getOrCreateConversation(
   lineUserId?: string,
@@ -48,20 +85,7 @@ export async function getOrCreateConversation(
     };
   }
 
-  // สร้างใหม่
-  const created = await prisma.conversation.create({
-    data: {
-      lineUserId: lineUserId || null,
-      lineGroupId: lineGroupId || null,
-    },
-  });
-
-  return {
-    conversationId: created.id,
-    lineUserId: created.lineUserId ?? undefined,
-    lineGroupId: created.lineGroupId ?? undefined,
-    isNewConversation: true,
-  };
+  return createConversation(lineUserId, lineGroupId);
 }
 
 export async function saveMessage(

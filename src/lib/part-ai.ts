@@ -23,6 +23,26 @@ const aiSuggestionSchema = z.object({
   notes: z.string().trim().nullable().optional().transform(v => v || ""),
 });
 
+const suggestionJsonShape = {
+  partNumber: "string, part code/model/SKU printed on the part or label",
+  partName:
+    "string, format: Brand - Part Name in English (e.g. Schneider - Contactor, Mitsubishi - Inverter, SKF - Ball Bearing)",
+  description:
+    "string, format: [Brand] [Type] [Model], [Specs], [Standard], ใช้กับ[Application]",
+  categoryName:
+    "string, REQUIRED — use existing category if match, otherwise suggest a new Thai category name (e.g. อุปกรณ์ไฟฟ้า, วาล์ว, มอเตอร์, ตลับลูกปืน, เซ็นเซอร์). NEVER leave empty.",
+  subcategory:
+    "string, specific part type in English (e.g. Contactor, Breaker, Fuse, Relay, Inverter, Ball Bearing, Solenoid Valve)",
+  location: "string",
+  quantity: 0,
+  minimumQuantity: 0,
+  unit: "pcs",
+  barcodeValue:
+    "string or null. Priority: (1) read barcode/QR number from image, (2) if no barcode but Serial Number (SN) is visible, use the SN instead, (3) null if nothing found",
+  confidence: 0.0,
+  notes: "string, short uncertainty note",
+};
+
 export type PartAiSuggestion = z.infer<typeof aiSuggestionSchema> & {
   categoryId: string | null;
   matchedCategoryName: string | null;
@@ -111,20 +131,7 @@ export async function suggestPartFromImage(file: File): Promise<PartAiSuggestion
     scannedBarcode ? `NOTE: Barcode already scanned from image: "${scannedBarcode}". Use this as barcodeValue.` : "",
     `Existing categories: ${categoryNames}`,
     "JSON schema:",
-    JSON.stringify({
-      partNumber: "string, part code/model/SKU printed on the part or label",
-      partName: "string, format: Brand - Part Name in English (e.g. Schneider - Contactor, Mitsubishi - Inverter, SKF - Ball Bearing)",
-      description: "string, format: [Brand] [Type] [Model], [Specs], [Standard], ใช้กับ[Application]",
-      categoryName: "string, REQUIRED — use existing category if match, otherwise suggest a new Thai category name (e.g. อุปกรณ์ไฟฟ้า, วาล์ว, มอเตอร์, ตลับลูกปืน, เซ็นเซอร์). NEVER leave empty.",
-      subcategory: "string, specific part type in English (e.g. Contactor, Breaker, Fuse, Relay, Inverter, Ball Bearing, Solenoid Valve)",
-      location: "string",
-      quantity: 0,
-      minimumQuantity: 0,
-      unit: "pcs",
-      barcodeValue: "string or null. Priority: (1) read barcode/QR number from image, (2) if no barcode but Serial Number (SN) is visible, use the SN instead, (3) null if nothing found",
-      confidence: 0.0,
-      notes: "string, short uncertainty note",
-    }),
+    JSON.stringify(suggestionJsonShape),
   ].join("\n");
 
   const aiContent: AiContentBlock[] = [
@@ -146,14 +153,7 @@ export async function suggestPartFromImage(file: File): Promise<PartAiSuggestion
 
   const text = result.text;
 
-  // Debug: log what AI returned if JSON parsing fails
-  let parsed;
-  try {
-    parsed = aiSuggestionSchema.parse(parseJsonObject(text));
-  } catch (parseErr) {
-    console.error("AI raw response text:", text.substring(0, 500));
-    throw parseErr;
-  }
+  const parsed = await parsePartSuggestion(text);
   const resolved = await resolveCategory(parsed.categoryName ?? "");
 
   const barcodeValue = scannedBarcode || parsed.barcodeValue?.trim() || generatePartBarcodeValue(parsed.partNumber ?? parsed.partName ?? "");
@@ -164,4 +164,37 @@ export async function suggestPartFromImage(file: File): Promise<PartAiSuggestion
     categoryId: resolved.categoryId ?? categoryId,
     matchedCategoryName: resolved.matchedCategoryName ?? matchedCategoryName,
   };
+}
+
+async function parsePartSuggestion(text: string) {
+  try {
+    return aiSuggestionSchema.parse(parseJsonObject(text));
+  } catch (parseErr) {
+    console.error("AI raw response text:", text.substring(0, 500));
+    if (!text.trim()) throw parseErr;
+
+    const repairPrompt = [
+      "Convert the following AI output into one valid JSON object for a spare-part inventory suggestion.",
+      "Return JSON only. Do not include markdown or explanation.",
+      "Do not invent values that are not present. Unknown fields should be empty string, null, or 0.",
+      "Schema:",
+      JSON.stringify(suggestionJsonShape),
+      "AI output:",
+      text.slice(0, 3000),
+    ].join("\n");
+
+    try {
+      const repaired = await callPartAi(
+        [{ type: "text", text: repairPrompt }],
+        { maxTokens: 1200, temperature: 0, timeoutMs: 30_000 },
+      );
+      return aiSuggestionSchema.parse(parseJsonObject(repaired.text));
+    } catch (repairErr) {
+      console.error(
+        "AI suggestion JSON repair failed:",
+        repairErr instanceof Error ? repairErr.message : repairErr,
+      );
+      throw parseErr;
+    }
+  }
 }

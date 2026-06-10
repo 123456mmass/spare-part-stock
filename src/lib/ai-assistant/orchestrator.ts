@@ -1,5 +1,7 @@
 import { gatewayBaseUrl, gatewayKey, gatewayModel } from "@/lib/ai-client";
 import {
+  createConversation,
+  findConversationForLineUser,
   getOrCreateConversation,
   getRecentMessages,
   saveMessage,
@@ -203,9 +205,18 @@ export async function runAiAssistantStream(
 async function resolveConversationId(
   input: AiAssistantInput,
 ): Promise<string | undefined> {
-  if (input.conversationId) return input.conversationId;
+  if (input.conversationId) {
+    if (input.channel === "web") {
+      const conversation = await findConversationForLineUser(
+        input.conversationId,
+        `web:${input.user.id}`,
+      );
+      return conversation?.id;
+    }
+    return input.conversationId;
+  }
   if (input.channel === "web") {
-    const ctx = await getOrCreateConversation(
+    const ctx = await createConversation(
       `web:${input.user.id}`,
       undefined,
     );

@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   Bot,
   Check,
@@ -24,6 +30,12 @@ type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   pendingActionIds?: string[];
+};
+
+type ChatConversation = {
+  id: string;
+  title: string;
+  updatedAt: string;
 };
 
 type ImageAttachment = {
@@ -65,6 +77,7 @@ export default function AssistantPage() {
   const [thinkingStatus, setThinkingStatus] = useState("");
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [conversations, setConversations] = useState<ChatConversation[]>([]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -73,54 +86,53 @@ export default function AssistantPage() {
     });
   }, [messages, sending, thinkingStatus]);
 
-  useEffect(() => {
-    let active = true;
-    async function loadHistory() {
-      try {
-        const response = await fetch("/api/ai/chat/history");
-        if (!response.ok) return;
-        const data = await response.json();
-        if (
-          !active ||
-          !Array.isArray(data.messages) ||
-          data.messages.length === 0
-        )
-          return;
-        setConversationId(data.conversationId || undefined);
-        setMessages(
-          data.messages.map(
-            (item: {
-              id: string;
-              role: "user" | "assistant";
-              content: string;
-              metadata?: { pendingActionIds?: string[] } | null;
-            }) => ({
-              id: item.id,
-              role: item.role,
-              content:
-                item.role === "assistant"
-                  ? cleanAssistantText(item.content)
-                  : item.content,
-              pendingActionIds: item.metadata?.pendingActionIds || [],
-            }),
-          ),
-        );
-      } catch {
-        // History is best-effort.
+  const loadHistory = useCallback(async (selectedId?: string) => {
+    try {
+      const query = selectedId
+        ? `?conversationId=${encodeURIComponent(selectedId)}`
+        : "";
+      const response = await fetch(`/api/ai/chat/history${query}`);
+      if (!response.ok) return;
+      const data = await response.json();
+      setConversations(
+        Array.isArray(data.conversations) ? data.conversations : [],
+      );
+      setConversationId(data.conversationId || undefined);
+      if (!Array.isArray(data.messages) || data.messages.length === 0) {
+        setMessages([WELCOME]);
+        return;
       }
+      setMessages(
+        data.messages.map(
+          (item: {
+            id: string;
+            role: "user" | "assistant";
+            content: string;
+            metadata?: { pendingActionIds?: string[] } | null;
+          }) => ({
+            id: item.id,
+            role: item.role,
+            content:
+              item.role === "assistant"
+                ? cleanAssistantText(item.content)
+                : item.content,
+            pendingActionIds: item.metadata?.pendingActionIds || [],
+          }),
+        ),
+      );
+    } catch {
+      // History is best-effort.
     }
-    void loadHistory();
-    return () => {
-      active = false;
-    };
   }, []);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadHistory();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadHistory]);
+
   async function startNewChat() {
-    try {
-      await fetch("/api/ai/chat/history", { method: "DELETE" });
-    } catch {
-      // Local reset still works if server cleanup fails.
-    }
     setConversationId(undefined);
     setMessages([WELCOME]);
     setMessage("");
@@ -182,7 +194,8 @@ export default function AssistantPage() {
           return;
         }
         if (event.type === "done") {
-          setConversationId(event.conversationId || conversationId);
+          const nextConversationId = event.conversationId || conversationId;
+          setConversationId(nextConversationId);
           setMessages((prev) =>
             prev.map((item) =>
               item.id === assistantId
@@ -191,6 +204,7 @@ export default function AssistantPage() {
             ),
           );
           setThinkingStatus("");
+          if (nextConversationId) void loadHistory(nextConversationId);
           return;
         }
         if (event.type === "error") throw new Error(event.message);
@@ -268,13 +282,8 @@ export default function AssistantPage() {
   }
 
   const hasRealMessages = messages.some((item) => item.id !== "welcome");
-  const recentTitles = messages
-    .filter((item) => item.role === "user")
-    .slice(-8)
-    .reverse();
-
   return (
-    <div className="-m-4 flex h-[calc(100vh-4rem)] min-h-[640px] overflow-hidden bg-slate-50 text-slate-950 md:-m-6">
+    <div className="-mx-4 -mb-4 flex h-[calc(100vh-5rem)] min-h-[620px] overflow-hidden bg-slate-50 text-slate-950 md:-mx-6 md:-mb-6">
       <aside
         className={`${
           sidebarOpen ? "w-72" : "w-0"
@@ -305,18 +314,23 @@ export default function AssistantPage() {
             เมื่อเร็ว ๆ นี้
           </div>
           <div className="mt-2 flex-1 space-y-1 overflow-y-auto">
-            {recentTitles.length === 0 ? (
+            {conversations.length === 0 ? (
               <div className="rounded-lg px-3 py-2 text-sm text-slate-500">
                 ยังไม่มีประวัติ
               </div>
             ) : (
-              recentTitles.map((item) => (
-                <div
+              conversations.map((item) => (
+                <button
                   key={item.id}
-                  className="truncate rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                  onClick={() => void loadHistory(item.id)}
+                  className={`block w-full truncate rounded-lg px-3 py-2 text-left text-sm ${
+                    item.id === conversationId
+                      ? "bg-slate-100 text-slate-950"
+                      : "text-slate-700 hover:bg-slate-100"
+                  }`}
                 >
-                  {item.content}
-                </div>
+                  {item.title}
+                </button>
               ))
             )}
           </div>

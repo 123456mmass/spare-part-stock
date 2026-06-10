@@ -232,24 +232,37 @@ async function callGateway(content: AiContentBlock[], opts: AiCallOptions): Prom
   const apiKey = gatewayKey();
   if (apiKey) headers.authorization = `Bearer ${apiKey}`;
 
-  // Convert to OpenAI format
-  const messages = content.map((block) => {
-    if (block.type === "text") {
-      return { role: "user", content: block.text || "" };
+  const parts: unknown[] = [];
+  const textOnly: string[] = [];
+  for (const block of content) {
+    if (block.type === "text" && block.text) {
+      parts.push({ type: "text", text: block.text });
+      textOnly.push(block.text);
+      continue;
     }
-    // Image block
+    if (block.type !== "image" || !block.imageBase64) continue;
     const mediaType = block.mediaType || "image/jpeg";
-    return {
+    parts.push({
+      type: "image_url",
+      image_url: { url: `data:${mediaType};base64,${block.imageBase64}` },
+    });
+  }
+
+  const messages = [
+    {
       role: "user",
-      content: [
-        { type: "text", text: block.text || "" },
-        {
-          type: "image_url",
-          image_url: { url: `data:${mediaType};base64,${block.imageBase64}` },
-        },
-      ],
-    };
-  });
+      content:
+        parts.some((part) => {
+          return (
+            typeof part === "object" &&
+            part !== null &&
+            (part as { type?: unknown }).type === "image_url"
+          );
+        })
+          ? parts
+          : textOnly.join("\n\n"),
+    },
+  ];
 
   const response = await fetch(`${gatewayBaseUrl()}/v1/chat/completions`, {
     method: "POST",
