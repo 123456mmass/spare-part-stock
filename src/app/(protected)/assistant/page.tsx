@@ -364,7 +364,7 @@ export default function AssistantPage() {
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 pb-40 pt-6">
           {!hasRealMessages ? (
-            <div className="mx-auto flex min-h-[65vh] w-full max-w-5xl flex-col items-center justify-center text-center">
+            <div className="flex min-h-[65vh] w-full flex-col items-center justify-center text-center">
               <h1 className="mb-8 text-2xl font-semibold text-slate-950 md:text-3xl">
                 วันนี้ให้ช่วยเรื่องสต็อกอะไรดี?
               </h1>
@@ -381,7 +381,7 @@ export default function AssistantPage() {
               </div>
             </div>
           ) : (
-            <div className="mx-auto w-full max-w-5xl space-y-5">
+            <div className="w-full space-y-5">
               {messages
                 .filter((item) => item.id !== "welcome")
                 .map((item) => (
@@ -400,7 +400,7 @@ export default function AssistantPage() {
         </div>
 
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-50 via-slate-50 to-transparent px-4 pb-5 pt-10">
-          <div className="mx-auto w-full max-w-5xl">
+          <div className="w-full">
             {attachments.length > 0 && (
               <div className="mb-2 flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
                 <span className="truncate">{attachments[0].name}</span>
@@ -487,7 +487,7 @@ function ChatBubble({
     return null;
   return (
     <div className={isUser ? "flex justify-end" : "flex justify-start"}>
-      <div className={isUser ? "max-w-[78%]" : "w-full max-w-[92%]"}>
+      <div className={isUser ? "max-w-[78%]" : "w-full max-w-[96%]"}>
         <div
           className={
             isUser
