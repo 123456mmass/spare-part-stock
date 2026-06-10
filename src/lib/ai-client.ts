@@ -197,12 +197,33 @@ async function callReverseproxy(content: AiContentBlock[], opts: AiCallOptions):
 
 function extractTextFromOpenAI(payload: unknown): string {
   if (!payload || typeof payload !== "object") return "";
+  const outputText = (payload as { output_text?: unknown }).output_text;
+  if (typeof outputText === "string" && outputText.trim()) {
+    return outputText.trim();
+  }
   const choices = (payload as { choices?: unknown }).choices;
   if (!Array.isArray(choices) || choices.length === 0) return "";
   const message = (choices[0] as { message?: unknown }).message;
   if (!message || typeof message !== "object") return "";
   const content = (message as { content?: unknown }).content;
-  return typeof content === "string" ? content.trim() : "";
+  return extractTextContent(content);
+}
+
+function extractTextContent(content: unknown): string {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => {
+      if (typeof part === "string") return part;
+      if (!part || typeof part !== "object") return "";
+      const text = (part as { text?: unknown }).text;
+      if (typeof text === "string") return text;
+      const contentText = (part as { content?: unknown }).content;
+      if (typeof contentText === "string") return contentText;
+      return "";
+    })
+    .join("\n")
+    .trim();
 }
 
 function extractTextFromOpenAIStream(raw: string): string {

@@ -11,7 +11,7 @@ import {
 } from "@/lib/line";
 import { orchestrate } from "@/lib/line-chat/orchestrator";
 import { runAiAssistant } from "@/lib/ai-assistant/orchestrator";
-import { executeTool as executeLineTool, searchPartsForLine } from "@/lib/line-chat/tools";
+import { searchPartsByImageForLine, searchPartsForLine } from "@/lib/line-chat/tools";
 import {
   cancelPendingActionByCode,
   confirmPendingActionByCode,
@@ -197,13 +197,15 @@ export async function POST(request: Request) {
           }
 
           try {
-            const imageSearchReply = await executeLineTool("search_by_image", {
-              imageBase64,
-            });
-            if (/^พบอะไหล่ที่คล้ายกับรูปภาพ/.test(imageSearchReply)) {
+            const imageSearchResult = await searchPartsByImageForLine(imageBase64);
+            if (imageSearchResult.parts.length > 0) {
               await sendLineReply(replyToken, [
-                createTextMessage(
-                  `ผลเทียบรูปใน DB (ใช้เป็นตัวช่วย ไม่ใช่ผลยืนยัน):\n${imageSearchReply}`,
+                createFlexMessage(
+                  `ค้นหาจาก${imageSearchResult.keyword}`,
+                  createSearchResultsFlex(
+                    imageSearchResult.keyword,
+                    imageSearchResult.parts,
+                  ),
                 ),
               ]);
               continue;

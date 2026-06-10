@@ -7,6 +7,8 @@ import { callPartAi, parseJsonObject } from "@/lib/ai-client";
 import { resolvePartFromCode } from "@/lib/part-lookup";
 import { getStorageSummary } from "@/lib/storage-summary";
 import { embedImageWithMetadata, cosineSimilarity, bytesToFloat32 } from "@/lib/embeddings";
+import { rerankByVision } from "@/lib/image-rerank";
+import { suggestPartFromImage } from "@/lib/part-ai";
 
 // Tool definitions สำหรับ OpenAI function calling format
 export const TOOL_DEFINITIONS = [
@@ -118,12 +120,17 @@ export type LinePartSearchArgs = {
   limit?: number;
 };
 
-export type LinePartSearchResult = Prisma.PartGetPayload<{
+export type LinePartSearchResult = Omit<Prisma.PartGetPayload<{
   include: {
     category: { select: { name: true } };
     building: { select: { name: true } };
   };
-}>;
+}>, "imageEmbedding"> & { imageEmbedding?: Buffer | Uint8Array | null };
+
+export type LineImageSearchResult = {
+  keyword: string;
+  parts: LinePartSearchResult[];
+};
 
 export function parseLineInventoryQuery(
   text: string,
@@ -725,14 +732,30 @@ async function handleSearchByImage(
   const { imageBase64 } = args;
   if (!imageBase64) return "กรุณาส่งรูปภาพ";
 
+  const result = await searchPartsByImageForLine(imageBase64);
+  if (result.parts.length === 0) {
+    return "ไม่พบอะไหล่ที่คล้ายกับรูปภาพนี้";
+  }
+
+  const lines = result.parts.map(
+    (part, i) => `${i + 1}. ${part.partNumber} - ${part.partName}`,
+  );
+
+  return `พบอะไหล่ที่น่าจะใกล้กับรูปภาพ ${result.parts.length} รายการ:\n${lines.join("\n")}`;
+}
+
+export async function searchPartsByImageForLine(
+  imageBase64: string,
+): Promise<LineImageSearchResult> {
   const buffer = Buffer.from(imageBase64, "base64");
+  const visualTerms = await inferImageSearchTerms(buffer);
 
   let queryEmbedding: Awaited<ReturnType<typeof embedImageWithMetadata>>;
   try {
     queryEmbedding = await embedImageWithMetadata(buffer, "query");
   } catch (err) {
     console.error("embedImage failed:", (err as Error).message);
-    return "ระบบค้นหาด้วยรูปไม่พร้อมใช้งาน";
+    return { keyword: "รูปภาพ", parts: [] };
   }
 
   const parts = await prisma.part.findMany({
@@ -742,15 +765,9 @@ async function handleSearchByImage(
       imageEmbeddingProvider: queryEmbedding.provider,
       imageEmbeddingModel: queryEmbedding.model,
     },
-    select: {
-      id: true,
-      partNumber: true,
-      partName: true,
-      imageUrl: true,
-      quantity: true,
-      unit: true,
-      location: true,
-      imageEmbedding: true,
+    include: {
+      category: { select: { name: true } },
+      building: { select: { name: true } },
     },
     take: 1000,
     orderBy: { updatedAt: "desc" },
@@ -760,22 +777,138 @@ async function handleSearchByImage(
     .map((p) => {
       const vec = bytesToFloat32(p.imageEmbedding as Buffer);
       const similarity = cosineSimilarity(queryEmbedding.vector, vec);
+      const textBoost = scoreImageTextMatch(p, visualTerms);
       const { imageEmbedding, ...part } = p;
       void imageEmbedding;
-      return { part, similarity };
+      return { part, similarity, score: similarity + textBoost };
     })
     .filter((m) => m.similarity >= (queryEmbedding.provider === "voyage" ? 0.35 : 0.5))
-    .sort((a, b) => b.similarity - a.similarity)
-    .slice(0, 5);
+    .sort((a, b) => b.score - a.score || b.similarity - a.similarity)
+    .slice(0, 12);
 
   if (matches.length === 0) {
-    return "ไม่พบอะไหล่ที่คล้ายกับรูปภาพนี้";
+    return { keyword: imageKeyword(visualTerms), parts: [] };
   }
 
-  const lines = matches.map(
-    (m, i) =>
-      `${i + 1}. ${m.part.partNumber} - ${m.part.partName} (ความคล้าย: ${Math.round(m.similarity * 100)}%)`,
-  );
+  let rankedMatches = matches;
+  try {
+    rankedMatches = await rerankByVision(
+      buffer,
+      matches
+        .filter((match) => Boolean(match.part.imageUrl))
+        .slice(0, 8)
+        .map((match) => ({
+          ...match,
+          id: match.part.id,
+          partNumber: match.part.partNumber,
+          partName: match.part.partName,
+          imageUrl: match.part.imageUrl || "",
+        })),
+    );
+  } catch (error) {
+    console.error("image rerank failed:", error);
+  }
 
-  return `พบอะไหล่ที่คล้ายกับรูปภาพ ${matches.length} รายการ:\n${lines.join("\n")}`;
+  const topMatches = rankedMatches.slice(0, 5);
+  return {
+    keyword: imageKeyword(visualTerms),
+    parts: topMatches.map((match) => match.part),
+  };
+}
+
+async function inferImageSearchTerms(buffer: Buffer): Promise<string[]> {
+  try {
+    const fileBuffer = buffer.buffer.slice(
+      buffer.byteOffset,
+      buffer.byteOffset + buffer.byteLength,
+    ) as ArrayBuffer;
+    const file = new File([fileBuffer], "line-image.jpg", { type: "image/jpeg" });
+    const suggestion = await suggestPartFromImage(file, {
+      allowDbFallback: false,
+    });
+    const terms = [
+      suggestion.partNumber,
+      suggestion.partName,
+      suggestion.subcategory,
+      suggestion.categoryName,
+      suggestion.description,
+      ...industrialTypeTerms(
+        [
+          suggestion.partName,
+          suggestion.subcategory,
+          suggestion.categoryName,
+          suggestion.description,
+        ].join(" "),
+      ),
+    ];
+    return [...new Set(terms.flatMap(tokenizeSearchTerms))].slice(0, 16);
+  } catch (error) {
+    console.error("image search term inference failed:", error);
+    return [];
+  }
+}
+
+function imageKeyword(visualTerms: string[]): string {
+  return visualTerms.length > 0
+    ? `รูปภาพ (${visualTerms.slice(0, 4).join(", ")})`
+    : "รูปภาพ";
+}
+
+function tokenizeSearchTerms(value: string | null | undefined): string[] {
+  if (!value) return [];
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}.\-_/ ]/gu, " ")
+    .split(/\s+/)
+    .map((term) => term.trim())
+    .filter((term) => term.length >= 3 && !/^\d+$/.test(term));
+}
+
+function industrialTypeTerms(text: string): string[] {
+  const normalized = text.toLowerCase();
+  const groups = [
+    {
+      triggers: ["contactor", "magnetic", "starter"],
+      terms: ["contactor", "magnetic contactor", "motor starter", "starter"],
+    },
+    {
+      triggers: ["overload", "thermal"],
+      terms: ["overload", "thermal overload", "thermal overload relay"],
+    },
+    {
+      triggers: ["breaker", "circuit", "mcb", "mccb"],
+      terms: ["breaker", "circuit breaker", "mcb", "mccb"],
+    },
+    { triggers: ["relay"], terms: ["relay", "power relay"] },
+  ];
+  return groups
+    .filter((group) =>
+      group.triggers.some((trigger) => normalized.includes(trigger)),
+    )
+    .flatMap((group) => group.terms);
+}
+
+function scoreImageTextMatch(
+  part: {
+    partNumber: string;
+    partName: string;
+    description: string | null;
+    subcategory: string | null;
+  },
+  visualTerms: string[],
+): number {
+  if (visualTerms.length === 0) return 0;
+  const haystack = [
+    part.partNumber,
+    part.partName,
+    part.subcategory || "",
+    part.description || "",
+  ]
+    .join(" ")
+    .toLowerCase();
+  return visualTerms.reduce((score, term) => {
+    if (!term) return score;
+    if (haystack.includes(term)) return score + 0.12;
+    return score;
+  }, 0);
 }

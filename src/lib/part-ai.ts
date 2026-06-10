@@ -4,6 +4,7 @@ import sharp from "sharp";
 import { prisma } from "./prisma";
 import { generatePartBarcodeValue } from "./barcode";
 import { callPartAi, parseJsonObject, type AiContentBlock } from "./ai-client";
+import { bytesToFloat32, cosineSimilarity, embedImageWithMetadata } from "./embeddings";
 
 const MAX_AI_IMAGE_SIZE = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "image/avif", "image/tiff", "image/bmp", "image/gif"]);
@@ -48,6 +49,10 @@ export type PartAiSuggestion = z.infer<typeof aiSuggestionSchema> & {
   matchedCategoryName: string | null;
 };
 
+type SuggestPartOptions = {
+  allowDbFallback?: boolean;
+};
+
 function mediaTypeFromFile(file: File) {
   // First check actual MIME type from the File object
   if (ALLOWED_IMAGE_TYPES.has(file.type)) return file.type;
@@ -83,7 +88,11 @@ async function resolveCategory(categoryName: string) {
   };
 }
 
-export async function suggestPartFromImage(file: File): Promise<PartAiSuggestion> {
+export async function suggestPartFromImage(
+  file: File,
+  options: SuggestPartOptions = {},
+): Promise<PartAiSuggestion> {
+  const allowDbFallback = options.allowDbFallback ?? true;
   const mediaType = mediaTypeFromFile(file);
   if (!mediaType) {
     throw new Error("File must be JPG, PNG, or WebP");
@@ -153,7 +162,17 @@ export async function suggestPartFromImage(file: File): Promise<PartAiSuggestion
 
   const text = result.text;
 
-  const parsed = await parsePartSuggestion(text);
+  let parsed: z.infer<typeof aiSuggestionSchema>;
+  try {
+    parsed = await parsePartSuggestion(text);
+  } catch (error) {
+    console.error(
+      "AI suggestion parse failed, using image DB fallback:",
+      error instanceof Error ? error.message : error,
+    );
+    if (!allowDbFallback) throw error;
+    parsed = await fallbackSuggestionFromImage(originalBuffer, scannedBarcode);
+  }
   const resolved = await resolveCategory(parsed.categoryName ?? "");
 
   const barcodeValue = scannedBarcode || parsed.barcodeValue?.trim() || generatePartBarcodeValue(parsed.partNumber ?? parsed.partName ?? "");
@@ -197,4 +216,81 @@ async function parsePartSuggestion(text: string) {
       throw parseErr;
     }
   }
+}
+
+async function fallbackSuggestionFromImage(
+  buffer: Buffer,
+  scannedBarcode: string | null,
+): Promise<z.infer<typeof aiSuggestionSchema>> {
+  try {
+    const queryEmbedding = await embedImageWithMetadata(buffer, "query");
+    const parts = await prisma.part.findMany({
+      where: {
+        isActive: true,
+        imageEmbedding: { not: null },
+        imageEmbeddingProvider: queryEmbedding.provider,
+        imageEmbeddingModel: queryEmbedding.model,
+      },
+      select: {
+        partNumber: true,
+        partName: true,
+        description: true,
+        subcategory: true,
+        unit: true,
+        barcodeValue: true,
+        imageEmbedding: true,
+        category: { select: { name: true } },
+      },
+      take: 1000,
+      orderBy: { updatedAt: "desc" },
+    });
+
+    const best = parts
+      .map((part) => {
+        const similarity = cosineSimilarity(
+          queryEmbedding.vector,
+          bytesToFloat32(part.imageEmbedding as Buffer),
+        );
+        return { part, similarity };
+      })
+      .sort((a, b) => b.similarity - a.similarity)[0];
+
+    if (best && best.similarity >= 0.45) {
+      return aiSuggestionSchema.parse({
+        partNumber: "",
+        partName: best.part.partName || "Unknown - Spare Part",
+        description: best.part.description || "",
+        categoryName: best.part.category?.name || "อะไหล่",
+        subcategory: best.part.subcategory || "",
+        location: "",
+        quantity: 0,
+        minimumQuantity: 0,
+        unit: best.part.unit || "pcs",
+        barcodeValue: scannedBarcode || null,
+        confidence: Math.min(best.similarity, 0.65),
+        notes: `AI อ่านรูปไม่สำเร็จ ระบบเติมข้อมูลตั้งต้นจากรูปอะไหล่ใน DB ที่คล้ายที่สุด (${best.part.partNumber}) กรุณาตรวจสอบก่อนบันทึก`,
+      });
+    }
+  } catch (error) {
+    console.error(
+      "AI suggestion image fallback failed:",
+      error instanceof Error ? error.message : error,
+    );
+  }
+
+  return aiSuggestionSchema.parse({
+    partNumber: "",
+    partName: "Unknown - Spare Part",
+    description: "",
+    categoryName: "อะไหล่",
+    subcategory: "",
+    location: "",
+    quantity: 0,
+    minimumQuantity: 0,
+    unit: "pcs",
+    barcodeValue: scannedBarcode,
+    confidence: 0.2,
+    notes:
+      "AI อ่านรูปไม่สำเร็จ กรุณากรอกรหัส รุ่น และชื่ออะไหล่จากป้ายบนอุปกรณ์ก่อนบันทึก",
+  });
 }
