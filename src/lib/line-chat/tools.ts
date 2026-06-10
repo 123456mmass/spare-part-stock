@@ -532,13 +532,24 @@ async function handleSearchParts(
   const keyword = args.keyword === "*" ? "" : (args.keyword || "").trim();
   if (!keyword && !buildingId && !plant && !building) return "กรุณาระบุคำค้นหา";
 
-  const parts = await searchPartsForLine({
-    keyword,
-    buildingId,
-    building,
-    plant,
-    limit: 5,
-  });
+  const isLocatorOnly = !keyword && Boolean(buildingId || building || plant);
+  const locatorWhere = buildLocatorWhere({ buildingId, building, plant });
+  const [summary, parts] = await Promise.all([
+    isLocatorOnly
+      ? prisma.part.aggregate({
+          where: locatorWhere,
+          _count: { id: true },
+          _sum: { quantity: true },
+        })
+      : null,
+    searchPartsForLine({
+      keyword,
+      buildingId,
+      building,
+      plant,
+      limit: isLocatorOnly ? 20 : 8,
+    }),
+  ]);
 
   if (parts.length === 0) {
     const scope = [
@@ -575,7 +586,48 @@ async function handleSearchParts(
     [building ? `อาคาร ${building}` : null, plant ? `Block ${plant}` : null]
       .filter(Boolean)
       .join(" ");
-  return `ค้นหา "${label}" พบ ${parts.length} รายการ:\n\n${lines.join("\n\n")}`;
+  if (summary) {
+    return [
+      `ค้นหา "${label}"`,
+      `จำนวนจริงใน DB: ${summary._count.id} รายการ`,
+      `จำนวนรวมจริงใน DB: ${summary._sum.quantity || 0} ชิ้น`,
+      `รายการด้านล่างเป็นตัวอย่าง ${parts.length} รายการแรกเท่านั้น ห้ามสรุปว่า DB มีแค่ ${parts.length} รายการ`,
+      "",
+      lines.join("\n\n"),
+    ].join("\n");
+  }
+
+  return `ค้นหา "${label}" พบรายการที่เกี่ยวข้อง ${parts.length} รายการ:\n\n${lines.join("\n\n")}`;
+}
+
+function buildLocatorWhere(args: {
+  buildingId?: string;
+  building?: string;
+  plant?: string;
+}): Prisma.PartWhereInput {
+  const and: Prisma.PartWhereInput[] = [];
+  if (args.buildingId) {
+    and.push({ buildingId: args.buildingId });
+  } else if (args.building) {
+    and.push({ building: { is: { name: { contains: args.building } } } });
+  }
+
+  if (args.plant) {
+    const plant = args.plant.trim();
+    and.push({
+      OR: [
+        { plant: { contains: plant } },
+        { plant: { contains: `BLOCK ${plant}` } },
+        { location: { contains: `BLOCK ${plant}` } },
+        { location: { contains: plant } },
+      ],
+    });
+  }
+
+  return {
+    isActive: true,
+    ...(and.length > 0 ? { AND: and } : {}),
+  };
 }
 
 async function handleGetStock(args: Record<string, string>): Promise<string> {
