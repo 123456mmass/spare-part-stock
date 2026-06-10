@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { createStockMovement } from "@/lib/stock";
+import { createStockMovement, StockError } from "@/lib/stock";
 import { notifyLowStock } from "@/lib/notifications";
 import { partSchema } from "@/lib/validators";
 import type { AiAssistantChannel, ToolExecutionContext } from "./types";
@@ -298,12 +298,12 @@ export async function confirmPendingAction(params: {
     });
     return { action: executed, message: result };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = formatPendingActionError(error);
     await prisma.aiPendingAction.update({
       where: { id: action.id },
       data: { status: "FAILED", errorMessage: message },
     });
-    throw error;
+    throw new Error(message);
   }
 }
 
@@ -391,6 +391,24 @@ async function executePendingAction(action: {
   }
 
   throw new Error(`ไม่รองรับ action type ${action.actionType}`);
+}
+
+function formatPendingActionError(error: unknown): string {
+  if (error instanceof StockError) {
+    if (error.message === "CONCURRENT_MODIFICATION") {
+      return "ยอดสต็อกเปลี่ยนระหว่างรอยืนยัน กรุณาสั่งทำรายการใหม่อีกครั้ง";
+    }
+    if (error.message === "INSUFFICIENT_STOCK") {
+      return "จำนวนคงเหลือไม่พอ กรุณาตรวจสอบยอดล่าสุดแล้วสั่งใหม่";
+    }
+    if (error.message === "PART_NOT_FOUND") {
+      return "ไม่พบอะไหล่รายการนี้แล้ว กรุณาค้นหาใหม่";
+    }
+    if (error.message === "NEGATIVE_STOCK") {
+      return "ยอดหลังทำรายการติดลบ กรุณาตรวจสอบจำนวนใหม่";
+    }
+  }
+  return error instanceof Error ? error.message : "Unknown error";
 }
 
 export function formatPendingActionForChat(action: {

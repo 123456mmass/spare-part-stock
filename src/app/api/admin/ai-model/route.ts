@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { requireAuth, requireRole } from "@/lib/auth";
-import { gatewayBaseUrl, gatewayKey, gatewayModel } from "@/lib/ai-client";
+import { gatewayBaseUrl, gatewayKey } from "@/lib/ai-client";
+import {
+  FALLBACK_AI_MODELS,
+  getConfiguredAiModel,
+  setConfiguredAiModel,
+} from "@/lib/ai-model-settings";
 
 // Hardcoded fallback models (from gateway provider registry)
-const FALLBACK_MODELS = [
-  "mistral-agent",
-];
+const FALLBACK_MODELS = FALLBACK_AI_MODELS;
 
 async function getAvailableModels(baseUrl: string, apiKey: string): Promise<string[]> {
   if (!apiKey) return FALLBACK_MODELS;
@@ -39,10 +42,12 @@ export async function GET() {
     await requireAuth();
     await requireRole(["ADMIN"]);
 
-    const currentModel = gatewayModel();
+    const currentModel = await getConfiguredAiModel();
     const baseUrl = gatewayBaseUrl();
     const apiKey = gatewayKey();
-    const availableModels = await getAvailableModels(baseUrl, apiKey);
+    const availableModels = Array.from(
+      new Set([currentModel, ...(await getAvailableModels(baseUrl, apiKey))].filter(Boolean)),
+    );
 
     return NextResponse.json({
       currentModel,
@@ -82,22 +87,13 @@ export async function PUT(request: Request) {
     const baseUrl = gatewayBaseUrl();
     const apiKey = gatewayKey();
     const availableModels = await getAvailableModels(baseUrl, apiKey);
+    const knownModels = new Set([...availableModels, ...FALLBACK_MODELS]);
+    if (!knownModels.has(model)) knownModels.add(model);
 
-    if (!availableModels.includes(model)) {
-      return NextResponse.json(
-        { error: `Model "${model}" ไม่พบในรายการที่รองรับ` },
-        { status: 400 }
-      );
-    }
+    await setConfiguredAiModel(model);
 
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: "Gateway API key not configured" },
-        { status: 500 }
-      );
-    }
-
-    // Update via gateway settings API
+    let gatewaySynced = false;
+    let gatewayWarning: string | undefined;
     try {
       const response = await fetch(`${baseUrl}/admin/settings/LLM_GATEWAY_MODEL`, {
         method: "PUT",
@@ -113,26 +109,25 @@ export async function PUT(request: Request) {
         signal: AbortSignal.timeout(10_000),
       });
 
-      if (!response.ok) {
+      if (response.ok) {
+        gatewaySynced = true;
+      } else {
         const errorData = await response.json().catch(() => null);
-        return NextResponse.json(
-          { error: errorData?.detail || "Failed to update gateway settings" },
-          { status: response.status }
-        );
+        gatewayWarning = errorData?.detail || `Gateway settings returned ${response.status}`;
       }
-
-      return NextResponse.json({
-        success: true,
-        model,
-        message: `เปลี่ยน AI Model เป็น ${model} สำเร็จ`,
-      });
     } catch (error) {
       console.error("Gateway settings update failed:", error);
-      return NextResponse.json(
-        { error: "ไม่สามารถเชื่อมต่อกับ Gateway ได้" },
-        { status: 502 }
-      );
+      gatewayWarning = "ไม่สามารถ sync gateway admin setting ได้ แต่ระบบนี้บันทึกโมเดลแล้ว";
     }
+
+    return NextResponse.json({
+      success: true,
+      model,
+      availableModels: [...knownModels],
+      gatewaySynced,
+      gatewayWarning,
+      message: `เปลี่ยน AI Model เป็น ${model} สำเร็จ`,
+    });
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

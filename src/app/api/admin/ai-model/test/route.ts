@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth, requireRole } from "@/lib/auth";
-import { gatewayBaseUrl, gatewayKey, gatewayModel } from "@/lib/ai-client";
+import { gatewayBaseUrl, gatewayKey } from "@/lib/ai-client";
+import { getConfiguredAiModel } from "@/lib/ai-model-settings";
 
 // POST /api/admin/ai-model/test - ทดสอบ AI model
 export async function POST(request: Request) {
@@ -18,7 +19,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const useModel = model || gatewayModel();
+    const useModel = model || (await getConfiguredAiModel());
     const startTime = Date.now();
 
     try {

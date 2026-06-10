@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import { fallbackAiModel, getConfiguredAiModel } from "./ai-model-settings";
 
 export interface AiContentBlock {
   type: "text" | "image";
@@ -39,11 +40,11 @@ export function gatewayBaseUrl(): string {
 }
 
 export function gatewayModel(): string {
-  return (
-    process.env.SPARE_PART_AI_MODEL ||
-    process.env.LLM_GATEWAY_MODEL ||
-    "mistral-agent"
-  );
+  return fallbackAiModel();
+}
+
+export async function currentGatewayModel(): Promise<string> {
+  return getConfiguredAiModel();
 }
 
 export function gatewayKey(): string {
@@ -290,7 +291,7 @@ async function callGateway(content: AiContentBlock[], opts: AiCallOptions): Prom
     headers,
     signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
     body: JSON.stringify({
-      model: gatewayModel(),
+      model: await currentGatewayModel(),
       max_tokens: opts.maxTokens ?? 4096,
       temperature: opts.temperature ?? 0,
       messages,

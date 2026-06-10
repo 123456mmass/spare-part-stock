@@ -170,3 +170,13 @@ model AiPendingAction {
   @@index([expiresAt])
   @@index([createdAt])
 }
+
+model AppSetting {
+  key       String   @id
+  value     String
+  category  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+}

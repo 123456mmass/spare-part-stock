@@ -1,4 +1,4 @@
-import { gatewayBaseUrl, gatewayKey, gatewayModel } from "@/lib/ai-client";
+import { currentGatewayModel, gatewayBaseUrl, gatewayKey } from "@/lib/ai-client";
 import {
   createConversation,
   findConversationForLineUser,
@@ -310,7 +310,7 @@ async function callGateway(messages: ChatMessage[], includeTools: boolean) {
     headers,
     signal: AbortSignal.timeout(45_000),
     body: JSON.stringify({
-      model: gatewayModel(),
+      model: await currentGatewayModel(),
       max_tokens: 1200,
       temperature: 0.2,
       stream: false,
@@ -469,7 +469,7 @@ async function callGatewayStream(
     headers,
     signal: AbortSignal.timeout(60_000),
     body: JSON.stringify({
-      model: gatewayModel(),
+      model: await currentGatewayModel(),
       max_tokens: 1200,
       temperature: 0.2,
       stream: true,

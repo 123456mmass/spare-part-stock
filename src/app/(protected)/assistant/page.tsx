@@ -5,6 +5,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type ClipboardEvent,
   type ReactNode,
 } from "react";
 import {
@@ -22,6 +23,13 @@ import {
 } from "lucide-react";
 import { fetchWithAuth as fetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toaster";
 
@@ -43,6 +51,7 @@ type ImageAttachment = {
   imageBase64: string;
   mediaType?: string;
   name: string;
+  previewUrl?: string;
 };
 
 type StreamEvent =
@@ -78,6 +87,9 @@ export default function AssistantPage() {
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [currentModel, setCurrentModel] = useState("");
+  const [modelBusy, setModelBusy] = useState(false);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -132,12 +144,75 @@ export default function AssistantPage() {
     return () => window.clearTimeout(timer);
   }, [loadHistory]);
 
+  const loadModelSettings = useCallback(async () => {
+    try {
+      const response = await fetch("/api/admin/ai-model");
+      if (!response.ok) return;
+      const data = await response.json();
+      setCurrentModel(
+        typeof data.currentModel === "string" ? data.currentModel : "",
+      );
+      setAvailableModels(
+        Array.isArray(data.availableModels)
+          ? data.availableModels.filter(
+              (item: unknown): item is string => typeof item === "string",
+            )
+          : [],
+      );
+    } catch {
+      // Model settings are admin-only and best-effort in the chat UI.
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadModelSettings();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadModelSettings]);
+
   async function startNewChat() {
     setConversationId(undefined);
     setMessages([WELCOME]);
     setMessage("");
     setAttachments([]);
     setThinkingStatus("");
+  }
+
+  async function handleModelChange(model: string) {
+    if (!model || model === currentModel) return;
+    const previous = currentModel;
+    setCurrentModel(model);
+    setModelBusy(true);
+    try {
+      const response = await fetch("/api/admin/ai-model", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "บันทึกโมเดลไม่สำเร็จ");
+      toast({
+        title: "เปลี่ยนโมเดลแล้ว",
+        description: data.gatewayWarning || model,
+      });
+      if (Array.isArray(data.availableModels)) {
+        setAvailableModels(
+          data.availableModels.filter(
+            (item: unknown): item is string => typeof item === "string",
+          ),
+        );
+      }
+    } catch (error) {
+      setCurrentModel(previous);
+      toast({
+        title: "เปลี่ยนโมเดลไม่สำเร็จ",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setModelBusy(false);
+    }
   }
 
   async function handleSend(text = message) {
@@ -260,6 +335,10 @@ export default function AssistantPage() {
 
   async function handleImageSelected(fileList: FileList | null) {
     const file = fileList?.[0];
+    await attachImageFile(file);
+  }
+
+  async function attachImageFile(file?: File) {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       toast({
@@ -276,9 +355,19 @@ export default function AssistantPage() {
         imageBase64: base64,
         mediaType: file.type,
         name: file.name,
+        previewUrl: URL.createObjectURL(file),
       },
     ]);
     if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  async function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const imageFile = Array.from(event.clipboardData.files).find((file) =>
+      file.type.startsWith("image/"),
+    );
+    if (!imageFile) return;
+    event.preventDefault();
+    await attachImageFile(imageFile);
   }
 
   const hasRealMessages = messages.some((item) => item.id !== "welcome");
@@ -335,7 +424,28 @@ export default function AssistantPage() {
             )}
           </div>
           <div className="border-t border-slate-200 pt-3 text-xs text-slate-500">
-            ระบบสต็อกอะไหล่
+            <div className="mb-2">ระบบสต็อกอะไหล่</div>
+            {availableModels.length > 0 && (
+              <div className="space-y-1">
+                <div className="text-[11px] text-slate-400">AI model</div>
+                <Select
+                  value={currentModel}
+                  onValueChange={(value) => void handleModelChange(value)}
+                  disabled={modelBusy}
+                >
+                  <SelectTrigger className="h-9 w-full rounded-xl border-slate-200 bg-white text-xs">
+                    <SelectValue placeholder="เลือกโมเดล" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableModels.map((model) => (
+                      <SelectItem key={model} value={model}>
+                        {model}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
         </div>
       </aside>
@@ -358,7 +468,7 @@ export default function AssistantPage() {
           </div>
           <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
             <Sparkles className="h-3.5 w-3.5" />
-            Mistral Agent
+            {currentModel || "AI model"}
           </div>
         </header>
 
@@ -402,8 +512,25 @@ export default function AssistantPage() {
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-50 via-slate-50 to-transparent px-4 pb-5 pt-10">
           <div className="w-full">
             {attachments.length > 0 && (
-              <div className="mb-2 flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
-                <span className="truncate">{attachments[0].name}</span>
+              <div className="mb-2 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                <div className="flex min-w-0 items-center gap-3">
+                  {attachments[0].previewUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={attachments[0].previewUrl}
+                      alt=""
+                      className="h-12 w-12 rounded-lg object-cover"
+                    />
+                  )}
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">
+                      {attachments[0].name}
+                    </div>
+                    <div className="text-xs text-blue-600">
+                      รูปพร้อมส่งแล้ว
+                    </div>
+                  </div>
+                </div>
                 <Button
                   size="icon"
                   variant="ghost"
@@ -433,6 +560,7 @@ export default function AssistantPage() {
               <Textarea
                 value={message}
                 onChange={(event) => setMessage(event.target.value)}
+                onPaste={(event) => void handlePaste(event)}
                 placeholder="ถามอะไรเกี่ยวกับสต็อกก็ได้"
                 className="max-h-40 min-h-10 flex-1 resize-none border-0 bg-transparent px-0 py-2 text-base text-slate-950 shadow-none placeholder:text-slate-400 focus-visible:ring-0"
                 onKeyDown={(event) => {

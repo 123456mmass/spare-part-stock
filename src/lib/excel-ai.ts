@@ -11,6 +11,7 @@ import {
 } from "./excel";
 import { generatePartBarcodeValue } from "./barcode";
 import { validateImportRows, type RawImportRow } from "./import-validation";
+import { currentGatewayModel, gatewayBaseUrl, gatewayKey } from "./ai-client";
 
 const MAX_AI_IMPORT_ROWS = 100; // Reduced from 300 to prevent OOM / API exhaustion
 
@@ -40,29 +41,6 @@ export interface AiImportResult {
   errors: string[];
   imagesExtracted: number;
   aiUsed: boolean;
-}
-
-function gatewayBaseUrl() {
-  return (
-    process.env.SPARE_PART_AI_GATEWAY_URL ||
-    process.env.LLM_GATEWAY_BASE_URL ||
-    "http://127.0.0.1:4000"
-  ).replace(/\/+$/, "");
-}
-
-function gatewayModel() {
-  return process.env.SPARE_PART_AI_MODEL || process.env.LLM_GATEWAY_MODEL || "gemini-3-flash";
-}
-
-function gatewayKey() {
-  const key =
-    process.env.SPARE_PART_AI_GATEWAY_KEY || process.env.LLM_GATEWAY_API_KEY || "";
-  if (!key) {
-    console.error(
-      "CRITICAL: No AI gateway key configured. Set SPARE_PART_AI_GATEWAY_KEY or LLM_GATEWAY_API_KEY in environment."
-    );
-  }
-  return key;
 }
 
 function extractTextFromAnthropic(payload: unknown): string {
@@ -245,7 +223,7 @@ async function enrichRowBatchWithAi(
     headers,
     signal: AbortSignal.timeout(120_000),
     body: JSON.stringify({
-      model: gatewayModel(),
+      model: await currentGatewayModel(),
       max_tokens: 6000,
       temperature: 0,
       messages: [{ role: "user", content }],
