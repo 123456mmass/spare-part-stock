@@ -51,6 +51,7 @@ next-env.d.ts
 *.jpg
 .claude/
 .playwright-cli/
+.playwright-mcp/
 *.ps1
 *.bat
 *.txt

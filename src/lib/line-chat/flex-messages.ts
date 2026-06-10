@@ -12,7 +12,10 @@ const LIFF_BASE_URL = LIFF_ID
 const LIFF_LINK_URL = LIFF_BASE_URL;
 
 function liffPath(path: string): string {
-  return LIFF_ID ? `${APP_URL}/liff/${path}` : `${APP_URL}/liff/${path}`;
+  const normalizedPath = path.replace(/^\/+/, "");
+  return LIFF_ID
+    ? `https://liff.line.me/${LIFF_ID}/${normalizedPath}`
+    : `${APP_URL}/liff/${normalizedPath}`;
 }
 
 type FlexPart = {
@@ -39,6 +42,11 @@ type StorageStats = {
     name: string;
     partCount: number;
   }>;
+};
+
+type BuildingFlexItem = {
+  name: string;
+  partCount: number;
 };
 
 function absoluteImageUrl(imageUrl?: string | null): string | null {
@@ -425,6 +433,94 @@ export function createStatsFlex(stats: StorageStats): unknown {
             label: "เปิด Dashboard",
             uri: `${APP_URL}/dashboard`,
           },
+          style: "primary",
+          color: "#1DB446",
+        },
+      ],
+    },
+  };
+}
+
+export function createExportFlex(exportUri = `${APP_URL}/api/export`): unknown {
+  return {
+    type: "bubble",
+    size: "mega",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        { type: "text", text: "ส่งออก Excel", weight: "bold", size: "lg", color: "#111111", wrap: true },
+        { type: "text", text: "ดาวน์โหลดรายการอะไหล่ทั้งหมดเป็นไฟล์ Excel ผ่านระบบ Spare Part Stock", size: "sm", color: "#4B5563", wrap: true },
+        { type: "separator" },
+        { type: "text", text: "ถ้ายังไม่ได้เข้าสู่ระบบ หน้าเว็บจะให้ล็อกอินก่อนดาวน์โหลด", size: "xs", color: "#6B7280", wrap: true },
+      ],
+    },
+    footer: {
+      type: "box",
+      layout: "vertical",
+      spacing: "sm",
+      contents: [
+        {
+          type: "button",
+          action: { type: "uri", label: "ดาวน์โหลด Excel", uri: exportUri },
+          style: "primary",
+          color: "#1DB446",
+        },
+        {
+          type: "button",
+          action: { type: "uri", label: "เปิด Dashboard", uri: `${APP_URL}/dashboard` },
+          style: "secondary",
+        },
+      ],
+    },
+  };
+}
+
+export function createBuildingListFlex(buildings: BuildingFlexItem[]): unknown {
+  const rows = buildings.slice(0, 12).map((building) => ({
+    type: "box",
+    layout: "horizontal",
+    spacing: "md",
+    contents: [
+      { type: "text", text: building.name, size: "sm", color: "#111111", flex: 3, wrap: true },
+      {
+        type: "text",
+        text: `${building.partCount} รายการ`,
+        size: "sm",
+        color: "#1DB446",
+        weight: "bold",
+        align: "end",
+        flex: 2,
+        wrap: true,
+      },
+    ],
+  }));
+
+  return {
+    type: "bubble",
+    size: "mega",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        { type: "text", text: "อาคารที่มีในระบบ", weight: "bold", size: "lg", color: "#111111", wrap: true },
+        { type: "text", text: `ทั้งหมด ${buildings.length} อาคาร`, size: "sm", color: "#4B5563", wrap: true },
+        { type: "separator" },
+        ...rows,
+        buildings.length > rows.length
+          ? { type: "text", text: `และอีก ${buildings.length - rows.length} อาคาร`, size: "xs", color: "#6B7280", wrap: true }
+          : null,
+      ].filter(Boolean),
+    },
+    footer: {
+      type: "box",
+      layout: "vertical",
+      contents: [
+        {
+          type: "button",
+          action: { type: "uri", label: "เปิดหน้าอาคาร", uri: `${APP_URL}/buildings` },
           style: "primary",
           color: "#1DB446",
         },

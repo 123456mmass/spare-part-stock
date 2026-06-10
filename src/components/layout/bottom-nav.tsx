@@ -5,16 +5,16 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Package,
-  ArrowLeftRight,
   Scan,
+  Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navigation = [
   { name: "แดชบอร์ด", href: "/dashboard", icon: LayoutDashboard },
+  { name: "AI", href: "/assistant", icon: Bot },
   { name: "อะไหล่", href: "/parts", icon: Package },
   { name: "สแกน", href: "/scan", icon: Scan },
-  { name: "ประวัติ", href: "/movements", icon: ArrowLeftRight },
 ];
 
 export function BottomNav() {

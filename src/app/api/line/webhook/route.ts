@@ -11,7 +11,13 @@ import {
 } from "@/lib/line";
 import { orchestrate } from "@/lib/line-chat/orchestrator";
 import { parseLineInventoryQuery, searchPartsForLine } from "@/lib/line-chat/tools";
+import {
+  cancelPendingActionByCode,
+  confirmPendingActionByCode,
+} from "@/lib/ai-assistant/pending-actions";
 import { suggestPartFromImage } from "@/lib/part-ai";
+import { RateLimitError, rateLimitKey } from "@/lib/rate-limit";
+import { createLineExportUrl } from "@/lib/line-chat/export-token";
 import {
   createHelpFlex,
   createLoginRequiredFlex,
@@ -19,6 +25,8 @@ import {
   createStockInfoFlex,
   createStatsFlex,
   createNotFoundFlex,
+  createExportFlex,
+  createBuildingListFlex,
 } from "@/lib/line-chat/flex-messages";
 
 // Bot name สำหรับ group mention detection
@@ -26,7 +34,61 @@ import {
 const BOT_MENTION = process.env.LINE_BOT_NAME || "@SpareBot";
 
 function isMenuRequest(text: string): boolean {
-  return /^(สวัสดี|หวัดดี|hello|hi|help|ช่วยเหลือ|เมนู|menu|เริ่มต้น)$/i.test(text.trim());
+  return /^(สวัสดี|หวัดดี|hello|hi|help|ช่วยเหลือ|เมนู|menu|เริ่มต้น|ทำอะไรได้บ้าง|ทำไรได้บ้าง|ช่วยอะไรได้บ้าง|ใช้งานยังไง|ใช้ยังไง)$/i.test(text.trim());
+}
+
+function parsePendingActionCommand(text: string): { action: "confirm" | "cancel"; code: string } | null {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  const match = normalized.match(/^(ยืนยัน|confirm|ok|ตกลง|ยกเลิก|cancel)\s+([a-z0-9]{4,12})$/i);
+  if (!match) return null;
+  return {
+    action: /^(ยกเลิก|cancel)$/i.test(match[1]) ? "cancel" : "confirm",
+    code: match[2],
+  };
+}
+
+function isStockStatsRequest(text: string): boolean {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return (
+    /^(stock summary|stats)$/i.test(normalized) ||
+    /(สรุป|รายงาน|summary|report|สถิติ).*(สต็อก|สต๊อก|คงเหลือ|อะไหล่)/i.test(normalized) ||
+    /(คงเหลือ|เหลือ).*(ทั้งหมด|รวม)/i.test(normalized)
+  );
+}
+
+function isExcelExportRequest(text: string): boolean {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return /(excel|xlsx|เอ็กเซล|เอกเซล|ส่งออก|export|ดาวน์โหลด|download|โหลด).*(อะไหล่|สต็อก|สต๊อก|รายการ|ไฟล์)?/i.test(normalized);
+}
+
+function isBuildingOverviewRequest(text: string): boolean {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return (
+    /(มีกี่|กี่|ทั้งหมด|รายการ|มีอะไร|อะไรบ้าง).*(อาคาร|ตึก)/i.test(normalized) ||
+    /(อาคาร|ตึก).*(มีกี่|กี่|ทั้งหมด|รายการ|มีอะไร|อะไรบ้าง|อะไร|ไหน|บ้าง)/i.test(normalized)
+  );
+}
+
+function parseLocationPartsRequest(text: string): { building?: string; plant?: string } | null {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!/(มีอะไร|อะไรบ้าง|ทั้งหมด|รายการ|ใน.*มี)/i.test(normalized)) return null;
+
+  const building = normalized.match(/(?:อาคาร|ตึก)\s*([^\s,]+)/i)?.[1]?.trim();
+  const block = normalized.match(/(?:block|บล็อก)\s*([^\s,]+)/i)?.[1]?.trim();
+  if (!building && !block) return null;
+
+  return {
+    building,
+    plant: block,
+  };
+}
+
+function lineRateLimitKey(event: LineWebhookBody["events"][number]): string {
+  const source = event.source;
+  return [
+    source?.type || "unknown",
+    source?.userId || source?.groupId || source?.roomId || "anonymous",
+  ].join(":");
 }
 
 async function findLineLinkedUser(lineUserId?: string) {
@@ -112,6 +174,22 @@ export async function POST(request: Request) {
       const replyToken = event.replyToken;
       if (!replyToken) continue;
 
+      try {
+        rateLimitKey(lineRateLimitKey(event), {
+          name: "line-webhook",
+          maxRequests: 30,
+          windowSeconds: 60,
+        });
+      } catch (error) {
+        if (error instanceof RateLimitError) {
+          await sendLineReply(replyToken, [
+            createTextMessage(`ส่งข้อความเร็วเกินไป กรุณาลองใหม่ใน ${error.retryAfter} วินาที`),
+          ]);
+          continue;
+        }
+        throw error;
+      }
+
       const source = event.source;
       const isGroup = source?.type === "group";
       const lineUserId = source?.userId;
@@ -191,9 +269,85 @@ export async function POST(request: Request) {
         continue;
       }
 
+      const pendingActionCommand = parsePendingActionCommand(text);
+      if (pendingActionCommand) {
+        try {
+          const result =
+            pendingActionCommand.action === "confirm"
+              ? await confirmPendingActionByCode(user.id, pendingActionCommand.code)
+              : { message: `ยกเลิกรายการแล้ว`, action: await cancelPendingActionByCode(user.id, pendingActionCommand.code) };
+          await sendLineReply(replyToken, [createTextMessage(result.message || "ทำรายการสำเร็จ")]);
+        } catch (error) {
+          await sendLineReply(replyToken, [
+            createTextMessage(error instanceof Error ? error.message : "ไม่สามารถทำรายการได้"),
+          ]);
+        }
+        continue;
+      }
+
       if (isMenuRequest(text)) {
         await sendLineReply(replyToken, [
           createFlexMessage("เมนู Spare Part Stock", createHelpFlex()),
+        ]);
+        continue;
+      }
+
+      if (isStockStatsRequest(text)) {
+        const { getStorageSummary } = await import("@/lib/storage-summary");
+        const stats = await getStorageSummary();
+        await sendLineReply(replyToken, [
+          createFlexMessage("สรุปสต็อก", createStatsFlex(stats)),
+        ]);
+        continue;
+      }
+
+      if (isExcelExportRequest(text)) {
+        const exportUri = await createLineExportUrl({ userId: user.id });
+        await sendLineReply(replyToken, [
+          createFlexMessage("ส่งออก Excel", createExportFlex(exportUri)),
+        ]);
+        continue;
+      }
+
+      const locationPartsRequest = parseLocationPartsRequest(text);
+      if (locationPartsRequest) {
+        const keyword = [
+          locationPartsRequest.building ? `อาคาร ${locationPartsRequest.building}` : null,
+          locationPartsRequest.plant ? `Block ${locationPartsRequest.plant}` : null,
+        ]
+          .filter(Boolean)
+          .join(" ");
+        const parts = await searchPartsForLine({
+          keyword: "",
+          building: locationPartsRequest.building,
+          plant: locationPartsRequest.plant,
+          limit: 10,
+        });
+        await sendLineReply(replyToken, [
+          createFlexMessage(
+            parts.length > 0 ? `รายการใน ${keyword}` : "ไม่พบอะไหล่",
+            createSearchResultsFlex(keyword || "ตำแหน่งที่เลือก", parts)
+          ),
+        ]);
+        continue;
+      }
+
+      if (isBuildingOverviewRequest(text)) {
+        const buildings = await prisma.building.findMany({
+          where: { isActive: true },
+          include: { _count: { select: { parts: true } } },
+          orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+        });
+        await sendLineReply(replyToken, [
+          createFlexMessage(
+            "อาคารที่มีในระบบ",
+            createBuildingListFlex(
+              buildings.map((building) => ({
+                name: building.name,
+                partCount: building._count.parts,
+              }))
+            )
+          ),
         ]);
         continue;
       }
@@ -217,7 +371,7 @@ export async function POST(request: Request) {
       // Use AI orchestrator for all other messages
       try {
         const userId = user?.id || "anonymous";
-        const result = await orchestrate(userId, lineGroupId, text, isGroup || false);
+        const result = await orchestrate(userId, lineGroupId, text, isGroup || false, user.role, lineUserId);
 
         // Try to format as Flex Message if possible
         const flexReply = await tryFormatAsFlex(result.reply, text);

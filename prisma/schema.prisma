@@ -21,6 +21,7 @@ model User {
   lineUserId String?  @unique
   lineAccounts LineAccount[]
   movements  StockMovement[]
+  aiPendingActions AiPendingAction[]
 }
 
 model LineAccount {
@@ -143,4 +144,26 @@ model ConversationMessage {
   createdAt      DateTime @default(now())
 
   @@index([conversationId, createdAt])
+}
+
+model AiPendingAction {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel        String
+  conversationId String?
+  actionType     String
+  payloadJson    String
+  summary        String
+  status         String   @default("PENDING")
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  confirmedAt    DateTime?
+  executedAt     DateTime?
+  errorMessage   String?
+
+  @@index([userId, status])
+  @@index([conversationId])
+  @@index([expiresAt])
+  @@index([createdAt])
 }

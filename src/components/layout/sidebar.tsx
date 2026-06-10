@@ -24,6 +24,7 @@ import { useState } from "react";
 
 const navigation = [
   { name: "แดชบอร์ด", href: "/dashboard", icon: LayoutDashboard },
+  { name: "AI Assistant", href: "/assistant", icon: Bot },
   { name: "อะไหล่", href: "/parts", icon: Package },
   { name: "ประวัติสต็อก", href: "/movements", icon: ArrowLeftRight },
   { name: "สแกน QR", href: "/scan", icon: Scan },

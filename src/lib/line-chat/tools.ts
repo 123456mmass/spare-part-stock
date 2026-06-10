@@ -127,12 +127,25 @@ export function parseLineInventoryQuery(text: string): LinePartSearchArgs | null
   const normalized = text.replace(/\s+/g, " ").trim();
   if (!normalized) return null;
 
-  const isInventoryIntent =
-    /(stock|สต็อก|สต๊อก|อะไหล่|เหลือ|จำนวน|ค้นหา|หา|เช็ค|ตรวจ|มีไหม|มีกี่|กี่ตัว|กี่ชิ้น)/i.test(
-      normalized
-    );
+  const hasPartTerm = hasKnownPartTerm(normalized) || isLikelyPartCode(normalized);
+  const findMatch = normalized.match(/(?:^|\s)หา\s*(\S+)/i);
+  const findTarget = findMatch?.[1]?.trim() || "";
+  const isWorkflowQuestion = /(วิธี|ยังไง|อย่างไร|ทำไง|ขั้นตอน|คู่มือ|ใช้งาน|ทำอะไรได้บ้าง|ทำไรได้บ้าง|ช่วยอะไรได้บ้าง)/i.test(
+    normalized
+  );
+  const isInventoryIntent = /(stock|สต็อก|สต๊อก|อะไหล่|เหลือ|จำนวน|ค้นหา|เช็ค|ตรวจ|มีไหม|มีกี่|กี่ตัว|กี่ชิ้น)/i.test(
+    normalized
+  );
+  const isFindPartIntent = Boolean(findMatch && (hasPartTerm || isLikelyPartCode(findTarget)));
+  const isAvailabilityQuestion = /(มี|หา).*(ไหม|มั้ย|หรือเปล่า)/i.test(normalized) && hasPartTerm;
   const hasLocator = /(block|บล็อก|อาคาร|ตึก)\s*[\wก-ฮ.]+/i.test(normalized);
-  if (!isInventoryIntent && !hasLocator) return null;
+  const isLocatorOverview =
+    /(อาคาร|ตึก|block|บล็อก)\s*(อะไร|ไหน|ทั้งหมด|บ้าง|กี่|รายการ)/i.test(normalized) ||
+    /(อะไร|ไหน|ทั้งหมด|บ้าง|กี่|รายการ).*(อาคาร|ตึก|block|บล็อก)/i.test(normalized);
+
+  if (isWorkflowQuestion && !hasPartTerm && !hasLocator) return null;
+  if (isLocatorOverview && !hasPartTerm) return null;
+  if (!isInventoryIntent && !isFindPartIntent && !isAvailabilityQuestion && !hasLocator) return null;
 
   const buildingMatch = normalized.match(/(?:อาคาร|ตึก)\s*([^\s,]+)/i);
   const blockMatch = normalized.match(/(?:block|บล็อก)\s*([^\s,]+)/i);
@@ -172,6 +185,13 @@ const SEARCH_SYNONYMS: Array<{ triggers: string[]; terms: string[] }> = [
   { triggers: ["โอเวอร์โหลด", "overload"], terms: ["overload", "thermal overload relay", "โอเวอร์โหลด"] },
   { triggers: ["สวิตช์", "switch"], terms: ["switch", "limit switch", "สวิตช์"] },
 ];
+
+function hasKnownPartTerm(keyword: string): boolean {
+  const normalized = keyword.toLowerCase();
+  return SEARCH_SYNONYMS.some((group) =>
+    [...group.triggers, ...group.terms].some((term) => normalized.includes(term.toLowerCase()))
+  );
+}
 
 function isLikelyPartCode(keyword: string): boolean {
   const compact = keyword.replace(/\s+/g, "");
@@ -588,6 +608,8 @@ async function handleSearchByImage(
       location: true,
       imageEmbedding: true,
     },
+    take: 1000,
+    orderBy: { updatedAt: "desc" },
   });
 
   const matches = parts

@@ -75,6 +75,11 @@ export function rateLimit(request: Request, opts: RateLimitOptions): void {
   checkRateLimit(getIpFromHeaders(request.headers), opts);
 }
 
+/** Rate limit an explicit identity such as a user id, group id, or API key owner. */
+export function rateLimitKey(key: string, opts: RateLimitOptions): void {
+  checkRateLimit(key, opts);
+}
+
 /** Rate limit for web routes that don't have a Request object (uses next/headers) */
 export async function rateLimitWeb(opts: RateLimitOptions): Promise<void> {
   const h = await headers();
