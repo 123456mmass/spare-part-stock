@@ -8,6 +8,20 @@ import {
   float32ToBytes,
 } from "../src/lib/embeddings";
 
+const DEFAULT_VOYAGE_DELAY_MS = 21_000;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function retryDelayMs(error: unknown, attempt: number): number {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/429|rate limit|reduced rate limits/i.test(message)) {
+    return Number(process.env.VOYAGE_BACKFILL_RETRY_MS || 65_000);
+  }
+  return 1000 * (attempt + 1);
+}
+
 async function embedWithRetry(
   buf: Buffer,
   attempts = 3,
@@ -19,7 +33,7 @@ async function embedWithRetry(
     } catch (err) {
       lastErr = err;
       console.warn(`  attempt ${i + 1}/${attempts} failed: ${(err as Error).message}`);
-      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
+      if (i < attempts - 1) await sleep(retryDelayMs(err, i));
     }
   }
   throw lastErr;
@@ -27,6 +41,7 @@ async function embedWithRetry(
 
 async function main() {
   const current = currentImageEmbeddingMetadata();
+  const limit = Number(process.env.BACKFILL_LIMIT || 0);
   const parts = await prisma.part.findMany({
     where: {
       imageUrl: { not: null },
@@ -37,15 +52,21 @@ async function main() {
       ],
     },
     select: { id: true, partNumber: true, imageUrl: true },
+    ...(limit > 0 ? { take: limit } : {}),
   });
 
   console.log(
     `Found ${parts.length} parts to backfill using ${current.provider}/${current.model}`,
   );
+  const delayMs = Number(
+    process.env.IMAGE_EMBEDDING_BACKFILL_DELAY_MS ||
+      (current.provider === "voyage" ? DEFAULT_VOYAGE_DELAY_MS : 0),
+  );
   let ok = 0;
   let failed = 0;
 
   for (let i = 0; i < parts.length; i++) {
+    if (i > 0 && delayMs > 0) await sleep(delayMs);
     const p = parts[i];
     const filePath = path.join(process.cwd(), "public", p.imageUrl!);
     try {
