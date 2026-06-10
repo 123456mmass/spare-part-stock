@@ -10,7 +10,6 @@ import {
   type LineWebhookBody,
 } from "@/lib/line";
 import { orchestrate } from "@/lib/line-chat/orchestrator";
-import { runAiAssistant } from "@/lib/ai-assistant/orchestrator";
 import { searchPartsByImageForLine, searchPartsForLine } from "@/lib/line-chat/tools";
 import {
   cancelPendingActionByCode,
@@ -182,21 +181,6 @@ export async function POST(request: Request) {
           const imageBase64 = imageBuffer.toString("base64");
 
           try {
-            const textSearchResult = await searchPartsFromImage(imageBuffer);
-            if (textSearchResult.parts.length > 0) {
-              await sendLineReply(replyToken, [
-                createFlexMessage(
-                  `ค้นหาจากรูป ${textSearchResult.keyword}`,
-                  createSearchResultsFlex(textSearchResult.keyword, textSearchResult.parts)
-                ),
-              ]);
-              continue;
-            }
-          } catch (error) {
-            console.error("LINE image OCR/text search failed:", error);
-          }
-
-          try {
             const imageSearchResult = await searchPartsByImageForLine(imageBase64);
             if (imageSearchResult.parts.length > 0) {
               await sendLineReply(replyToken, [
@@ -215,36 +199,18 @@ export async function POST(request: Request) {
           }
 
           try {
-            const aiResult = await runAiAssistant({
-              user: { id: user.id, role: user.role, name: user.name },
-              channel: "line",
-              conversationScope: {
-                lineUserId,
-                lineGroupId,
-                isGroup,
-              },
-              message:
-                "วิเคราะห์รูปนี้ว่าเป็นอะไหล่หรืออุปกรณ์อะไร อ่านรหัส/ข้อความที่เห็น และถ้าไม่แน่ใจให้บอกความเป็นไปได้แบบกระชับ",
-              attachments: [
-                {
-                  type: "image",
-                  imageBase64,
-                  mediaType: "image/jpeg",
-                },
-              ],
-              responseStyle: "line",
-            });
-
-            const aiReply = aiResult.reply.trim();
-            if (
-              aiReply &&
-              !/ไม่สามารถวิเคราะห์รูปภาพนี้ได้|เกิดข้อผิดพลาด/i.test(aiReply)
-            ) {
-              await sendLineReply(replyToken, [createTextMessage(aiReply)]);
+            const textSearchResult = await searchPartsFromImage(imageBuffer);
+            if (textSearchResult.parts.length > 0) {
+              await sendLineReply(replyToken, [
+                createFlexMessage(
+                  `ค้นหาจากรูป ${textSearchResult.keyword}`,
+                  createSearchResultsFlex(textSearchResult.keyword, textSearchResult.parts)
+                ),
+              ]);
               continue;
             }
           } catch (error) {
-            console.error("LINE image AI analysis failed:", error);
+            console.error("LINE image OCR/text search failed:", error);
           }
 
           await sendLineReply(replyToken, [
