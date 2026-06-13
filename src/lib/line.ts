@@ -45,15 +45,29 @@ export async function verifyLineIdToken(idToken: string): Promise<LineIdTokenPay
   return payload as LineIdTokenPayload;
 }
 
+export interface LineMentionee {
+  index: number;
+  length: number;
+  type?: "user";
+  userId?: string;
+  isSelf?: boolean;
+}
+
+export interface LineWebhookMessage {
+  type: "text" | "image" | "video" | "audio" | "location" | "sticker";
+  id: string;
+  text?: string;
+  mention?: {
+    mentionees: LineMentionee[];
+  };
+}
+
 export interface LineWebhookEvent {
   type: "message" | "follow" | "unfollow" | "join" | "leave" | "postback";
   replyToken?: string;
   source?: { type: "user" | "group" | "room"; userId?: string; groupId?: string; roomId?: string };
-  message?: {
-    type: "text" | "image" | "video" | "audio" | "location" | "sticker";
-    id: string;
-    text?: string;
-  };
+  postback?: { data: string };
+  message?: LineWebhookMessage;
 }
 
 export interface LineWebhookBody {

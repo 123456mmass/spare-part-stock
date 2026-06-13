@@ -171,6 +171,16 @@ model AiPendingAction {
   @@index([createdAt])
 }
 
+model GroupImageContext {
+  id             String   @id @default(cuid())
+  groupId        String
+  imageMessageId String
+  senderUserId   String
+  createdAt      DateTime @default(now())
+
+  @@index([groupId, createdAt])
+}
+
 model AppSetting {
   key       String   @id
   value     String

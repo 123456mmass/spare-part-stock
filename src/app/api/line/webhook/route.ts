@@ -4,33 +4,125 @@ import { resolvePartFromCode } from "@/lib/part-lookup";
 import {
   verifyLineSignature,
   sendLineReply,
+  pushLineMessage,
   getLineMessageContent,
   createTextMessage,
   createFlexMessage,
   type LineWebhookBody,
 } from "@/lib/line";
 import { orchestrate } from "@/lib/line-chat/orchestrator";
-import { searchPartsByImageForLine, searchPartsForLine } from "@/lib/line-chat/tools";
+import { searchPartsByImageForLine, searchPartsForLine, parseLineInventoryQuery } from "@/lib/line-chat/tools";
 import {
   cancelPendingActionByCode,
   confirmPendingActionByCode,
+  createImageSession,
+  getImageSession,
+  updateImageSessionSuggestion,
+  acquireImageSessionProcessing,
+  releaseImageSessionProcessing,
+  clearImageSession,
+  setImageSessionStatus,
 } from "@/lib/ai-assistant/pending-actions";
 import { suggestPartFromImage } from "@/lib/part-ai";
+import { generatePartBarcodeValue } from "@/lib/barcode";
+import { listBuildings, resolveBuildingIdByName } from "@/lib/buildings";
 import { RateLimitError, rateLimitKey } from "@/lib/rate-limit";
 import { createLineExportUrl } from "@/lib/line-chat/export-token";
 import {
+  checkLinePermission,
+  getActionLabel,
+  type LineAction,
+  type LinePermissionDenied,
+} from "@/lib/line-permissions";
+import {
+  getOrCreateConversation,
+  saveMessage,
+  cleanupOldMessages,
+} from "@/lib/line-chat/memory";
+import {
+  isBotMentioned,
+  stripMentionText,
+  isExplicitWebSearch,
+} from "@/lib/line-chat/mentions";
+import {
+  storeGroupImage,
+  findRecentImageForUser,
+  findRecentImagesInGroup,
+} from "@/lib/group-context";
+import {
   createHelpFlex,
   createLoginRequiredFlex,
+  createLoginRequiredForActionFlex,
   createSearchResultsFlex,
   createStockInfoFlex,
   createStatsFlex,
   createNotFoundFlex,
   createExportFlex,
+  createImageIntentFlex,
+  createAddPreviewFlex,
+  createAddSuccessFlex,
+  createWebSearchOfferFlex,
+  createWebSearchResultsFlex,
+  createImageSelectionFlex,
+  type AddPreviewSuggestion,
 } from "@/lib/line-chat/flex-messages";
+import { normalizeIntent, shouldNormalize, normalizeIntentRegexFallback } from "@/lib/ai-assistant/intent-normalizer";
+import {
+  getStockSummaryTool,
+  getLowStockTool,
+  getPartMovementsTool,
+  getUsageTrendsTool,
+  searchPartsTool,
+} from "@/lib/ai-assistant/db-tools";
+import {
+  renderStockSummary,
+  renderLowStock,
+  renderMovements,
+  renderTrends,
+  renderSearchResult,
+} from "@/lib/ai-assistant/renderers";
 
 // Bot name สำหรับ group mention detection
-// ใช้ environment variable หรือ fallback เป็นค่า default
 const BOT_MENTION = process.env.LINE_BOT_NAME || "@SpareBot";
+
+// Pattern สำหรับ reference to recent image ("รูปนี้", "อันนี้", etc.)
+const IMAGE_REFERENCE_PATTERN =
+  /(?:รูปนี้|รูปเมื่อกี้|อันนี้|ตัวนี้|อะไหล่นี้|รูปที่ส่ง|รูปนั้น|รูปที่แล้ว|รูปเมื่อสักครู่|ภาพนี้|ภาพเมื่อกี้)/i;
+
+type TextIntent = "inventory_search" | "general_chat" | "pending_action" | "help" | "export";
+
+// ── Intent classifiers ────────────────────────────────────────────
+
+function classifyTextIntent(text: string): TextIntent {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return "general_chat";
+
+  if (parsePendingActionCommand(normalized)) return "pending_action";
+  if (isMenuRequest(normalized)) return "help";
+  if (isExcelExportRequest(normalized)) return "export";
+
+  const cmdLower = normalized.toLowerCase();
+  if (/^(stock\s+|ค้นหา\s+|search\s+|help|ช่วยเหลือ)$/i.test(cmdLower)) return "help";
+
+  if (
+    /(คืออะไร|คือ|หมายถึง|แปลว่า|อธิบาย|ช่วยอธิบาย|วิธี|ยังไง|อย่างไร|ทำไง|ขั้นตอน|คู่มือ|ใช้งาน|ทำอะไรได้บ้าง|ทำไรได้บ้าง|ช่วยอะไรได้บ้าง|definition|meaning|explain|how.?to)/i.test(normalized) &&
+    !/(stock|สต็อก|สต๊อก|คงเหลือ|เหลือ|จำนวน|มีไหม|มีกี่|ค้นหา|หา|เช็ค|ตรวจ)/i.test(normalized)
+  ) {
+    return "general_chat";
+  }
+
+  if (
+    /^(ดี|สบายดี|เป็นไง|หวัดดี|สวัสดี|hello|hi|hey|ok|โอเค|ขอบคุณ|thank|ครับ|ค่ะ|คะ|จ้า)$/i.test(normalized.trim()) ||
+    /(วันนี้ทำอะไร|อากาศ|กินข้าว|หิว|ง่วง|เพลง|หนัง|เกม|ข่าว|เมื่อวาน|พรุ่งนี้)/i.test(normalized)
+  ) {
+    return "general_chat";
+  }
+
+  const inventoryQuery = parseLineInventoryQuery(normalized);
+  if (inventoryQuery) return "inventory_search";
+
+  return "general_chat";
+}
 
 function isMenuRequest(text: string): boolean {
   return /^(สวัสดี|หวัดดี|hello|hi|help|ช่วยเหลือ|เมนู|menu|เริ่มต้น|ทำอะไรได้บ้าง|ทำไรได้บ้าง|ช่วยอะไรได้บ้าง|ใช้งานยังไง|ใช้ยังไง)$/i.test(text.trim());
@@ -59,53 +151,161 @@ function lineRateLimitKey(event: LineWebhookBody["events"][number]): string {
   ].join(":");
 }
 
+function isGroupContext(sourceType?: string): boolean {
+  return sourceType === "group" || sourceType === "room";
+}
+
+async function saveGroupContextEvent(
+  lineGroupId: string,
+  lineUserId: string,
+  content: string,
+  messageType: "text" | "image" | "postback",
+  metadata: Record<string, unknown> = {},
+) {
+  try {
+    const ctx = await getOrCreateConversation(undefined, lineGroupId);
+    await saveMessage(ctx.conversationId, "user", content, messageType, {
+      groupSenderUserId: lineUserId,
+      ...metadata,
+    });
+
+    // Lazy threshold prune: only prune when we exceed 120 to reduce DB writes.
+    const count = await prisma.conversationMessage.count({
+      where: { conversationId: ctx.conversationId },
+    });
+    if (count > 120) {
+      await cleanupOldMessages(ctx.conversationId, 100);
+    }
+  } catch (error) {
+    // Never block the webhook because of context storage.
+    console.error("saveGroupContextEvent error:", error);
+  }
+}
+
 async function findLineLinkedUser(lineUserId?: string) {
   if (!lineUserId) return null;
-
   const linked = await prisma.lineAccount.findUnique({
     where: { lineUserId },
     include: { user: true },
   });
   if (linked?.user) return linked.user;
-
   return prisma.user.findUnique({ where: { lineUserId } });
 }
 
-async function searchPartsFromImage(imageBuffer: Buffer) {
-  const fileBuffer = imageBuffer.buffer.slice(
-    imageBuffer.byteOffset,
-    imageBuffer.byteOffset + imageBuffer.byteLength
-  ) as ArrayBuffer;
-  const file = new File([fileBuffer], "line-image.jpg", { type: "image/jpeg" });
-  const suggestion = await suggestPartFromImage(file);
-  const keywords = [
-    suggestion.partNumber,
-    suggestion.partName,
-    suggestion.subcategory,
-    suggestion.categoryName,
-    suggestion.description,
-  ]
-    .map((value) => value?.trim())
-    .filter((value): value is string => Boolean(value));
+// ── Postback data parsing ─────────────────────────────────────────
 
-  const seen = new Set<string>();
-  const results = [];
-  for (const keyword of keywords) {
-    const parts = await searchPartsForLine({ keyword, limit: 10 });
-    for (const part of parts) {
-      if (!seen.has(part.id)) {
-        seen.add(part.id);
-        results.push(part);
-      }
-    }
-    if (results.length >= 10) break;
+function parseAction(data: string): string | null {
+  const match = data.match(/action=(\w+)/);
+  return match?.[1] || null;
+}
+
+function parseSid(data: string): string | null {
+  const match = data.match(/[&?]sid=([a-zA-Z0-9_-]+)/);
+  return match?.[1] || null;
+}
+
+function parseQueryParam(data: string): string | null {
+  const match = data.match(/[&?]q=([^&]+)/);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
+function parseMsgId(data: string): string | null {
+  const match = data.match(/[&?]msgid=([^&]+)/);
+  return match?.[1] || null;
+}
+
+function parsePlant(data: string): string | null {
+  const match = data.match(/[&?]plant=([^&]+)/);
+  if (!match) return null;
+  try { return decodeURIComponent(match[1]); }
+  catch { return match[1]; }
+}
+
+function parseBuilding(data: string): string | null {
+  const match = data.match(/[&?]building=([^&]+)/);
+  if (!match) return null;
+  try { return decodeURIComponent(match[1]); }
+  catch { return match[1]; }
+}
+
+// ── Permission gate for postbacks ─────────────────────────────────
+
+/**
+ * Check permission and send login-required flex if denied.
+ * Returns the user if allowed, null if denied (already sent reply).
+ */
+async function gatePostback(
+  user: { id: string; role: string } | null,
+  action: LineAction,
+  replyToken: string,
+): Promise<{ id: string; role: string } | null> {
+  const permUser = user ? { role: user.role as "ADMIN" | "STAFF" } : null;
+  const perm = checkLinePermission(permUser, action);
+  if (perm.allowed) return user || { id: "anonymous", role: "STAFF" };
+
+  const denied = perm as LinePermissionDenied;
+  if (denied.reason === "login_required") {
+    await sendLineReply(replyToken, [
+      createFlexMessage("ต้องล็อกอินก่อน", createLoginRequiredForActionFlex(getActionLabel(action))),
+    ]);
+  } else {
+    await sendLineReply(replyToken, [
+      createTextMessage(`คุณไม่มีสิทธิ์${getActionLabel(action)} (ต้องใช้สิทธิ์ ${denied.requiredRole})`),
+    ]);
+  }
+  return null;
+}
+
+// ── Session ownership helper ──────────────────────────────────────
+
+async function requireImageSession(
+  sid: string | null,
+  userId: string,
+  replyToken: string,
+  allowCrossUser = false,
+) {
+  if (!sid) {
+    await sendLineReply(replyToken, [
+      createTextMessage("ข้อมูลไม่สมบูรณ์ กรุณาส่งรูปใหม่"),
+    ]);
+    return null;
   }
 
-  return {
-    keyword: keywords[0] || "รูปภาพ",
-    parts: results.slice(0, 10),
-  };
+  let session;
+  try {
+    session = await getImageSession(sid);
+  } catch (error) {
+    await sendLineReply(replyToken, [
+      createTextMessage(
+        error instanceof Error ? error.message : "เซสชันไม่ถูกต้อง กรุณาส่งรูปใหม่",
+      ),
+    ]);
+    return null;
+  }
+
+  if (!session) {
+    await sendLineReply(replyToken, [
+      createTextMessage("ไม่พบเซสชัน กรุณาส่งรูปใหม่"),
+    ]);
+    return null;
+  }
+
+  if (!allowCrossUser && session.userId !== userId) {
+    await sendLineReply(replyToken, [
+      createTextMessage("คุณไม่มีสิทธิ์ทำรายการนี้ (เซสชันนี้เป็นของผู้ใช้อื่น)"),
+    ]);
+    return null;
+  }
+
+  return session;
 }
+
+// ── Main POST handler ─────────────────────────────────────────────
 
 export async function POST(request: Request) {
   try {
@@ -124,6 +324,7 @@ export async function POST(request: Request) {
     const events = parsed.events || [];
 
     for (const event of events) {
+      // ── follow event ──
       if (event.type === "follow") {
         if (event.replyToken && event.source?.userId) {
           const linkedUser = await findLineLinkedUser(event.source.userId);
@@ -136,12 +337,32 @@ export async function POST(request: Request) {
         continue;
       }
 
-      // Process only message events
+      // ── postback events ──
+      if (event.type === "postback" && event.postback?.data) {
+        const replyToken = event.replyToken;
+        if (!replyToken) continue;
+
+        const data = event.postback.data;
+        const action = parseAction(data);
+        if (!action) continue;
+
+        const sid = parseSid(data);
+        const source = event.source;
+        const lineUserId = source?.userId;
+        const isGroupForPostback = isGroupContext(source?.type);
+        const user = await findLineLinkedUser(lineUserId);
+
+        await handlePostback(action, user, replyToken, sid, data, lineUserId, isGroupForPostback);
+        continue;
+      }
+
+      // ── message events only below ──
       if (event.type !== "message") continue;
 
       const replyToken = event.replyToken;
       if (!replyToken) continue;
 
+      // Rate limit
       try {
         rateLimitKey(lineRateLimitKey(event), {
           name: "line-webhook",
@@ -159,16 +380,38 @@ export async function POST(request: Request) {
       }
 
       const source = event.source;
-      const isGroup = source?.type === "group";
-      const lineUserId = source?.userId;
-      const lineGroupId = isGroup ? source?.groupId : undefined;
+      const isGroup = isGroupContext(source?.type);
+      const lineUserId = source?.userId || "anonymous";
+      const lineGroupId = isGroup ? (source?.groupId || source?.roomId) : undefined;
+      const botUserId = parsed.destination;
 
-      // Handle image messages (Phase 2 - placeholder)
+      // ── Image messages ──
       if (event.message?.type === "image") {
-        if (isGroup) continue;
+        const messageId = event.message.id;
 
+        // GROUP IMAGE: store context silently, only respond if @mentioned
+        if (isGroup) {
+          // Always store image ref in both GroupImageContext and rolling context.
+          if (lineGroupId) {
+            await storeGroupImage(lineGroupId, messageId, lineUserId).catch((e) => {
+              console.error("storeGroupImage error:", e);
+            });
+            await saveGroupContextEvent(
+              lineGroupId,
+              lineUserId,
+              "[image]",
+              "image",
+              { imageMessageId: messageId },
+            );
+          }
+
+          // Image messages have no text, so a standalone group image is never replied to.
+          // The user must send text + @bot referencing the image.
+          continue;
+        }
+
+        // 1:1 IMAGE: linked users only
         const user = await findLineLinkedUser(lineUserId);
-
         if (!user) {
           await sendLineReply(replyToken, [
             createFlexMessage("เข้าสู่ระบบก่อนใช้งาน", createLoginRequiredFlex()),
@@ -177,117 +420,120 @@ export async function POST(request: Request) {
         }
 
         try {
-          const imageBuffer = await getLineMessageContent(event.message.id);
+          const imageBuffer = await getLineMessageContent(messageId);
           const imageBase64 = imageBuffer.toString("base64");
-
-          try {
-            const imageSearchResult = await searchPartsByImageForLine(imageBase64);
-            if (imageSearchResult.parts.length > 0) {
-              await sendLineReply(replyToken, [
-                createFlexMessage(
-                  `ค้นหาจาก${imageSearchResult.keyword}`,
-                  createSearchResultsFlex(
-                    imageSearchResult.keyword,
-                    imageSearchResult.parts,
-                  ),
-                ),
-              ]);
-              continue;
-            }
-          } catch (error) {
-            console.error("LINE image embedding search failed:", error);
-          }
-
-          try {
-            const textSearchResult = await searchPartsFromImage(imageBuffer);
-            if (textSearchResult.parts.length > 0) {
-              await sendLineReply(replyToken, [
-                createFlexMessage(
-                  `ค้นหาจากรูป ${textSearchResult.keyword}`,
-                  createSearchResultsFlex(textSearchResult.keyword, textSearchResult.parts)
-                ),
-              ]);
-              continue;
-            }
-          } catch (error) {
-            console.error("LINE image OCR/text search failed:", error);
-          }
-
+          const sessionOwnerId = user.id;
+          const sessionId = await createImageSession(sessionOwnerId, imageBase64, messageId);
           await sendLineReply(replyToken, [
-            createTextMessage(
-              "ยังเทียบรูปกับอะไหล่ใน DB ไม่เจอครับ กรุณาถ่ายให้เห็นรหัสรุ่น/ป้ายชื่ออะไหล่ชัดขึ้น หรือพิมพ์รหัสที่เห็นมาได้เลย",
-            ),
+            createFlexMessage("จัดการรูปภาพ", createImageIntentFlex(sessionId)),
           ]);
         } catch (error) {
-          console.error("LINE image search error:", error);
+          console.error("LINE image session error:", error);
           await sendLineReply(replyToken, [
-            createTextMessage("ไม่สามารถวิเคราะห์รูปภาพนี้ได้ กรุณาถ่ายให้เห็นตัวอะไหล่หรือรหัสรุ่นชัดขึ้น"),
+            createTextMessage("ไม่สามารถรับรูปภาพได้ กรุณาลองใหม่อีกครั้ง"),
           ]);
         }
         continue;
       }
 
-      // Skip non-text messages (sticker, video, audio, location, etc.)
+      // ── Text messages ──
       if (event.message?.type !== "text") continue;
 
       const rawText = (event.message?.text || "").trim();
       if (!rawText) continue;
 
-      // Group chat: only respond if @mentioned
+      // ── Group text routing ──
       if (isGroup) {
-        if (!rawText.includes(BOT_MENTION)) {
-          // Not mentioned, skip
+        // Always store rolling context for group text, even without @bot.
+        if (lineGroupId) {
+          await saveGroupContextEvent(lineGroupId, lineUserId, rawText, "text");
+        }
+
+        if (!isBotMentioned(event, rawText, BOT_MENTION, botUserId)) {
+          // Not mentioned → never reply, but context is already saved.
           continue;
         }
       }
 
-      // Get user's linked account
-      const user = await findLineLinkedUser(lineUserId);
-
-      if (!user) {
-        await sendLineReply(replyToken, [
-          createFlexMessage("เข้าสู่ระบบก่อนใช้งาน", createLoginRequiredFlex()),
-        ]);
-        continue;
-      }
-
-      // Strip @mention from text for processing
-      const text = isGroup
-        ? rawText.replace(new RegExp(BOT_MENTION.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "").trim()
-        : rawText;
+      // Strip @mention
+      const text = isGroup ? stripMentionText(rawText, event, BOT_MENTION) : rawText;
+      const wantsWebSearch = isExplicitWebSearch(text);
 
       if (!text) {
-        // Only @mention, no actual message - show help only in 1-on-1
+        // Only @mention, no message — show help only in 1:1
         if (!isGroup) {
           await sendLineReply(replyToken, [createFlexMessage("ผู้ช่วยสต็อก", createHelpFlex())]);
         }
         continue;
       }
 
-      const pendingActionCommand = parsePendingActionCommand(text);
-      if (pendingActionCommand) {
-        try {
-          const result =
-            pendingActionCommand.action === "confirm"
-              ? await confirmPendingActionByCode(user.id, pendingActionCommand.code)
-              : { message: `ยกเลิกรายการแล้ว`, action: await cancelPendingActionByCode(user.id, pendingActionCommand.code) };
-          await sendLineReply(replyToken, [createTextMessage(result.message || "ทำรายการสำเร็จ")]);
-        } catch (error) {
+      // ── Resolve "รูปนี้" / "อันนี้" references in groups ──
+      if (isGroup && lineGroupId && IMAGE_REFERENCE_PATTERN.test(text)) {
+        const resolved = await resolveImageReference(lineGroupId, lineUserId, replyToken);
+        if (resolved === "selection_sent") continue; // selection flex sent, user will pick
+        if (resolved === "not_found") continue;      // error already sent
+        // resolved is { imageBase64, sessionId } — continue with intent handling below
+        if (resolved && typeof resolved === "object") {
           await sendLineReply(replyToken, [
-            createTextMessage(error instanceof Error ? error.message : "ไม่สามารถทำรายการได้"),
+            createFlexMessage("จัดการรูปภาพ", createImageIntentFlex(resolved.sessionId)),
           ]);
+          continue;
         }
+      }
+
+      // ── Get user ──
+      const user = await findLineLinkedUser(lineUserId);
+
+      // 1:1: anonymous users must login before anything
+      if (!isGroup && !user) {
+        await sendLineReply(replyToken, [
+          createFlexMessage("เข้าสู่ระบบก่อนใช้งาน", createLoginRequiredFlex()),
+        ]);
         continue;
       }
 
-      if (isMenuRequest(text)) {
+      // ── Intent dispatch ──
+      // Try LLM normalizer for complex queries (summary, locator, trend)
+      if (shouldNormalize(text)) {
+        try {
+          const normalized = await normalizeIntent(text);
+          if (normalized.confidence >= 0.7 && normalized.intent !== "general_chat") {
+            await handleNormalizedIntent(normalized, replyToken);
+            continue;
+          }
+          // Regex fallback for trend/history when LLM is uncertain
+          const fallback = normalizeIntentRegexFallback(text);
+          if (fallback) {
+            await handleNormalizedIntent(fallback, replyToken);
+            continue;
+          }
+        } catch {
+          // Fall through to regex classifier
+        }
+      }
+
+      const intent = classifyTextIntent(text);
+
+      if (intent === "pending_action") {
+        await handleTextPendingAction(text, user, replyToken);
+        continue;
+      }
+
+      if (intent === "help") {
         await sendLineReply(replyToken, [
           createFlexMessage("เมนู Spare Part Stock", createHelpFlex()),
         ]);
         continue;
       }
 
-      if (isExcelExportRequest(text)) {
+      if (intent === "export") {
+        // Export requires login
+        if (!user) {
+          await sendLineReply(replyToken, [
+            createFlexMessage("ต้องล็อกอินก่อน", createLoginRequiredFlex()),
+          ]);
+          continue;
+        }
         const exportUri = await createLineExportUrl({ userId: user.id });
         await sendLineReply(replyToken, [
           createFlexMessage("ส่งออก Excel", createExportFlex(exportUri)),
@@ -295,16 +541,32 @@ export async function POST(request: Request) {
         continue;
       }
 
-      // Check for legacy commands (backward compatibility)
-      const legacyReply = await tryLegacyCommand(text, replyToken);
-      if (legacyReply) continue;
+      if (intent === "inventory_search" && !wantsWebSearch) {
+        await handleTextSearch(text, replyToken);
+        continue;
+      }
 
-      // Use AI orchestrator for all other messages
+      // Legacy commands (backward compatibility)
+      if (!wantsWebSearch) {
+        const legacyReply = await tryLegacyCommand(text, replyToken);
+        if (legacyReply) continue;
+      }
+
+      // Explicit web search request → offer web search Flex directly.
+      if (wantsWebSearch) {
+        await sendLineReply(replyToken, [
+          createFlexMessage(`ไม่พบในฐานข้อมูล`, createWebSearchOfferFlex(text)),
+          createTextMessage(`"${text}" ไม่พบในคลัง กด "ค้นเว็บ" เพื่อค้นหาจากแหล่งข้อมูลภายนอก`),
+        ]);
+        continue;
+      }
+
+      // ── General chat ──
       try {
         const userId = user?.id || "anonymous";
-        const result = await orchestrate(userId, lineGroupId, text, isGroup || false, user.role, lineUserId);
+        const userRole = user?.role || "STAFF";
+        const result = await orchestrate(userId, lineGroupId, text, isGroup || false, userRole, lineUserId);
 
-        // Try to format as Flex Message if possible
         const flexReply = await tryFormatAsFlex(result.reply, text);
         if (flexReply) {
           await sendLineReply(replyToken, [flexReply]);
@@ -329,11 +591,104 @@ export async function POST(request: Request) {
   }
 }
 
-// Legacy command support (backward compatibility)
+// ── Image reference resolution for groups ─────────────────────────
+
+async function resolveImageReference(
+  lineGroupId: string,
+  lineUserId: string | undefined,
+  replyToken: string,
+): Promise<{ imageBase64: string; sessionId: string } | "selection_sent" | "not_found" | null> {
+  // Priority 1: recent image by the same user
+  if (lineUserId) {
+    const userImage = await findRecentImageForUser(lineGroupId, lineUserId);
+    if (userImage) {
+      try {
+        const imageBuffer = await getLineMessageContent(userImage.imageMessageId);
+        const imageBase64 = imageBuffer.toString("base64");
+        const sessionId = await createImageSession(lineUserId, imageBase64, userImage.imageMessageId);
+        return { imageBase64, sessionId };
+      } catch {
+        // Fall through to group-wide search
+      }
+    }
+  }
+
+  // Priority 2: recent images in group (may need selection)
+  const recentImages = await findRecentImagesInGroup(lineGroupId, 4);
+  if (recentImages.length === 0) {
+    await sendLineReply(replyToken, [
+      createTextMessage("ไม่พบรูปล่าสุดในกลุ่ม กรุณาส่งรูปพร้อม @bot อีกครั้ง"),
+    ]);
+    return "not_found";
+  }
+
+  if (recentImages.length === 1) {
+    try {
+      const imageBuffer = await getLineMessageContent(recentImages[0].imageMessageId);
+      const imageBase64 = imageBuffer.toString("base64");
+      const sessionId = await createImageSession(
+        lineUserId || "anonymous",
+        imageBase64,
+        recentImages[0].imageMessageId,
+      );
+      return { imageBase64, sessionId };
+    } catch {
+      await sendLineReply(replyToken, [
+        createTextMessage("ไม่สามารถโหลดรูปได้ กรุณาส่งรูปใหม่"),
+      ]);
+      return "not_found";
+    }
+  }
+
+  // Multiple images → send selection flex
+  const selectable = recentImages.map((img) => ({
+    messageId: img.imageMessageId,
+    senderName: img.senderUserId.slice(0, 8),
+    timestamp: new Date(img.createdAt).toLocaleTimeString("th-TH", {
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+  }));
+
+  await sendLineReply(replyToken, [
+    createFlexMessage("เลือกรูป", createImageSelectionFlex(selectable)),
+  ]);
+  return "selection_sent";
+}
+
+// ── Text pending action handler ────────────────────────────────────
+
+async function handleTextPendingAction(
+  text: string,
+  user: { id: string; role: string } | null,
+  replyToken: string,
+) {
+  if (!user) {
+    await sendLineReply(replyToken, [
+      createFlexMessage("ต้องล็อกอินก่อน", createLoginRequiredFlex()),
+    ]);
+    return;
+  }
+
+  const cmd = parsePendingActionCommand(text)!;
+  try {
+    const result =
+      cmd.action === "confirm"
+        ? await confirmPendingActionByCode(user.id, cmd.code)
+        : { message: `ยกเลิกรายการแล้ว`, action: await cancelPendingActionByCode(user.id, cmd.code) };
+    await sendLineReply(replyToken, [createTextMessage(result.message || "ทำรายการสำเร็จ")]);
+  } catch (error) {
+    await sendLineReply(replyToken, [
+      createTextMessage(error instanceof Error ? error.message : "ไม่สามารถทำรายการได้"),
+    ]);
+  }
+}
+
+// ── Legacy command support ─────────────────────────────────────────
+
 async function tryLegacyCommand(text: string, replyToken: string): Promise<boolean> {
   const command = text.toLowerCase();
 
-  // stock <code>
   const stockMatch = text.match(/^stock\s+(.+)$/i);
   if (stockMatch) {
     const part = await resolvePartFromCode(stockMatch[1].trim());
@@ -349,7 +704,6 @@ async function tryLegacyCommand(text: string, replyToken: string): Promise<boole
     return true;
   }
 
-  // search <keyword>
   const searchMatch = text.match(/^(?:ค้นหา|search)\s+(.+)$/i);
   if (searchMatch) {
     const keyword = searchMatch[1].trim();
@@ -375,7 +729,6 @@ async function tryLegacyCommand(text: string, replyToken: string): Promise<boole
     return true;
   }
 
-  // help
   if (command === "help" || command === "ช่วยเหลือ") {
     await sendLineReply(replyToken, [createFlexMessage("วิธีใช้", createHelpFlex())]);
     return true;
@@ -384,9 +737,714 @@ async function tryLegacyCommand(text: string, replyToken: string): Promise<boole
   return false;
 }
 
-// Try to format orchestrator reply as Flex Message
+// ── Text inventory search handler ──────────────────────────────────
+
+async function handleTextSearch(text: string, replyToken: string) {
+  const query = parseLineInventoryQuery(text);
+  if (!query) {
+    await sendLineReply(replyToken, [
+      createTextMessage("ไม่เข้าใจคำค้นหา กรุณาลองระบุชื่ออะไหล่ รหัส หรือประเภท"),
+    ]);
+    return;
+  }
+
+  const parts = await searchPartsForLine(query);
+  if (parts.length === 0) {
+    // DB miss → offer web search
+    await sendLineReply(replyToken, [
+      createFlexMessage(`ไม่พบ "${query.keyword}"`, createWebSearchOfferFlex(query.keyword)),
+      createTextMessage(`ไม่พบ "${query.keyword}" ในคลัง กด "ค้นเว็บ" เพื่อค้นหาจากแหล่งข้อมูลภายนอก`),
+    ]);
+    return;
+  }
+
+  const statusCounts = parts.reduce(
+    (acc, p) => {
+      if (p.quantity <= 0) acc.outOfStock++;
+      else if (p.quantity <= p.minimumQuantity) acc.lowStock++;
+      else acc.inStock++;
+      return acc;
+    },
+    { inStock: 0, lowStock: 0, outOfStock: 0 },
+  );
+
+  const summaryLines = [
+    `🔍 ค้นหา "${query.keyword}" พบ ${parts.length} รายการ`,
+    `คงเหลือ: ${statusCounts.inStock} | ต่ำกว่าขั้นต่ำ: ${statusCounts.lowStock} | หมด: ${statusCounts.outOfStock}`,
+  ];
+
+  await sendLineReply(replyToken, [
+    createFlexMessage(`ค้นหา ${query.keyword}`, createSearchResultsFlex(query.keyword, parts)),
+    createTextMessage(summaryLines.join("\n")),
+  ]);
+}
+
+// ── LLM normalizer intent handler ─────────────────────────────────
+
+async function handleNormalizedIntent(
+  intent: { intent: string; keyword?: string | null; plant?: string | null; buildingName?: string | null; categoryName?: string | null; from?: string | null; to?: string | null },
+  replyToken: string,
+) {
+  const args = {
+    keyword: intent.keyword,
+    plant: intent.plant,
+    buildingName: intent.buildingName,
+    categoryName: intent.categoryName,
+    from: intent.from,
+    to: intent.to,
+  };
+
+  try {
+    switch (intent.intent) {
+      case "stock_summary": {
+        const result = await getStockSummaryTool(args);
+        const messages = renderStockSummary(result);
+        await sendLineReply(replyToken, messages);
+        return;
+      }
+      case "low_stock": {
+        const result = await getLowStockTool(args);
+        const messages = renderLowStock(result);
+        await sendLineReply(replyToken, messages);
+        return;
+      }
+      case "movement_history": {
+        const result = await getPartMovementsTool(args);
+        const messages = renderMovements(result);
+        await sendLineReply(replyToken, messages);
+        return;
+      }
+      case "usage_trend": {
+        const result = await getUsageTrendsTool(args);
+        const messages = renderTrends(result);
+        await sendLineReply(replyToken, messages);
+        return;
+      }
+      case "inventory_search": {
+        const result = await searchPartsTool(args);
+        const messages = renderSearchResult(result);
+        await sendLineReply(replyToken, messages);
+        return;
+      }
+      default:
+        // Fall through — will be caught by regex classifier
+        return;
+    }
+  } catch (error) {
+    console.error("Normalized intent handler error:", error);
+    await sendLineReply(replyToken, [
+      createTextMessage("ขออภัย เกิดข้อผิดพลาดในการค้นหาข้อมูล"),
+    ]);
+  }
+}
+
+// ── Postback handler ───────────────────────────────────────────────
+
+async function handlePostback(
+  action: string,
+  user: { id: string; role: string } | null,
+  replyToken: string,
+  sid: string | null,
+  data: string,
+  lineUserId: string | undefined,
+  isGroup: boolean,
+) {
+  try {
+    switch (action) {
+      // ── Read-only: anonymous allowed in groups, linked required in 1:1 ──
+      case "part_image_search": {
+        if (isGroup) {
+          // Anonymous users may search by image in groups.
+          await handlePartImageSearch(user?.id || "anonymous", replyToken, sid, lineUserId);
+          break;
+        }
+        const gated = await gatePostback(user, "image_search", replyToken);
+        if (!gated) return;
+        await handlePartImageSearch(gated.id, replyToken, sid, lineUserId);
+        break;
+      }
+
+      // ── Write: linked users allowed ──
+      case "part_image_add": {
+        const gated = await gatePostback(user, "create_part", replyToken);
+        if (!gated) return;
+        await handlePartImageAdd(gated.id, replyToken, sid, lineUserId);
+        break;
+      }
+      case "part_add_confirm": {
+        const gated = await gatePostback(user, "confirm_ai_add", replyToken);
+        if (!gated) return;
+        await handlePartAddConfirm(gated.id, replyToken, sid, lineUserId);
+        break;
+      }
+      case "part_add_set_plant": {
+        const gated = await gatePostback(user, "edit_ai_suggestion", replyToken);
+        if (!gated) return;
+        await handlePartAddSetPlant(gated.id, replyToken, sid, data, lineUserId);
+        break;
+      }
+      case "part_add_set_building": {
+        const gated = await gatePostback(user, "edit_ai_suggestion", replyToken);
+        if (!gated) return;
+        await handlePartAddSetBuilding(gated.id, replyToken, sid, data, lineUserId);
+        break;
+      }
+      case "part_add_retry": {
+        const gated = await gatePostback(user, "create_part", replyToken);
+        if (!gated) return;
+        // Preserve existing plant/building if already selected
+        let preserveLocation: { plant?: string; buildingId?: string; buildingName?: string } | undefined;
+        if (sid) {
+          try {
+            const retrySession = await getImageSession(sid);
+            if (retrySession?.suggestionJson) {
+              const rs = retrySession.suggestionJson as Record<string, unknown>;
+              if (rs.plant || rs.buildingId) {
+                preserveLocation = {
+                  plant: String(rs.plant || ""),
+                  buildingId: String(rs.buildingId || ""),
+                  buildingName: String(rs.buildingName || ""),
+                };
+              }
+            }
+          } catch { /* ignore — proceed without preserving */ }
+        }
+        await handlePartImageAdd(gated.id, replyToken, sid, lineUserId, preserveLocation);
+        break;
+      }
+
+      // ── Cancel: session owner only ──
+      case "part_add_cancel": {
+        // Validate session ownership before clearing
+        // Anonymous sessions use lineUserId (or "anonymous" as fallback)
+        const effectiveUserId = user?.id || lineUserId || "anonymous";
+        if (!sid) {
+          await sendLineReply(replyToken, [createTextMessage("ยกเลิกแล้ว")]);
+          return;
+        }
+        let cancelSession;
+        try { cancelSession = await getImageSession(sid); } catch { /* ignore */ }
+        if (cancelSession && cancelSession.userId !== effectiveUserId) {
+          await sendLineReply(replyToken, [
+            createTextMessage("คุณไม่มีสิทธิ์ทำรายการนี้"),
+          ]);
+          return;
+        }
+        try { await clearImageSession(sid); } catch { /* ok */ }
+        await sendLineReply(replyToken, [
+          createTextMessage("ยกเลิกการเพิ่มอะไหล่แล้ว ส่งรูปใหม่เมื่อต้องการ"),
+        ]);
+        break;
+      }
+
+      // ── Web search: anonymous allowed in groups / read-only ──
+      case "part_web_search": {
+        if (!isGroup) {
+          const gated = await gatePostback(user, "search_parts", replyToken);
+          if (!gated) return;
+        }
+        const q = parseQueryParam(data) || "unknown";
+        await handlePartWebSearch(q, replyToken);
+        break;
+      }
+      case "search_cancel": {
+        await sendLineReply(replyToken, [createTextMessage("ยกเลิกการค้นหา")]);
+        break;
+      }
+
+      // ── Image selection from group context ──
+      case "select_image": {
+        const msgId = parseMsgId(data);
+        if (!msgId) {
+          await sendLineReply(replyToken, [createTextMessage("ข้อมูลไม่สมบูรณ์")]);
+          return;
+        }
+        await handleSelectImage(msgId, user?.id || "anonymous", replyToken);
+        break;
+      }
+      case "image_select_cancel": {
+        await sendLineReply(replyToken, [createTextMessage("ยกเลิกการเลือกรูป")]);
+        break;
+      }
+
+      default:
+        await sendLineReply(replyToken, [
+          createTextMessage("ไม่รู้จักคำสั่งนี้ กรุณาลองใหม่"),
+        ]);
+    }
+  } catch (error) {
+    console.error(`Postback ${action} error:`, error);
+    await sendLineReply(replyToken, [
+      createTextMessage(
+        error instanceof Error ? error.message : "เกิดข้อผิดพลาด กรุณาลองใหม่",
+      ),
+    ]);
+  }
+}
+
+// Placeholder: use userId from event source (postback events carry source.userId)
+// This function exists as an explicit boundary marker for future session ownership checks
+
+// ── Part image search handler ──────────────────────────────────────
+
+async function handlePartImageSearch(
+  userId: string,
+  replyToken: string,
+  sid: string | null,
+  pushTarget?: string,
+) {
+  // Allow cross-user for read-only search
+  const session = await requireImageSession(sid, userId, replyToken, true);
+  if (!session) return;
+
+  const locked = await acquireImageSessionProcessing(session.id, "part_image_search");
+  if (!locked) {
+    await sendLineReply(replyToken, [
+      createTextMessage("กำลังประมวลผลรูปนี้อยู่ครับ รอสักครู่ ผลลัพธ์จะตามมาในแชทนี้"),
+    ]);
+    return;
+  }
+
+  // Only send progress if we have pushTarget available for the final result.
+  // replyToken can only be used once, so when pushTarget is absent we skip
+  // the progress message and reply with results directly.
+  if (pushTarget) {
+    await sendLineReply(replyToken, [
+      createTextMessage("กำลังค้นหาอะไหล่จากรูปด้วย AI ครับ รอสักครู่..."),
+    ]);
+  }
+
+  try {
+    let result = await searchPartsByImageForLine(session.imageBase64);
+    if (result.parts.length === 0) {
+      const buffer = Buffer.from(session.imageBase64, "base64");
+      const file = new File([buffer], "line-image.jpg", { type: "image/jpeg" });
+      try {
+        const suggestion = await suggestPartFromImage(file);
+        const keywords = [
+          suggestion.partNumber,
+          suggestion.partName,
+          suggestion.subcategory,
+        ].filter((v): v is string => Boolean(v?.trim()));
+        const keyword = keywords[0] || "รูปภาพ";
+        const parts = await searchPartsForLine({ keyword, limit: 10 });
+        result = { keyword, parts };
+      } catch {
+        // Already empty
+      }
+    }
+
+    if (result.parts.length === 0) {
+      const visionKeyword = result.keyword || "รูปภาพ";
+      await pushOrReply(pushTarget, replyToken, [
+        createFlexMessage(`ไม่พบ "${visionKeyword}"`, createWebSearchOfferFlex(visionKeyword)),
+        createTextMessage(`ไม่พบอะไหล่ที่ตรงกับรูปนี้ กด "ค้นเว็บ" เพื่อค้นหาจากแหล่งข้อมูลภายนอก`),
+      ]);
+      await releaseImageSessionProcessing(session.id);
+      return;
+    }
+
+    await pushOrReply(pushTarget, replyToken, [
+      createFlexMessage(`ผลค้นหาจาก${result.keyword}`, createSearchResultsFlex(result.keyword, result.parts)),
+    ]);
+
+    await clearImageSession(session.id);
+  } catch (error) {
+    await releaseImageSessionProcessing(session.id);
+    await pushOrReply(pushTarget, replyToken, [
+      createTextMessage(error instanceof Error ? error.message : "ค้นหาจากรูปไม่สำเร็จ กรุณาลองใหม่"),
+    ]);
+  }
+}
+
+async function listBuildingsForFlex(): Promise<Array<{ id: string; name: string }>> {
+  const buildings = await listBuildings();
+  return buildings.map((b) => ({ id: b.id, name: b.name }));
+}
+
+async function pushOrReply(
+  pushTarget: string | undefined,
+  replyToken: string,
+  messages: Parameters<typeof sendLineReply>[1],
+) {
+  if (pushTarget) {
+    await pushLineMessage(pushTarget, messages);
+    return;
+  }
+  await sendLineReply(replyToken, messages);
+}
+
+// ── Part image add handler ─────────────────────────────────────────
+
+async function handlePartImageAdd(
+  userId: string,
+  replyToken: string,
+  sid: string | null,
+  pushTarget?: string,
+  preserveLocation?: { plant?: string; buildingId?: string; buildingName?: string },
+) {
+  const session = await requireImageSession(sid, userId, replyToken);
+  if (!session) return;
+
+  const locked = await acquireImageSessionProcessing(session.id, "part_image_add");
+  if (!locked) {
+    await sendLineReply(replyToken, [
+      createTextMessage("กำลังวิเคราะห์รูปนี้อยู่ครับ รอสักครู่ ผลลัพธ์จะตามมาในแชทนี้"),
+    ]);
+    return;
+  }
+
+  // Only send progress if pushTarget available (replyToken is one-shot)
+  if (pushTarget) {
+    await sendLineReply(replyToken, [
+      createTextMessage("กำลังวิเคราะห์รูปเพื่อเพิ่มอะไหล่ใหม่ครับ รอสักครู่..."),
+    ]);
+  }
+
+  try {
+    await setImageSessionStatus(session.id, "analyzing");
+
+    const buffer = Buffer.from(session.imageBase64, "base64");
+    const file = new File([buffer], "line-image.jpg", { type: "image/jpeg" });
+    const suggestion = await suggestPartFromImage(file);
+
+    const preview: AddPreviewSuggestion = {
+      partNumber: suggestion.partNumber,
+      partName: suggestion.partName,
+      categoryName: suggestion.categoryName || "อะไหล่",
+      subcategory: suggestion.subcategory || "",
+      confidence: suggestion.confidence ?? 0,
+      description: suggestion.description || "",
+      notes: suggestion.notes || "",
+      unit: suggestion.unit || "pcs",
+      categoryId: suggestion.categoryId,
+      matchedCategoryName: suggestion.matchedCategoryName,
+      barcodeValue: suggestion.barcodeValue,
+      quantity: suggestion.quantity ?? 1,
+      minimumQuantity: suggestion.minimumQuantity ?? 1,
+      location: suggestion.location ?? "",
+      plant: preserveLocation?.plant || "",
+      buildingId: preserveLocation?.buildingId || "",
+      buildingName: preserveLocation?.buildingName || "",
+      status: "preview_ready",
+    };
+
+    await updateImageSessionSuggestion(session.id, preview);
+    await releaseImageSessionProcessing(session.id);
+
+    const buildings = await listBuildingsForFlex();
+    await pushOrReply(pushTarget, replyToken, [
+      createFlexMessage("พรีวิว", createAddPreviewFlex(preview, session.id, buildings)),
+    ]);
+  } catch (error) {
+    await releaseImageSessionProcessing(session.id);
+    await pushOrReply(pushTarget, replyToken, [
+      createTextMessage(error instanceof Error ? error.message : "วิเคราะห์รูปไม่สำเร็จ กรุณาลองใหม่"),
+    ]);
+  }
+}
+
+// ── Part add confirm handler ───────────────────────────────────────
+
+async function handlePartAddConfirm(userId: string, replyToken: string, sid: string | null, pushTarget?: string) {
+  const session = await requireImageSession(sid, userId, replyToken);
+  if (!session) return;
+
+  if (!session.suggestionJson) {
+    await sendLineReply(replyToken, [
+      createTextMessage("ไม่พบข้อมูลพรีวิว กรุณาลองวิเคราะห์รูปใหม่"),
+    ]);
+    return;
+  }
+
+  const s = session.suggestionJson as Record<string, unknown>;
+  const currentStatus = (s.status as string) || "";
+
+  // Idempotency: already saved — report the created part
+  if (currentStatus === "saved" && s.createdPartId) {
+    const partNumber = String(s.partNumber || "");
+    const partName = String(s.partName || "");
+    await pushOrReply(pushTarget, replyToken, [
+      createTextMessage(`✅ บันทึกแล้วไม่ต้องกดซ้ำ — ${partNumber}: ${partName}`),
+    ]);
+    return;
+  }
+
+  // Idempotency: currently saving
+  if (currentStatus === "saving") {
+    await pushOrReply(pushTarget, replyToken, [
+      createTextMessage("⏳ กำลังดำเนินการบันทึก กรุณารอสักครู่..."),
+    ]);
+    return;
+  }
+
+  const plant = String(s.plant || "").trim();
+  const buildingId = String(s.buildingId || "").trim();
+
+  // Missing plant/building: reply preview flex with selector + warning
+  if (!plant || !buildingId) {
+    const buildings = await listBuildingsForFlex();
+    await pushOrReply(pushTarget, replyToken, [
+      createFlexMessage("พรีวิว", createAddPreviewFlex(
+        s as unknown as AddPreviewSuggestion, session.id, buildings,
+      )),
+      createTextMessage("⚠️ กรุณาเลือก Block และอาคารก่อนยืนยัน กดปุ่มด้านล่างเพื่อเลือก"),
+    ]);
+    return;
+  }
+
+  // Acquire processing lock to prevent concurrent confirm
+  const locked = await acquireImageSessionProcessing(session.id, "part_add_confirm");
+  if (!locked) {
+    await pushOrReply(pushTarget, replyToken, [
+      createTextMessage("⏳ กำลังดำเนินการอยู่ กรุณารอสักครู่..."),
+    ]);
+    return;
+  }
+
+  try {
+    // Re-read session after acquiring lock (in case it was modified)
+    const freshSession = await getImageSession(session.id);
+    if (!freshSession?.suggestionJson) {
+      await releaseImageSessionProcessing(session.id);
+      await pushOrReply(pushTarget, replyToken, [
+        createTextMessage("ไม่พบข้อมูลพรีวิว กรุณาลองวิเคราะห์รูปใหม่"),
+      ]);
+      return;
+    }
+
+    const fs = freshSession.suggestionJson as Record<string, unknown>;
+    const freshStatus = (fs.status as string) || "";
+
+    // Double-check idempotency after lock
+    if (freshStatus === "saved" && fs.createdPartId) {
+      await releaseImageSessionProcessing(session.id);
+      const partNumber = String(fs.partNumber || "");
+      const partName = String(fs.partName || "");
+      await pushOrReply(pushTarget, replyToken, [
+        createTextMessage(`✅ บันทึกแล้วไม่ต้องกดซ้ำ — ${partNumber}: ${partName}`),
+      ]);
+      return;
+    }
+
+    const partNumber = String(fs.partNumber || "");
+    const partName = String(fs.partName || "Unknown - Spare Part");
+
+    // Set status to saving
+    await setImageSessionStatus(session.id, "saving");
+
+    const existing = await prisma.part.findUnique({ where: { partNumber } });
+    if (existing) {
+      // Already exists — mark as saved with the existing partId
+      await updateImageSessionSuggestion(session.id, {
+        ...fs,
+        status: "saved",
+        createdPartId: existing.id,
+      });
+      await releaseImageSessionProcessing(session.id);
+      await pushOrReply(pushTarget, replyToken, [
+        createTextMessage(`รหัส ${partNumber} มีในระบบแล้ว: ${existing.partName}`),
+      ]);
+      await clearImageSession(session.id);
+      return;
+    }
+
+    let categoryId: string | null = (fs.categoryId as string) || null;
+    const categoryName = String(fs.categoryName || "").trim();
+    if (!categoryId && categoryName) {
+      const cat = await prisma.category.upsert({
+        where: { name: categoryName },
+        update: {},
+        create: { name: categoryName },
+      });
+      categoryId = cat.id;
+    }
+
+    const newPart = await prisma.part.create({
+      data: {
+        partNumber,
+        partName,
+        description: String(fs.description || ""),
+        categoryId,
+        subcategory: String(fs.subcategory || ""),
+        plant,
+        buildingId,
+        location: String(fs.location || ""),
+        quantity: Number(fs.quantity ?? 1),
+        minimumQuantity: Number(fs.minimumQuantity ?? 1),
+        unit: String(fs.unit || "pcs"),
+        barcodeValue: String(fs.barcodeValue || "").trim() || generatePartBarcodeValue(partNumber),
+        createdBy: userId,
+      },
+    });
+
+    // Mark as saved with the created partId
+    await updateImageSessionSuggestion(session.id, {
+      ...fs,
+      status: "saved",
+      createdPartId: newPart.id,
+    });
+    await releaseImageSessionProcessing(session.id);
+    await clearImageSession(session.id);
+    await pushOrReply(pushTarget, replyToken, [
+      createFlexMessage("เพิ่มสำเร็จ", createAddSuccessFlex(partNumber, partName)),
+    ]);
+  } catch (error) {
+    await releaseImageSessionProcessing(session.id);
+    await pushOrReply(pushTarget, replyToken, [
+      createTextMessage(error instanceof Error ? error.message : "บันทึกไม่สำเร็จ กรุณาลองใหม่"),
+    ]);
+  }
+}
+
+// ── Part add set plant handler ──────────────────────────────────────
+
+async function handlePartAddSetPlant(
+  userId: string,
+  replyToken: string,
+  sid: string | null,
+  data: string,
+  pushTarget?: string,
+) {
+  const session = await requireImageSession(sid, userId, replyToken);
+  if (!session) return;
+
+  if (!session.suggestionJson) {
+    await pushOrReply(pushTarget, replyToken, [
+      createTextMessage("ไม่พบข้อมูลพรีวิว กรุณาลองวิเคราะห์รูปใหม่"),
+    ]);
+    return;
+  }
+
+  const plant = parsePlant(data);
+  if (!plant) {
+    await pushOrReply(pushTarget, replyToken, [
+      createTextMessage("ข้อมูลไม่สมบูรณ์ กรุณาลองใหม่"),
+    ]);
+    return;
+  }
+
+  const suggestion = { ...session.suggestionJson, plant };
+  await updateImageSessionSuggestion(session.id, suggestion);
+
+  const buildings = await listBuildingsForFlex();
+  await pushOrReply(pushTarget, replyToken, [
+    createFlexMessage("พรีวิว", createAddPreviewFlex(
+      suggestion as unknown as AddPreviewSuggestion, session.id, buildings,
+    )),
+  ]);
+}
+
+// ── Part add set building handler ──────────────────────────────────
+
+async function handlePartAddSetBuilding(
+  userId: string,
+  replyToken: string,
+  sid: string | null,
+  data: string,
+  pushTarget?: string,
+) {
+  const session = await requireImageSession(sid, userId, replyToken);
+  if (!session) return;
+
+  if (!session.suggestionJson) {
+    await pushOrReply(pushTarget, replyToken, [
+      createTextMessage("ไม่พบข้อมูลพรีวิว กรุณาลองวิเคราะห์รูปใหม่"),
+    ]);
+    return;
+  }
+
+  const buildingName = parseBuilding(data);
+  if (!buildingName) {
+    await pushOrReply(pushTarget, replyToken, [
+      createTextMessage("ข้อมูลไม่สมบูรณ์ กรุณาลองใหม่"),
+    ]);
+    return;
+  }
+
+  const buildingId = await resolveBuildingIdByName(buildingName);
+  if (!buildingId) {
+    await pushOrReply(pushTarget, replyToken, [
+      createTextMessage(`ไม่พบอาคาร "${buildingName}" ในระบบ`),
+    ]);
+    return;
+  }
+
+  const suggestion = { ...session.suggestionJson, buildingId, buildingName };
+  await updateImageSessionSuggestion(session.id, suggestion);
+
+  const buildings = await listBuildingsForFlex();
+  await pushOrReply(pushTarget, replyToken, [
+    createFlexMessage("พรีวิว", createAddPreviewFlex(
+      suggestion as unknown as AddPreviewSuggestion, session.id, buildings,
+    )),
+  ]);
+}
+
+// ── Web search handler ─────────────────────────────────────────────
+
+async function handlePartWebSearch(keyword: string, replyToken: string) {
+  try {
+    const { searchPartOnWeb } = await import("@/lib/tavily");
+    const result = await searchPartOnWeb({ keywords: keyword, maxResults: 5 });
+
+    if (result.results.length === 0) {
+      await sendLineReply(replyToken, [
+        createFlexMessage("ค้นเว็บ", createWebSearchResultsFlex(keyword, [])),
+        createTextMessage(`ไม่พบข้อมูล "${keyword}" จากแหล่งภายนอก`),
+      ]);
+      return;
+    }
+
+    const items = result.results.map((r) => {
+      const urlObj = new URL(r.url);
+      return {
+        title: r.title,
+        url: r.url,
+        snippet: r.content,
+        sourceDomain: urlObj.hostname,
+        score: r.score,
+      };
+    });
+
+    await sendLineReply(replyToken, [
+      createFlexMessage(`ผลค้นเว็บ ${keyword}`, createWebSearchResultsFlex(keyword, items)),
+      createTextMessage(`🔍 ค้นเว็บ "${keyword}" พบ ${items.length} รายการ`),
+    ]);
+  } catch (error) {
+    console.error("Web search error:", error);
+    await sendLineReply(replyToken, [
+      createTextMessage(
+        error instanceof Error ? error.message : "ค้นเว็บไม่สำเร็จ กรุณาลองใหม่",
+      ),
+    ]);
+  }
+}
+
+// ── Select image from group context ────────────────────────────────
+
+async function handleSelectImage(
+  messageId: string,
+  userId: string,
+  replyToken: string,
+) {
+  try {
+    const imageBuffer = await getLineMessageContent(messageId);
+    const imageBase64 = imageBuffer.toString("base64");
+    const sessionId = await createImageSession(userId, imageBase64, messageId);
+    await sendLineReply(replyToken, [
+      createFlexMessage("จัดการรูปภาพ", createImageIntentFlex(sessionId)),
+    ]);
+  } catch {
+    await sendLineReply(replyToken, [
+      createTextMessage("ไม่สามารถโหลดรูปได้ รูปอาจหมดอายุแล้ว กรุณาส่งรูปใหม่"),
+    ]);
+  }
+}
+
+// ── Format orchestrator reply as Flex ──────────────────────────────
+
 async function tryFormatAsFlex(reply: string, originalText: string) {
-  // If reply contains stock info pattern, try to format as Flex
   const stockMatch = reply.match(/📦\s*(\S+)\s*-\s*(.+)/);
   if (stockMatch) {
     const partNumber = stockMatch[1];
@@ -399,7 +1457,6 @@ async function tryFormatAsFlex(reply: string, originalText: string) {
     }
   }
 
-  // If reply mentions "สรุปสต็อก" or stats, try to format as Flex
   if (reply.includes("📊 สรุปสต็อก") || originalText.includes("สรุปสต็อก")) {
     try {
       const { getStorageSummary } = await import("@/lib/storage-summary");

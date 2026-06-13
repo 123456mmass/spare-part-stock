@@ -477,6 +477,690 @@ export function createExportFlex(exportUri = `${APP_URL}/api/export`): unknown {
   };
 }
 
+// ── Image intent card ──────────────────────────────────────────────
+
+export function createImageIntentFlex(sessionId: string): unknown {
+  return {
+    type: "bubble",
+    size: "kilo",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        { type: "text", text: "📸", size: "xl", align: "center" },
+        { type: "text", text: "คุณต้องการทำอะไรกับรูปนี้?", weight: "bold", size: "lg", align: "center", wrap: true },
+        { type: "text", text: "ค้นหาอะไหล่ที่คล้ายจาก DB หรือเพิ่มเป็นอะไหล่ใหม่", size: "sm", color: "#6B7280", align: "center", wrap: true },
+      ],
+    },
+    footer: {
+      type: "box",
+      layout: "vertical",
+      spacing: "sm",
+      contents: [
+        {
+          type: "button",
+          action: { type: "postback", label: "🔍 ค้นหาอะไหล่จากรูป", data: `action=part_image_search&sid=${sessionId}` },
+          style: "primary",
+          color: "#2563EB",
+        },
+        {
+          type: "button",
+          action: { type: "postback", label: "➕ เพิ่มอะไหล่ใหม่", data: `action=part_image_add&sid=${sessionId}` },
+          style: "secondary",
+        },
+      ],
+    },
+  };
+}
+
+// ── Add preview card ───────────────────────────────────────────────
+
+export type AddPreviewSuggestion = {
+  partNumber: string;
+  partName: string;
+  categoryName: string;
+  subcategory: string;
+  confidence: number;
+  description: string;
+  notes: string;
+  unit: string;
+  plant?: string;
+  buildingId?: string;
+  buildingName?: string;
+  status?: string;
+  createdPartId?: string;
+  categoryId?: string | null;
+  matchedCategoryName?: string | null;
+  barcodeValue?: string | null;
+  quantity?: number;
+  minimumQuantity?: number;
+  location?: string;
+};
+
+function truncateText(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text;
+  return text.slice(0, maxLen - 3) + "...";
+}
+
+export function createAddPreviewFlex(
+  suggestion: AddPreviewSuggestion,
+  sessionId: string,
+  buildings: Array<{ id: string; name: string }>,
+): unknown {
+  const isProvisional = suggestion.partNumber.startsWith("TMP-");
+  const pnLabel = isProvisional ? "รหัสชั่วคราว (ยังไม่มีรหัสจริง)" : suggestion.partNumber;
+  const confPct = Math.round(suggestion.confidence * 100);
+  const confColor = confPct >= 85 ? "#1DB446" : confPct >= 60 ? "#F57C00" : "#D32F2F";
+  const needsLocation = !suggestion.plant || !suggestion.buildingId;
+
+  // ── Bubble 1: Preview + action buttons ──
+  const previewBubble = {
+    type: "bubble",
+    size: "mega",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        {
+          type: "box",
+          layout: "horizontal",
+          spacing: "sm",
+          contents: [
+            { type: "text", text: "พรีวิวการเพิ่มอะไหล่", weight: "bold", size: "lg", color: "#111111", flex: 4, wrap: true },
+            { type: "text", text: `${confPct}%`, size: "sm", weight: "bold", color: confColor, align: "end", flex: 1 },
+          ],
+        },
+        { type: "separator" },
+        {
+          type: "box",
+          layout: "vertical",
+          spacing: "sm",
+          contents: [
+            { type: "text", text: `รหัส: ${pnLabel}`, size: "sm", color: isProvisional ? "#F57C00" : "#111111", weight: isProvisional ? "bold" : "regular", wrap: true },
+            { type: "text", text: `ชื่อ: ${suggestion.partName}`, size: "sm", color: "#111111", wrap: true },
+            { type: "text", text: `หมวด: ${suggestion.categoryName} | ${suggestion.subcategory}`, size: "xs", color: "#6B7280", wrap: true },
+            { type: "text", text: `ที่เก็บ: ${suggestion.plant || "ยังไม่เลือก Block"} / ${suggestion.buildingName || "ยังไม่เลือกอาคาร"}`, size: "xs", color: suggestion.plant && suggestion.buildingId ? "#6B7280" : "#F57C00", wrap: true },
+            { type: "text", text: `หน่วย: ${suggestion.unit}`, size: "xs", color: "#6B7280" },
+            suggestion.description
+              ? { type: "text", text: truncateText(suggestion.description, 120), size: "xs", color: "#9CA3AF", wrap: true }
+              : null,
+            suggestion.notes && !isProvisional
+              ? { type: "text", text: `ℹ️ ${truncateText(suggestion.notes, 100)}`, size: "xs", color: "#9CA3AF", wrap: true }
+              : null,
+            needsLocation
+              ? { type: "text", text: "⚠️ กรุณาเลือก Block และอาคารก่อนยืนยัน", size: "xs", color: "#D32F2F", wrap: true }
+              : null,
+          ].filter(Boolean),
+        },
+      ],
+    },
+    footer: {
+      type: "box",
+      layout: "vertical",
+      spacing: "sm",
+      contents: [
+        {
+          type: "button",
+          action: { type: "postback", label: needsLocation ? "ยืนยัน (ยังไม่ครบ)" : "✅ ยืนยันบันทึก", data: `action=part_add_confirm&sid=${sessionId}` },
+          style: "primary",
+          color: needsLocation ? "#F57C00" : "#1DB446",
+        },
+        {
+          type: "box",
+          layout: "horizontal",
+          spacing: "sm",
+          contents: [
+            {
+              type: "button",
+              action: { type: "uri", label: "✏️ แก้ไข", uri: liffPath(`add-part?lineSid=${encodeURIComponent(sessionId)}`) },
+              style: "secondary",
+              flex: 1,
+            },
+            {
+              type: "button",
+              action: { type: "postback", label: "🔄 ใหม่", data: `action=part_add_retry&sid=${sessionId}` },
+              style: "secondary",
+              flex: 1,
+            },
+          ],
+        },
+        {
+          type: "button",
+          action: { type: "postback", label: "❌ ยกเลิก", data: `action=part_add_cancel&sid=${sessionId}` },
+          style: "link",
+        },
+      ],
+    },
+  };
+
+  // ── Bubble 2: Block/Building selectors ──
+  const blockOptions = [
+    { label: "Block 1", value: "BLOCK 1" },
+    { label: "Block 2", value: "BLOCK 2" },
+    { label: "Special Part", value: "SPECIAL PART" },
+  ];
+
+  const currentPlant = suggestion.plant || "";
+  const currentBuildingName = suggestion.buildingName || "";
+  const locationSummary = currentPlant || currentBuildingName
+    ? `ปัจจุบัน: ${currentPlant || "-"} / ${currentBuildingName || "-"}`
+    : "ยังไม่ได้เลือก";
+
+  const selectorBubble = {
+    type: "bubble",
+    size: "mega",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        { type: "text", text: "เลือกที่เก็บ", weight: "bold", size: "lg", color: "#111111" },
+        { type: "text", text: locationSummary, size: "xs", color: needsLocation ? "#F57C00" : "#1DB446", wrap: true },
+        { type: "separator" },
+        // Block section
+        {
+          type: "box",
+          layout: "vertical",
+          spacing: "sm",
+          contents: [
+            { type: "text", text: "🏷️ เลือก Block", size: "sm", weight: "bold", color: "#374151" },
+            ...blockOptions.map((b) => ({
+              type: "button",
+              action: {
+                type: "postback",
+                label: currentPlant === b.value ? `✅ ${b.label}` : b.label,
+                data: `action=part_add_set_plant&sid=${sessionId}&plant=${encodeURIComponent(b.value)}`,
+              },
+              style: currentPlant === b.value ? "primary" : "secondary",
+              color: currentPlant === b.value ? "#1DB446" : undefined,
+              margin: "sm",
+            })),
+          ],
+        },
+        { type: "separator" },
+        // Building section
+        {
+          type: "box",
+          layout: "vertical",
+          spacing: "sm",
+          contents: [
+            { type: "text", text: "🏢 เลือกอาคาร", size: "sm", weight: "bold", color: "#374151" },
+            ...buildings.map((bld) => ({
+              type: "button",
+              action: {
+                type: "postback",
+                label: currentBuildingName === bld.name ? `✅ ${bld.name}` : bld.name,
+                data: `action=part_add_set_building&sid=${sessionId}&building=${encodeURIComponent(bld.name)}`,
+              },
+              style: currentBuildingName === bld.name ? "primary" : "secondary",
+              color: currentBuildingName === bld.name ? "#1DB446" : undefined,
+              margin: "sm",
+            })),
+          ],
+        },
+      ],
+    },
+  };
+
+  return {
+    type: "carousel",
+    contents: [previewBubble, selectorBubble],
+  };
+}
+
+// ── Add success card ────────────────────────────────────────────────
+
+export function createAddSuccessFlex(partNumber: string, partName: string): unknown {
+  return {
+    type: "bubble",
+    size: "kilo",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        { type: "text", text: "✅", size: "xl", align: "center" },
+        { type: "text", text: "เพิ่มอะไหล่สำเร็จ", weight: "bold", size: "lg", align: "center", color: "#1DB446" },
+        { type: "separator" },
+        { type: "text", text: `รหัส: ${partNumber}`, size: "md", color: "#111111", wrap: true },
+        { type: "text", text: partName, size: "sm", color: "#4B5563", wrap: true },
+      ],
+    },
+    footer: {
+      type: "box",
+      layout: "vertical",
+      contents: [
+        {
+          type: "button",
+          action: { type: "uri", label: "ดูรายละเอียด", uri: `${APP_URL}/parts/new` },
+          style: "primary",
+          color: "#1DB446",
+        },
+      ],
+    },
+  };
+}
+
+// ── Login required for specific action ──────────────────────────────
+
+export function createLoginRequiredForActionFlex(actionLabel: string): unknown {
+  return {
+    type: "bubble",
+    size: "mega",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        { type: "text", text: "🔒 ต้องล็อกอินก่อน", weight: "bold", size: "lg", color: "#D32F2F", wrap: true },
+        { type: "text", text: `"${actionLabel}" ต้องใช้บัญชีที่ผูกกับระบบ`, size: "sm", color: "#4B5563", wrap: true },
+        { type: "separator" },
+        { type: "text", text: "กดปุ่มด้านล่างเพื่อล็อกอินหรือผูกบัญชี LINE กับผู้ใช้ในระบบ", size: "xs", color: "#6B7280", wrap: true },
+      ],
+    },
+    footer: {
+      type: "box",
+      layout: "vertical",
+      spacing: "sm",
+      contents: [
+        {
+          type: "button",
+          action: { type: "uri", label: "🔑 ล็อกอิน / ผูกบัญชี LINE", uri: LIFF_LINK_URL },
+          style: "primary",
+          color: "#1DB446",
+        },
+        {
+          type: "button",
+          action: { type: "postback", label: "ยกเลิก", data: "action=part_add_cancel" },
+          style: "link",
+        },
+      ],
+    },
+  };
+}
+
+// ── Web search offer card (DB miss) ─────────────────────────────────
+
+export function createWebSearchOfferFlex(keyword: string): unknown {
+  return {
+    type: "bubble",
+    size: "mega",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        { type: "text", text: "🔍 ไม่พบในฐานข้อมูล", weight: "bold", size: "lg", color: "#111111", wrap: true },
+        { type: "text", text: `ไม่พบ "${keyword}" ในคลังอะไหล่`, size: "sm", color: "#4B5563", wrap: true },
+        { type: "separator" },
+        { type: "text", text: "ลองค้นหาจากแหล่งข้อมูลภายนอก หรือเพิ่มเป็นอะไหล่ใหม่ในระบบ", size: "xs", color: "#6B7280", wrap: true },
+      ],
+    },
+    footer: {
+      type: "box",
+      layout: "vertical",
+      spacing: "sm",
+      contents: [
+        {
+          type: "button",
+          action: { type: "postback", label: "🔍 ค้นเว็บ", data: `action=part_web_search&q=${encodeURIComponent(keyword.slice(0, 80))}` },
+          style: "primary",
+          color: "#2563EB",
+        },
+        {
+          type: "button",
+          action: { type: "uri", label: "➕ เพิ่มเป็นอะไหล่ใหม่", uri: liffPath("add-part") },
+          style: "secondary",
+        },
+        {
+          type: "button",
+          action: { type: "postback", label: "ยกเลิก", data: "action=search_cancel" },
+          style: "link",
+        },
+      ],
+    },
+  };
+}
+
+// ── Web search results carousel ──────────────────────────────────────
+
+type WebSearchResultItem = {
+  title: string;
+  url: string;
+  snippet: string;
+  sourceDomain: string;
+  score: number;
+};
+
+export function createWebSearchResultsFlex(
+  query: string,
+  results: WebSearchResultItem[],
+): unknown {
+  if (results.length === 0) {
+    return {
+      type: "bubble",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          { type: "text", text: "🔍 ค้นเว็บ", weight: "bold", size: "lg", wrap: true },
+          { type: "text", text: `ไม่พบข้อมูล "${query}" จากแหล่งภายนอก`, size: "sm", color: "#6B7280", wrap: true },
+          { type: "text", text: "ลองใช้คำค้นอื่น หรือเพิ่มเป็นอะไหล่ใหม่ในระบบ", size: "xs", color: "#9CA3AF", wrap: true },
+        ],
+      },
+    };
+  }
+
+  const bubbles = results.slice(0, 5).map((r) => {
+    const scoreColor = r.score >= 0.8 ? "#1DB446" : r.score >= 0.5 ? "#F57C00" : "#9CA3AF";
+    const snippet = r.snippet.length > 160 ? r.snippet.slice(0, 157) + "..." : r.snippet;
+
+    return {
+      type: "bubble",
+      size: "mega",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          {
+            type: "box",
+            layout: "horizontal",
+            spacing: "sm",
+            contents: [
+              { type: "text", text: r.title.slice(0, 60), weight: "bold", size: "sm", color: "#111111", flex: 4, wrap: true },
+              { type: "text", text: `${Math.round(r.score * 100)}%`, size: "xs", color: scoreColor, weight: "bold", align: "end", flex: 1 },
+            ],
+          },
+          { type: "text", text: snippet, size: "xs", color: "#4B5563", wrap: true },
+          { type: "separator" },
+          { type: "text", text: `📎 ${r.sourceDomain}`, size: "xs", color: "#6B7280", wrap: true },
+        ],
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        contents: [
+          {
+            type: "button",
+            action: { type: "uri", label: "เปิดแหล่งข้อมูล", uri: r.url },
+            style: "primary",
+            color: "#2563EB",
+          },
+        ],
+      },
+    };
+  });
+
+  return {
+    type: "carousel",
+    contents: bubbles,
+  };
+}
+
+// ── Image selection card (multiple recent images) ────────────────────
+
+export type SelectableImage = {
+  messageId: string;
+  senderName: string;
+  timestamp: string;
+};
+
+export function createImageSelectionFlex(images: SelectableImage[]): unknown {
+  const MAX_DISPLAY = 4;
+  const displayImages = images.slice(0, MAX_DISPLAY);
+
+  const buttons = displayImages.map((img, i) => ({
+    type: "button",
+    action: {
+      type: "postback",
+      label: `รูป${i + 1}: ${img.senderName} (${img.timestamp})`,
+      data: `action=select_image&msgid=${img.messageId}`,
+    },
+    style: "secondary",
+    margin: "sm",
+  }));
+
+  return {
+    type: "bubble",
+    size: "mega",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        { type: "text", text: "📸 เลือกรูปที่ต้องการ", weight: "bold", size: "lg", color: "#111111", wrap: true },
+        { type: "text", text: `มี ${images.length} รูปล่าสุดในกลุ่ม เลือกรูปที่ต้องการใช้`, size: "sm", color: "#4B5563", wrap: true },
+        { type: "separator" },
+      ],
+    },
+    footer: {
+      type: "box",
+      layout: "vertical",
+      spacing: "sm",
+      contents: [
+        ...buttons,
+        {
+          type: "button",
+          action: { type: "postback", label: "❌ ยกเลิก", data: "action=image_select_cancel" },
+          style: "link",
+        },
+      ],
+    },
+  };
+}
+
+// ── Stock summary flex ──────────────────────────────────────────────
+
+type StockSummaryForFlex = {
+  totalParts: number;
+  totalQuantity: number;
+  lowStockCount: number;
+  outOfStockCount: number;
+  inStockCount: number;
+  examples: FlexPart[];
+};
+
+export function createStockSummaryFlex(
+  result: StockSummaryForFlex,
+  filterText: string,
+): unknown {
+  const exampleRows = result.examples.slice(0, 5).map((p) => {
+    const status = stockStatus(p);
+    return {
+      type: "box",
+      layout: "horizontal",
+      spacing: "sm",
+      margin: "sm",
+      contents: [
+        { type: "text", text: status.text, size: "xs", color: status.color, flex: 1 },
+        { type: "text", text: p.partNumber, size: "xs", color: "#111111", weight: "bold", flex: 3, wrap: true },
+        { type: "text", text: `${p.quantity} ${p.unit || "pcs"}`, size: "xs", color: "#6B7280", align: "end", flex: 2 },
+      ],
+    };
+  });
+
+  return {
+    type: "bubble",
+    size: "mega",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        { type: "text", text: "📊 สรุปสถานะสต็อก", weight: "bold", size: "lg", color: "#1DB446", wrap: true },
+        filterText ? { type: "text", text: filterText, size: "xs", color: "#6B7280", wrap: true } : null,
+        { type: "separator" },
+        {
+          type: "box",
+          layout: "vertical",
+          spacing: "sm",
+          contents: [
+            {
+              type: "box",
+              layout: "horizontal",
+              contents: [
+                { type: "text", text: "📦 รายการทั้งหมด", size: "sm", flex: 3 },
+                { type: "text", text: String(result.totalParts), size: "sm", weight: "bold", align: "end", flex: 1 },
+              ],
+            },
+            {
+              type: "box",
+              layout: "horizontal",
+              contents: [
+                { type: "text", text: "📊 จำนวนรวม", size: "sm", flex: 3 },
+                { type: "text", text: `${result.totalQuantity} ชิ้น`, size: "sm", weight: "bold", align: "end", flex: 1 },
+              ],
+            },
+            {
+              type: "box",
+              layout: "horizontal",
+              contents: [
+                { type: "text", text: "✅ คงเหลือปกติ", size: "sm", flex: 3 },
+                { type: "text", text: String(result.inStockCount), size: "sm", weight: "bold", color: "#1DB446", align: "end", flex: 1 },
+              ],
+            },
+            {
+              type: "box",
+              layout: "horizontal",
+              contents: [
+                { type: "text", text: "⚠️ ต่ำกว่าขั้นต่ำ", size: "sm", flex: 3 },
+                { type: "text", text: String(result.lowStockCount), size: "sm", weight: "bold", color: "#F57C00", align: "end", flex: 1 },
+              ],
+            },
+            {
+              type: "box",
+              layout: "horizontal",
+              contents: [
+                { type: "text", text: "❌ หมด", size: "sm", flex: 3 },
+                { type: "text", text: String(result.outOfStockCount), size: "sm", weight: "bold", color: "#D32F2F", align: "end", flex: 1 },
+              ],
+            },
+          ],
+        },
+        result.examples.length > 0 ? { type: "separator" } : null,
+        result.examples.length > 0
+          ? { type: "text", text: "ตัวอย่างอะไหล่", size: "sm", weight: "bold", color: "#4B5563" }
+          : null,
+        ...exampleRows,
+      ].filter(Boolean),
+    },
+    footer: {
+      type: "box",
+      layout: "horizontal",
+      spacing: "sm",
+      contents: [
+        {
+          type: "button",
+          action: { type: "uri", label: "ดู Dashboard", uri: `${APP_URL}/dashboard` },
+          style: "primary",
+          color: "#1DB446",
+          flex: 1,
+        },
+      ],
+    },
+  };
+}
+
+// ── Low stock flex ──────────────────────────────────────────────────
+
+export function createLowStockFlex(parts: FlexPart[], totalCount: number): unknown {
+  if (parts.length === 0) {
+    return {
+      type: "bubble",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          { type: "text", text: "✅ ไม่มีอะไหล่ต่ำกว่าขั้นต่ำ", weight: "bold", size: "lg", color: "#1DB446", wrap: true },
+        ],
+      },
+    };
+  }
+
+  const bubbles = parts.slice(0, 5).map((p) => {
+    const status = stockStatus(p);
+    const pct = p.minimumQuantity > 0
+      ? Math.round((p.quantity / p.minimumQuantity) * 100)
+      : 0;
+
+    return {
+      type: "bubble",
+      size: "mega",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          {
+            type: "box",
+            layout: "horizontal",
+            spacing: "sm",
+            contents: [
+              { type: "text", text: p.partNumber, weight: "bold", size: "md", color: "#111111", flex: 4, wrap: true },
+              { type: "text", text: status.text, size: "xs", color: status.color, weight: "bold", align: "end", flex: 2, wrap: true },
+            ],
+          },
+          { type: "text", text: p.partName, size: "sm", color: "#374151", wrap: true },
+          { type: "separator" },
+          {
+            type: "box",
+            layout: "vertical",
+            spacing: "sm",
+            contents: [
+              createInfoRow("คงเหลือ", `${p.quantity} ${p.unit || "pcs"}`, status.color),
+              createInfoRow("ขั้นต่ำ", `${p.minimumQuantity} ${p.unit || "pcs"}`),
+              createInfoRow("ระดับ", `${pct}%`),
+              createInfoRow("ที่เก็บ", p.location),
+              createInfoRow("อาคาร", p.building?.name),
+              createInfoRow("Block", p.plant),
+            ].filter(Boolean),
+          },
+        ],
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          {
+            type: "button",
+            action: { type: "uri", label: "ดูรายละเอียด", uri: `${APP_URL}/parts/${p.id ?? ""}` },
+            style: "primary",
+            color: "#F57C00",
+          },
+        ],
+      },
+    };
+  });
+
+  const totalBubble = {
+    type: "bubble",
+    size: "kilo",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        { type: "text", text: "⚠️", size: "xl", align: "center" },
+        { type: "text", text: `มี ${totalCount} รายการที่ต่ำกว่าขั้นต่ำ`, weight: "bold", size: "md", color: "#F57C00", align: "center", wrap: true },
+        { type: "text", text: `แสดง ${Math.min(parts.length, 5)} รายการ`, size: "xs", color: "#6B7280", align: "center" },
+      ],
+    },
+  };
+
+  return {
+    type: "carousel",
+    contents: [totalBubble, ...bubbles],
+  };
+}
+
+// ── Existing flex builders ──────────────────────────────────────────
+
 export function createBuildingListFlex(buildings: BuildingFlexItem[]): unknown {
   const rows = buildings.slice(0, 12).map((building) => ({
     type: "box",

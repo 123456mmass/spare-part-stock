@@ -7,6 +7,7 @@ import {
   saveMessage,
   type MessageRecord,
 } from "@/lib/line-chat/memory";
+import { prisma } from "@/lib/prisma";
 import { AI_TOOL_DEFINITIONS, executeAiTool } from "./tools";
 import type {
   AiAssistantInput,
@@ -94,7 +95,8 @@ export async function runAiAssistant(
   const history = conversationId
     ? await getRecentMessages(conversationId, MAX_CONTEXT_MESSAGES)
     : [];
-  const messages = buildMessages(history, input);
+  const summaryNote = await buildGroupSummaryNote(input, conversationId);
+  const messages = buildMessages(history, input, summaryNote);
   const context: ToolExecutionContext = {
     user: input.user,
     channel: input.channel,
@@ -150,7 +152,8 @@ export async function runAiAssistantStream(
   const history = conversationId
     ? await getRecentMessages(conversationId, MAX_CONTEXT_MESSAGES)
     : [];
-  const messages = buildMessages(history, input);
+  const summaryNote = await buildGroupSummaryNote(input, conversationId);
+  const messages = buildMessages(history, input, summaryNote);
   const context: ToolExecutionContext = {
     user: input.user,
     channel: input.channel,
@@ -233,11 +236,30 @@ async function resolveConversationId(
   return ctx.conversationId;
 }
 
+async function buildGroupSummaryNote(
+  input: AiAssistantInput,
+  conversationId?: string,
+): Promise<string | undefined> {
+  if (!input.conversationScope?.isGroup || !conversationId) return undefined;
+
+  const total = await prisma.conversationMessage.count({
+    where: { conversationId },
+  });
+  if (total <= MAX_CONTEXT_MESSAGES) return undefined;
+
+  return `[กลุ่มแชต: แสดง ${MAX_CONTEXT_MESSAGES} ข้อความล่าสุดจากทั้งหมด ${total} ข้อความ ข้อความเก่ากว่านี้ถูกสรุป/ตัดทิ้ง]`;
+}
+
 function buildMessages(
   history: MessageRecord[],
   input: AiAssistantInput,
+  summaryNote?: string,
 ): ChatMessage[] {
   const messages: ChatMessage[] = [{ role: "system", content: SYSTEM_PROMPT }];
+
+  if (summaryNote) {
+    messages.push({ role: "system", content: summaryNote });
+  }
 
   for (const msg of history) {
     if (msg.role === "user" || msg.role === "assistant") {
