@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { prisma } from "@/lib/prisma";
 import { createStockMovement, StockError } from "@/lib/stock";
 import { notifyLowStock } from "@/lib/notifications";
@@ -427,4 +430,245 @@ export function formatPendingActionForChat(action: {
 
 export function pendingActionCode(id: string) {
   return shortCode(id);
+}
+
+// ── Image session status tracking ──────────────────────────────────
+
+export type ImageSessionStatus =
+  | "image_uploaded"
+  | "analyzing"
+  | "preview_ready"
+  | "editing"
+  | "saving"
+  | "saved"
+  | "cancelled";
+
+export async function getImageSessionStatus(
+  actionId: string,
+): Promise<ImageSessionStatus | null> {
+  const action = await prisma.aiPendingAction.findUnique({
+    where: { id: actionId },
+  });
+  if (!action || action.actionType !== "image_intent") return null;
+  let payload: ImageSessionPayload;
+  try { payload = JSON.parse(action.payloadJson) as ImageSessionPayload; }
+  catch { return null; }
+  return (payload.suggestionJson?.status as ImageSessionStatus) || null;
+}
+
+export async function setImageSessionStatus(
+  actionId: string,
+  status: ImageSessionStatus,
+): Promise<void> {
+  const action = await prisma.aiPendingAction.findUnique({
+    where: { id: actionId },
+  });
+  if (!action || action.actionType !== "image_intent") return;
+  let payload: ImageSessionPayload;
+  try { payload = JSON.parse(action.payloadJson) as ImageSessionPayload; }
+  catch { return; }
+  if (!payload.suggestionJson) payload.suggestionJson = {};
+  payload.suggestionJson.status = status;
+  await prisma.aiPendingAction.update({
+    where: { id: actionId },
+    data: { payloadJson: JSON.stringify(payload) },
+  });
+}
+
+// ── Image session helpers (for LINE image intent flow) ────────────
+// NOTE: imageBase64 is stored as a temp file (path in payloadJson), NOT in the DB.
+// This prevents large base64 strings from bloating the SQLite database.
+
+const LINE_IMAGE_TMP_DIR = join(tmpdir(), "spare-part-stock-line-images");
+
+function ensureImageTmpDir() {
+  if (!existsSync(LINE_IMAGE_TMP_DIR)) {
+    mkdirSync(LINE_IMAGE_TMP_DIR, { recursive: true });
+  }
+}
+
+function imageFilePath(actionId: string): string {
+  return join(LINE_IMAGE_TMP_DIR, `${actionId}.b64`);
+}
+
+type ImageSessionPayload = {
+  /** Path to temp file containing base64 image data */
+  imagePath: string;
+  imageMessageId?: string;
+  suggestionJson?: Record<string, unknown>;
+  processingAction?: string;
+};
+
+const IMAGE_SESSION_TTL_MS = 10 * 60 * 1000; // 10 min
+
+export async function createImageSession(
+  userId: string,
+  imageBase64: string,
+  imageMessageId?: string,
+) {
+  ensureImageTmpDir();
+
+  const action = await prisma.aiPendingAction.create({
+    data: {
+      userId,
+      channel: "line",
+      actionType: "image_intent",
+      payloadJson: JSON.stringify({ imageMessageId }), // placeholder — path filled after write
+      summary: "Image intent pending",
+      expiresAt: new Date(Date.now() + IMAGE_SESSION_TTL_MS),
+    },
+  });
+
+  const filePath = imageFilePath(action.id);
+  writeFileSync(filePath, Buffer.from(imageBase64, "base64"));
+
+  const payload: ImageSessionPayload = { imagePath: filePath, imageMessageId };
+  await prisma.aiPendingAction.update({
+    where: { id: action.id },
+    data: { payloadJson: JSON.stringify(payload) },
+  });
+
+  return action.id;
+}
+
+export async function getImageSession(actionId: string) {
+  const action = await prisma.aiPendingAction.findUnique({
+    where: { id: actionId },
+  });
+  if (!action || action.actionType !== "image_intent") return null;
+  if (action.status !== "PENDING") {
+    if (action.status === "EXECUTED") {
+      throw new Error("รูปนี้ถูกใช้ไปแล้ว กรุณาส่งรูปใหม่");
+    }
+    throw new Error(`เซสชันรูปภาพหมดอายุหรือถูกยกเลิก กรุณาส่งรูปใหม่`);
+  }
+  if (action.expiresAt.getTime() < Date.now()) {
+    await prisma.aiPendingAction.update({
+      where: { id: actionId },
+      data: { status: "EXPIRED" },
+    });
+    // Clean up temp file on expiry
+    try {
+      const expiredPath = imageFilePath(actionId);
+      if (existsSync(expiredPath)) unlinkSync(expiredPath);
+    } catch { /* best-effort */ }
+    throw new Error("เซสชันรูปภาพหมดอายุ กรุณาส่งรูปใหม่");
+  }
+
+  let payload: ImageSessionPayload;
+  try {
+    payload = JSON.parse(action.payloadJson) as ImageSessionPayload;
+  } catch {
+    throw new Error("ข้อมูลเซสชันรูปภาพเสียหาย กรุณาส่งรูปใหม่");
+  }
+
+  const imageBase64 = payload.imagePath && existsSync(payload.imagePath)
+    ? readFileSync(payload.imagePath).toString("base64")
+    : "";
+
+  if (!imageBase64) {
+    throw new Error("ไม่พบไฟล์รูปภาพ กรุณาส่งรูปใหม่");
+  }
+
+  return {
+    id: action.id,
+    userId: action.userId,
+    imageBase64,
+    imageMessageId: payload.imageMessageId,
+    suggestionJson: payload.suggestionJson,
+  };
+}
+
+export async function updateImageSessionSuggestion(
+  actionId: string,
+  suggestion: Record<string, unknown>,
+) {
+  const action = await prisma.aiPendingAction.findUnique({
+    where: { id: actionId },
+  });
+  if (!action || action.actionType !== "image_intent") {
+    throw new Error("ไม่พบเซสชันรูปภาพ");
+  }
+
+  let payload: ImageSessionPayload;
+  try {
+    payload = JSON.parse(action.payloadJson) as ImageSessionPayload;
+  } catch {
+    payload = { imagePath: imageFilePath(actionId) };
+  }
+  payload.suggestionJson = suggestion;
+
+  await prisma.aiPendingAction.update({
+    where: { id: actionId },
+    data: { payloadJson: JSON.stringify(payload) },
+  });
+}
+
+export async function acquireImageSessionProcessing(
+  actionId: string,
+  processingAction: string,
+): Promise<boolean> {
+  const action = await prisma.aiPendingAction.findFirst({
+    where: { id: actionId, actionType: "image_intent", status: "PENDING" },
+  });
+  if (!action) return false;
+
+  let payload: ImageSessionPayload;
+  try {
+    payload = JSON.parse(action.payloadJson) as ImageSessionPayload;
+  } catch {
+    return false;
+  }
+
+  if (payload.processingAction) return false;
+  payload.processingAction = processingAction;
+
+  const claimed = await prisma.aiPendingAction.updateMany({
+    where: {
+      id: actionId,
+      actionType: "image_intent",
+      status: "PENDING",
+      payloadJson: action.payloadJson,
+    },
+    data: { payloadJson: JSON.stringify(payload) },
+  });
+
+  return claimed.count === 1;
+}
+
+export async function releaseImageSessionProcessing(actionId: string): Promise<void> {
+  const action = await prisma.aiPendingAction.findFirst({
+    where: { id: actionId, actionType: "image_intent", status: "PENDING" },
+  });
+  if (!action) return;
+
+  let payload: ImageSessionPayload;
+  try {
+    payload = JSON.parse(action.payloadJson) as ImageSessionPayload;
+  } catch {
+    return;
+  }
+
+  if (!payload.processingAction) return;
+  delete payload.processingAction;
+
+  await prisma.aiPendingAction.update({
+    where: { id: actionId },
+    data: { payloadJson: JSON.stringify(payload) },
+  });
+}
+
+export async function clearImageSession(actionId: string) {
+  // Delete temp file
+  try {
+    const filePath = imageFilePath(actionId);
+    if (existsSync(filePath)) unlinkSync(filePath);
+  } catch {
+    // Best-effort cleanup — file may already be gone
+  }
+
+  await prisma.aiPendingAction.updateMany({
+    where: { id: actionId, actionType: "image_intent", status: "PENDING" },
+    data: { status: "CANCELLED" },
+  });
 }

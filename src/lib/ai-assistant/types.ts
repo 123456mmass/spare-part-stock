@@ -26,6 +26,11 @@ export type AiAssistantInput = {
   message: string;
   attachments?: AiAssistantAttachment[];
   responseStyle?: "line" | "web";
+  /**
+   * If true, the orchestrator will not save the user message into conversation
+   * history because the caller already saved it (e.g., group rolling context).
+   */
+  skipSaveUserMessage?: boolean;
 };
 
 export type AiAssistantResult = {

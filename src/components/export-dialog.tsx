@@ -29,31 +29,36 @@ type ExportDialogProps = {
   className?: string;
 };
 
+type BlockOption = {
+  name: string;
+  partCount: number;
+};
+
 /** Original export: GET /api/export?format=&plant= via new tab (session cookie). */
 export function ExportDialog({ variant = "default", className }: ExportDialogProps) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [format, setFormat] = useState<"standard" | "plant">("plant");
   const [plant, setPlant] = useState("");
-  const [plants, setPlants] = useState<string[]>([]);
+  const [blocks, setBlocks] = useState<BlockOption[]>([]);
 
   useEffect(() => {
     if (!open) return;
-    fetch("/api/parts")
+
+    fetch("/api/blocks")
       .then((r) => (r.ok ? r.json() : []))
-      .then((parts: { plant?: string | null }[]) => {
-        const unique = [
-          ...new Set(parts.map((p) => p.plant).filter(Boolean)),
-        ] as string[];
-        unique.sort((a, b) => {
-          const na = Number(a);
-          const nb = Number(b);
-          if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
-          return a.localeCompare(b, "th");
-        });
-        setPlants(unique);
+      .then((data: BlockOption[]) => {
+        const sorted = Array.isArray(data)
+          ? [...data].sort((a, b) => {
+              const na = Number(a.name);
+              const nb = Number(b.name);
+              if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+              return a.name.localeCompare(b.name, "th");
+            })
+          : [];
+        setBlocks(sorted);
       })
-      .catch(() => setPlants([]));
+      .catch(() => setBlocks([]));
   }, [open]);
 
   const handleExport = () => {
@@ -114,9 +119,9 @@ export function ExportDialog({ variant = "default", className }: ExportDialogPro
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all__">ทั้งหมด</SelectItem>
-                {plants.map((p) => (
-                  <SelectItem key={p} value={p}>
-                    Block {p}
+                {blocks.map((block) => (
+                  <SelectItem key={block.name} value={block.name}>
+                    {block.name} ({block.partCount} รายการ)
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -136,3 +141,5 @@ export function ExportDialog({ variant = "default", className }: ExportDialogPro
     </Dialog>
   );
 }
+
+

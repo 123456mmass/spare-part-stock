@@ -76,7 +76,7 @@ export async function runAiAssistant(
   input: AiAssistantInput,
 ): Promise<AiAssistantResult> {
   const conversationId = await resolveConversationId(input);
-  if (conversationId) {
+  if (conversationId && !input.skipSaveUserMessage) {
     await saveMessage(
       conversationId,
       "user",
@@ -133,7 +133,7 @@ export async function runAiAssistantStream(
   onEvent: (event: StreamEvent) => void | Promise<void>,
 ): Promise<AiAssistantResult> {
   const conversationId = await resolveConversationId(input);
-  if (conversationId) {
+  if (conversationId && !input.skipSaveUserMessage) {
     await saveMessage(
       conversationId,
       "user",

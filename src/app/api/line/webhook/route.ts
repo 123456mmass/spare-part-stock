@@ -64,9 +64,10 @@ import {
   createWebSearchOfferFlex,
   createWebSearchResultsFlex,
   createImageSelectionFlex,
+  type FlexPart,
   type AddPreviewSuggestion,
 } from "@/lib/line-chat/flex-messages";
-import { normalizeIntent, shouldNormalize, normalizeIntentRegexFallback } from "@/lib/ai-assistant/intent-normalizer";
+import { normalizeIntent, shouldNormalize, normalizeIntentRegexFallback, detectQuickIntent } from "@/lib/ai-assistant/intent-normalizer";
 import {
   getStockSummaryTool,
   getLowStockTool,
@@ -467,12 +468,16 @@ export async function POST(request: Request) {
         continue;
       }
 
+      // ── Get user ──
+      const user = await findLineLinkedUser(lineUserId);
+
       // ── Resolve "รูปนี้" / "อันนี้" references in groups ──
       if (isGroup && lineGroupId && IMAGE_REFERENCE_PATTERN.test(text)) {
-        const resolved = await resolveImageReference(lineGroupId, lineUserId, replyToken);
+        const resolved = await resolveImageReference(lineGroupId, lineUserId, replyToken, user);
         if (resolved === "selection_sent") continue; // selection flex sent, user will pick
         if (resolved === "not_found") continue;      // error already sent
-        // resolved is { imageBase64, sessionId } — continue with intent handling below
+        if (resolved === "searched") continue;       // unlinked inline search — already replied
+        // resolved is { imageBase64, sessionId } — linked user, show intent flex
         if (resolved && typeof resolved === "object") {
           await sendLineReply(replyToken, [
             createFlexMessage("จัดการรูปภาพ", createImageIntentFlex(resolved.sessionId)),
@@ -480,9 +485,6 @@ export async function POST(request: Request) {
           continue;
         }
       }
-
-      // ── Get user ──
-      const user = await findLineLinkedUser(lineUserId);
 
       // 1:1: anonymous users must login before anything
       if (!isGroup && !user) {
@@ -493,7 +495,15 @@ export async function POST(request: Request) {
       }
 
       // ── Intent dispatch ──
-      // Try LLM normalizer for complex queries (summary, locator, trend)
+      // 1. Deterministic rule-based pre-router (quantity/summary/low stock)
+      //    This bypasses the LLM for patterns we can classify exactly.
+      const quickIntent = detectQuickIntent(text);
+      if (quickIntent) {
+        await handleNormalizedIntent(quickIntent, replyToken);
+        continue;
+      }
+
+      // 2. LLM normalizer for complex queries (summary, locator, trend)
       if (shouldNormalize(text)) {
         try {
           const normalized = await normalizeIntent(text);
@@ -565,7 +575,10 @@ export async function POST(request: Request) {
       try {
         const userId = user?.id || "anonymous";
         const userRole = user?.role || "STAFF";
-        const result = await orchestrate(userId, lineGroupId, text, isGroup || false, userRole, lineUserId);
+        // For group @bot messages, the webhook already saved the user message
+        // to rolling context. Skip duplicate save in the orchestrator.
+        const skipSaveUserMessage = isGroup;
+        const result = await orchestrate(userId, lineGroupId, text, isGroup || false, userRole, lineUserId, skipSaveUserMessage);
 
         const flexReply = await tryFormatAsFlex(result.reply, text);
         if (flexReply) {
@@ -591,21 +604,57 @@ export async function POST(request: Request) {
   }
 }
 
+// ── Inline image search for unlinked group users ──────────────────
+
+/** Search an image directly without creating a session. Used when an unlinked
+ *  group user references "รูปนี้" / "อันนี้" — they can search but not add. */
+async function inlineImageSearch(
+  imageMessageId: string,
+  replyToken: string,
+): Promise<"searched" | "not_found"> {
+  try {
+    const imageBuffer = await getLineMessageContent(imageMessageId);
+    const imageBase64 = imageBuffer.toString("base64");
+    const result = await searchPartsByImageForLine(imageBase64);
+    if (result.parts.length === 0) {
+      await sendLineReply(replyToken, [
+        createTextMessage("🔍 ไม่พบอะไหล่ที่ตรงกับรูปนี้ในคลัง"),
+      ]);
+      return "searched";
+    }
+    const flex = createSearchResultsFlex(result.keyword || "image", result.parts as FlexPart[]);
+    await sendLineReply(replyToken, [
+      createFlexMessage(`ผลค้นหารูป: ${result.keyword || "image"}`, flex),
+    ]);
+    return "searched";
+  } catch {
+    await sendLineReply(replyToken, [
+      createTextMessage("ไม่สามารถโหลดรูปได้ รูปอาจหมดอายุแล้ว กรุณาส่งรูปใหม่"),
+    ]);
+    return "not_found";
+  }
+}
+
 // ── Image reference resolution for groups ─────────────────────────
 
 async function resolveImageReference(
   lineGroupId: string,
   lineUserId: string | undefined,
   replyToken: string,
-): Promise<{ imageBase64: string; sessionId: string } | "selection_sent" | "not_found" | null> {
+  linkedUser: { id: string } | null,
+): Promise<{ imageBase64: string; sessionId: string } | "selection_sent" | "not_found" | "searched" | null> {
   // Priority 1: recent image by the same user
   if (lineUserId) {
     const userImage = await findRecentImageForUser(lineGroupId, lineUserId);
     if (userImage) {
+      // Unlinked group users get inline search — no session needed.
+      if (!linkedUser) {
+        return await inlineImageSearch(userImage.imageMessageId, replyToken);
+      }
       try {
         const imageBuffer = await getLineMessageContent(userImage.imageMessageId);
         const imageBase64 = imageBuffer.toString("base64");
-        const sessionId = await createImageSession(lineUserId, imageBase64, userImage.imageMessageId);
+        const sessionId = await createImageSession(linkedUser.id, imageBase64, userImage.imageMessageId);
         return { imageBase64, sessionId };
       } catch {
         // Fall through to group-wide search
@@ -623,11 +672,15 @@ async function resolveImageReference(
   }
 
   if (recentImages.length === 1) {
+    // Unlinked group users get inline search.
+    if (!linkedUser) {
+      return await inlineImageSearch(recentImages[0].imageMessageId, replyToken);
+    }
     try {
       const imageBuffer = await getLineMessageContent(recentImages[0].imageMessageId);
       const imageBase64 = imageBuffer.toString("base64");
       const sessionId = await createImageSession(
-        lineUserId || "anonymous",
+        linkedUser.id,
         imageBase64,
         recentImages[0].imageMessageId,
       );
@@ -959,7 +1012,25 @@ async function handlePostback(
           await sendLineReply(replyToken, [createTextMessage("ข้อมูลไม่สมบูรณ์")]);
           return;
         }
-        await handleSelectImage(msgId, user?.id || "anonymous", replyToken);
+        if (!lineUserId) {
+          await sendLineReply(replyToken, [
+            createTextMessage("ไม่สามารถระบุตัวตนผู้ส่งรูปได้ กรุณาเปิดการแชร์โปรไฟล์ในกลุ่ม"),
+          ]);
+          return;
+        }
+        // Unlinked group user: inline image search only (no session needed).
+        if (isGroup && !user) {
+          await inlineImageSearch(msgId, replyToken);
+          break;
+        }
+        // Require linked user in 1:1 or for full session (search + add).
+        if (!user) {
+          await sendLineReply(replyToken, [
+            createTextMessage("ต้องล็อกอินก่อน กรุณาลิงก์บัญชี LINE"),
+          ]);
+          return;
+        }
+        await handleSelectImage(msgId, user.id, replyToken);
         break;
       }
       case "image_select_cancel": {

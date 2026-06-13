@@ -13,7 +13,13 @@ export async function POST(request: Request) {
     }
 
     const suggestion = await suggestPartFromImage(file);
-    return NextResponse.json({ suggestion });
+    const { diagnostics, ...suggestionData } = suggestion;
+    const diagnosticsEnabled = (process.env.AI_DIAGNOSTICS_ENABLED || "").toLowerCase() === "true";
+    return NextResponse.json(
+      diagnosticsEnabled
+        ? { suggestion: suggestionData, diagnostics }
+        : { suggestion: suggestionData },
+    );
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

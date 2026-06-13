@@ -15,9 +15,12 @@ export const GET = withCors(async (request: Request) => {
     await requireAuthFromRequest(request);
     const { searchParams } = new URL(request.url);
     const format = searchParams.get("format") || "standard";
+    const plantFilter = searchParams.get("plant")?.trim() || "";
+    const where: { isActive: true; plant?: string } = { isActive: true };
+    if (plantFilter) where.plant = plantFilter;
 
     const parts = await prisma.part.findMany({
-      where: { isActive: true },
+      where,
       include: { category: true },
       orderBy: { partNumber: "asc" },
     });
@@ -42,10 +45,10 @@ export const GET = withCors(async (request: Request) => {
         const p = parts[i];
         const row = sheet.addRow({
           no: i + 1,
-          plant: "",
+          plant: p.plant || "",
           system: p.category?.name || "",
           type: p.subcategory || "",
-          description: `${p.partNumber} - ${p.partName}${p.description ? "\n" + p.description : ""}`,
+          description: [p.partNumber, p.partName, p.description].filter(Boolean).join(" - "),
           location: p.location || "",
           unit: p.unit,
           stock: p.quantity,
@@ -70,6 +73,7 @@ export const GET = withCors(async (request: Request) => {
         { header: "Description", key: "description", width: 40 },
         { header: "Category", key: "category", width: 18 },
         { header: "Subcategory", key: "subcategory", width: 15 },
+        { header: "Block", key: "block", width: 12 },
         { header: "Location", key: "location", width: 15 },
         { header: "Quantity", key: "quantity", width: 10 },
         { header: "Min Qty", key: "minimumQuantity", width: 10 },
@@ -86,6 +90,7 @@ export const GET = withCors(async (request: Request) => {
           description: p.description || "",
           category: p.category?.name || "",
           subcategory: p.subcategory || "",
+          block: p.plant || "",
           location: p.location || "",
           quantity: p.quantity,
           minimumQuantity: p.minimumQuantity,
@@ -101,7 +106,7 @@ export const GET = withCors(async (request: Request) => {
             await fs.access(imgPath);
             const imgBuffer = await fs.readFile(imgPath);
             const imageId = workbook.addImage({ base64: imgBuffer.toString("base64"), extension: "jpeg" });
-            sheet.addImage(imageId, { tl: { col: 10, row: i + 1 }, ext: { width: 100, height: 75 } });
+            sheet.addImage(imageId, { tl: { col: 11, row: i + 1 }, ext: { width: 100, height: 75 } });
           } catch { /* skip */ }
         }
       }
@@ -126,3 +131,5 @@ export const GET = withCors(async (request: Request) => {
     return NextResponse.json({ error: "Export failed" }, { status: 500 });
   }
 });
+
+

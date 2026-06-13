@@ -18,6 +18,11 @@ import {
   shouldNormalize,
   normalizeBuildingName,
   normalizeIntent,
+  isQuantityQuestion,
+  isStockSummaryQuestion,
+  extractPartKeyword,
+  extractInventoryFilters,
+  detectQuickIntent,
   type NormalizedIntent,
 } from "./src/lib/ai-assistant/intent-normalizer";
 
@@ -394,7 +399,96 @@ function testReplyTokenGuard() {
   assert(true, "replyToken used at most once in ALL postback handlers ✅");
 }
 
-// ── Test L: Trend/history regex fallback ────────────────────────────
+// ── Test L: Rule-based pre-router (quantity/summary questions) ───────
+
+function testRuleFallback() {
+  console.log("\n=== Test L: detectQuickIntent ===");
+
+  const cases: Array<{
+    text: string;
+    expectedIntent: string;
+    expectKeyword: string | null;
+    expectPlant: string | null;
+    expectBuilding: string | null;
+  }> = [
+    // Quantity questions → stock_summary with keyword
+    { text: "contactor เหลือเท่าไหร่", expectedIntent: "stock_summary", expectKeyword: "contactor", expectPlant: null, expectBuilding: null },
+    { text: "เบรกเกอร์ มีกี่ตัว", expectedIntent: "stock_summary", expectKeyword: "เบรกเกอร์", expectPlant: null, expectBuilding: null },
+    { text: "LC1D40AP7 คงเหลือเท่าไหร่", expectedIntent: "stock_summary", expectKeyword: "LC1D40AP7", expectPlant: null, expectBuilding: null },
+    { text: "เซนเซอร์ มีเท่าไหร่", expectedIntent: "stock_summary", expectKeyword: "เซนเซอร์", expectPlant: null, expectBuilding: null },
+    { text: "contactor เหลือเท่าไหร่ Block 1", expectedIntent: "stock_summary", expectKeyword: "contactor", expectPlant: "1", expectBuilding: null },
+    { text: "relay คงเหลือเท่าไหร่ อาคาร ท.003", expectedIntent: "stock_summary", expectKeyword: "relay", expectPlant: null, expectBuilding: "ท.003" },
+
+    // Summary questions (no keyword) → stock_summary without keyword
+    { text: "สรุปสถานะสต็อกบล็อค 1", expectedIntent: "stock_summary", expectKeyword: null, expectPlant: "1", expectBuilding: null },
+    { text: "ภาพรวมอะไหล่", expectedIntent: "stock_summary", expectKeyword: null, expectPlant: null, expectBuilding: null },
+    { text: "สถานะสต็อกตอนนี้", expectedIntent: "stock_summary", expectKeyword: null, expectPlant: null, expectBuilding: null },
+    // "อะไหล่ใกล้หมดมีอะไรบ้าง" → falls through to low_stock intent (caught by special pattern below)
+    { text: "คงเหลือทั้งหมด", expectedIntent: "stock_summary", expectKeyword: null, expectPlant: null, expectBuilding: null },
+  ];
+
+  // Should NOT match fallback — plain search or general chat
+  const noMatchCases = [
+    "ค้นหาเบรกเกอร์",
+    "หา contactor",
+    "มี LC1D40AP7 ไหม",
+    "help",
+    "สวัสดี",
+    "contactor คืออะไร",
+    "วิธีใช้ relay",
+  ];
+
+  for (const c of cases) {
+    const result = detectQuickIntent(c.text);
+    const ok =
+      result !== null &&
+      result.intent === c.expectedIntent &&
+      result.keyword === c.expectKeyword &&
+      result.plant === c.expectPlant &&
+      result.buildingName === c.expectBuilding &&
+      result.confidence > 0.8;
+
+    assert(
+      ok,
+      `ruleFallback("${c.text.slice(0, 40)}") → intent=${result?.intent} kwd=${result?.keyword} plant=${result?.plant} bld=${result?.buildingName}`,
+    );
+  }
+
+  for (const text of noMatchCases) {
+    const result = detectQuickIntent(text);
+    assert(result === null, `ruleFallback("${text}") → null (no match)`);
+  }
+
+  // Specific: quantity question WITH keyword
+  assert(isQuantityQuestion("contactor เหลือเท่าไหร่"), 'isQuantityQuestion("contactor เหลือเท่าไหร่")');
+  assert(isQuantityQuestion("มีกี่ตัว"), 'isQuantityQuestion("มีกี่ตัว")');
+  assert(!isQuantityQuestion("ค้นหาเบรกเกอร์"), 'NOT isQuantityQuestion("ค้นหาเบรกเกอร์")');
+
+  // Specific: part keyword extraction
+  assert(extractPartKeyword("contactor เหลือเท่าไหร่") === "contactor", 'extractPartKeyword "contactor"');
+  assert(extractPartKeyword("เบรกเกอร์ มีกี่ตัว") === "เบรกเกอร์", 'extractPartKeyword "เบรกเกอร์"');
+  assert(extractPartKeyword("LC1D40AP7 คงเหลือเท่าไหร่") === "LC1D40AP7", 'extractPartKeyword "LC1D40AP7"');
+  assert(extractPartKeyword("สรุปสถานะสต็อก") === null, 'extractPartKeyword summary → null');
+  assert(extractPartKeyword("คงเหลือทั้งหมด") === null, 'extractPartKeyword "คงเหลือทั้งหมด" → null');
+}
+
+// ── Test L2: extractInventoryFilters ─────────────────────────────────
+
+function testExtractInventoryFilters() {
+  console.log("\n=== Test L2: extractInventoryFilters ===");
+
+  const r1 = extractInventoryFilters("contactor บล็อค 2 อาคาร ท.003");
+  assert(r1.keyword === "contactor", `keyword="${r1.keyword}" (expected "contactor")`);
+  assert(r1.plant === "2", `plant="${r1.plant}" (expected "2")`);
+  assert(r1.buildingName === "ท.003", `building="${r1.buildingName}" (expected "ท.003")`);
+
+  const r2 = extractInventoryFilters("สรุปสถานะสต็อก");
+  assert(r2.keyword === null, `no keyword → null (got "${r2.keyword}")`);
+  assert(r2.plant === null, `no plant → null (got "${r2.plant}")`);
+  assert(r2.buildingName === null, `no building → null (got "${r2.buildingName}")`);
+}
+
+// ── Test M: Trend/history regex fallback ────────────────────────────
 
 function testTrendFallback() {
   console.log("\n=== Test L: Trend/history regex fallback ===");
@@ -594,7 +688,8 @@ function main() {
   testNormalizeBuildingName();
   testNormalizeIntentTolerant();
   testReplyTokenGuard();
-  testNoSecretLeak();
+  testRuleFallback();
+  testExtractInventoryFilters();
   testTrendFallback();
   testDbToolTrendWithBuildingVariants();
   testNoRegressionSummaryLowStock();

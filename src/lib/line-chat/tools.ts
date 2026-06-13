@@ -175,13 +175,23 @@ export function parseLineInventoryQuery(
     return null;
 
   const buildingMatch = normalized.match(/(?:อาคาร|ตึก)\s*([^\s,]+)/i);
-  const blockMatch = normalized.match(/(?:block|บล็อก)\s*([^\s,]+)/i);
+  const blockMatch = normalized.match(/(?:block|บล็อก|บล็อค|บล้อค|บล๊อค)\s*([^\s,]+)/i);
+  const typoBlockMatch =
+    !blockMatch && /(อาคาร|ตึก|สต็อก|สต๊อก|คงเหลือ|สรุป|สถานะ)/i.test(normalized)
+      ? normalized.match(/(?:เบรค|เบรก)\s*([0-9]+|special|spacial|special\s*part|spacial\s*part)/i)
+      : null;
   const building = buildingMatch?.[1]?.trim();
-  const plant = blockMatch?.[1]?.trim();
+  const rawPlant = blockMatch?.[1]?.trim() || typoBlockMatch?.[1]?.trim();
+  const plant = rawPlant
+    ? /special|spacial/i.test(rawPlant)
+      ? "SPECIAL PART"
+      : rawPlant
+    : undefined;
 
   let keyword = normalized
     .replace(/(?:อาคาร|ตึก)\s*[^\s,]+/gi, " ")
-    .replace(/(?:block|บล็อก)\s*[^\s,]+/gi, " ")
+    .replace(/(?:block|บล็อก|บล็อค|บล้อค|บล๊อค)\s*[^\s,]+/gi, " ")
+    .replace(/(?:เบรค|เบรก)\s*(?:[0-9]+|special|spacial|special\s*part|spacial\s*part)/gi, " ")
     .replace(
       /(stock|สต็อก|สต๊อก|อะไหล่|คงเหลือ|เหลือเท่าไหร่|เหลือกี่ตัว|เหลือกี่ชิ้น|เหลือกี่|จำนวน|ค้นหา|หา|เช็ค|ตรวจ|ในระบบ|ให้หน่อย|ครับ|ค่ะ|คะ|หน่อย|แบบนี้|แลบนี้|ตัวนี้|อันนี้)/gi,
       " ",
@@ -192,7 +202,7 @@ export function parseLineInventoryQuery(
 
   if (!keyword && !building && !plant) return null;
   if (!keyword)
-    keyword = [plant ? `BLOCK ${plant}` : null, building]
+    keyword = [plant ? (plant === "SPECIAL PART" ? plant : `BLOCK ${plant}`) : null, building]
       .filter(Boolean)
       .join(" ");
 

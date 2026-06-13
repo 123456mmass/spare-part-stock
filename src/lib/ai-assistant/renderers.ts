@@ -171,7 +171,7 @@ export function renderSearchResult(result: SearchPartsResult): LineMessage[] {
   }
 
   const lines = [
-    `🔍 ค้นหา "${result.keyword}" พบ ${result.totalCount} รายการ`,
+    `🔍 ค้นหา "${result.keyword}" พบ ${result.totalCount} รายการ (รวม ${result.totalQuantity} ชิ้น)`,
   ];
 
   for (const p of result.parts.slice(0, 5)) {

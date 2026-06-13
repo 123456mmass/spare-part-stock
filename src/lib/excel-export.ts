@@ -45,8 +45,8 @@ export async function generatePartsExportWorkbook(options: {
         no: i + 1,
         plant: p.plant || "",
         system: p.category?.name || "",
-        type: p.partNumber,
-        description: p.partName,
+        type: p.subcategory || "",
+        description: [p.partNumber, p.partName, p.description].filter(Boolean).join(" - "),
         location: p.location || "",
         unit: p.unit,
         stock: p.quantity,
@@ -66,6 +66,7 @@ export async function generatePartsExportWorkbook(options: {
       { header: "Description", key: "description", width: 40 },
       { header: "Category", key: "category", width: 18 },
       { header: "Subcategory", key: "subcategory", width: 15 },
+      { header: "Block", key: "block", width: 12 },
       { header: "Location", key: "location", width: 15 },
       { header: "Quantity", key: "quantity", width: 10 },
       { header: "Min Qty", key: "minimumQuantity", width: 10 },
@@ -82,6 +83,7 @@ export async function generatePartsExportWorkbook(options: {
         description: p.description || "",
         category: p.category?.name || "",
         subcategory: p.subcategory || "",
+        block: p.plant || "",
         location: p.location || "",
         quantity: p.quantity,
         minimumQuantity: p.minimumQuantity,
@@ -91,7 +93,7 @@ export async function generatePartsExportWorkbook(options: {
       }).height = 80;
 
       if (p.imageUrl) {
-        await addImageIfPresent(workbook, sheet, p.imageUrl, 10, i + 1, 100, 75);
+        await addImageIfPresent(workbook, sheet, p.imageUrl, 11, i + 1, 100, 75);
       }
     }
   }
@@ -135,3 +137,5 @@ async function addImageIfPresent(
     // Missing images should not block export.
   }
 }
+
+

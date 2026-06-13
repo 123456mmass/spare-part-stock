@@ -18,7 +18,7 @@ function liffPath(path: string): string {
     : `${APP_URL}/liff/${normalizedPath}`;
 }
 
-type FlexPart = {
+export type FlexPart = {
   id?: string;
   partNumber: string;
   partName: string;

@@ -13,7 +13,8 @@ export async function orchestrate(
   userMessage: string,
   isGroup: boolean,
   userRole: Role = "STAFF",
-  lineUserId?: string
+  lineUserId?: string,
+  skipSaveUserMessage?: boolean,
 ): Promise<OrchestratorResult> {
   return runAiAssistant({
     user: { id: userId, role: userRole },
@@ -25,5 +26,6 @@ export async function orchestrate(
     },
     message: userMessage,
     responseStyle: "line",
+    skipSaveUserMessage,
   });
 }

@@ -139,6 +139,202 @@ export async function normalizeIntent(text: string): Promise<NormalizedIntent> {
   }
 }
 
+// ── Deterministic rule-based pre-normalization ─────────────────────
+
+/**
+ * Detect if a text is asking about a stock *summary* (overall status) rather
+ * than searching for a specific part.  Matches patterns like:
+ *   "สรุปสถานะสต็อกบล็อค 1 อาคาร ท.003"
+ *   "ภาพรวมอะไหล่"
+ *   "สถานะสต็อกตอนนี้"
+ *   "อะไหล่ใกล้หมดมีอะไรบ้าง"   -> goes to low_stock (different pattern)
+ *   "คงเหลือทั้งหมด"
+ */
+export function isStockSummaryQuestion(text: string): boolean {
+  const hasSummary = /(สรุปสถานะ|สรุป|ภาพรวม|สถานะสต็อก|สถานะ|สต็อกของ|สต็อก|คงเหลือทั้งหมด|เหลือทั้งหมด|หมดกี่ตัว|stock\s*summary)/i.test(text);
+  // Quantity questions (Case 1 in ruleFallback) take priority
+  const hasQuantityQuestion = isQuantityQuestion(text);
+  return hasSummary && !hasQuantityQuestion;
+}
+
+/**
+ * Detect if text is asking for low-stock items (parts near depletion).
+ * These should route to low_stock intent.
+ */
+export function isLowStockQuestion(text: string): boolean {
+  return /(หมด|ใกล้หมด|ต่ำกว่าขั้นต่ำ|ต้องเติม|อะไรหมด|อันไหนใกล้หมด)/i.test(text);
+}
+
+/**
+ * Full intent detection with low_stock support.
+ * Expands normalizeIntentRuleFallback to include low_stock patterns.
+ */
+export function detectQuickIntent(text: string): NormalizedIntent | null {
+  const filters = extractInventoryFilters(text);
+
+  // Case 1: total/summary → stock_summary (check before low_stock so "คงเหลือทั้งหมด" → summary)
+  if (isStockTotalQuestion(text)) {
+    return {
+      intent: "stock_summary",
+      keyword: null,
+      plant: filters.plant,
+      buildingName: filters.buildingName,
+      categoryName: null,
+      from: null,
+      to: null,
+      confidence: 0.9,
+    };
+  }
+
+  // Case 2: low_stock
+  if (isLowStockQuestion(text)) {
+    return {
+      intent: "low_stock",
+      keyword: filters.keyword,
+      plant: filters.plant,
+      buildingName: filters.buildingName,
+      categoryName: null,
+      from: null,
+      to: null,
+      confidence: 0.9,
+    };
+  }
+
+  // Case 3: quantity/part-specific → stock_summary (DB aggregates with keyword)
+  if (isQuantityQuestion(text)) {
+    return {
+      intent: "stock_summary",
+      keyword: filters.keyword,
+      plant: filters.plant,
+      buildingName: filters.buildingName,
+      categoryName: null,
+      from: null,
+      to: null,
+      confidence: 0.9,
+    };
+  }
+
+  // Case 4: summary without keyword → stock_summary
+  if (isStockSummaryQuestion(text)) {
+    return {
+      intent: "stock_summary",
+      keyword: null,
+      plant: filters.plant,
+      buildingName: filters.buildingName,
+      categoryName: null,
+      from: null,
+      to: null,
+      confidence: 0.9,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Detect if a text is asking "how much of X is left?" or "how many X?"
+ * These are quantity questions about a specific keyword and should be routed
+ * to stock_summary *with* keyword filter, NOT a generic inventory_search.
+ * Examples:
+ *   "contactor เหลือเท่าไหร่ Block 1"
+ *   "เบรกเกอร์ มีกี่ตัว"
+ *   "LC1D40AP7 คงเหลือเท่าไหร่"
+ */
+export function isQuantityQuestion(text: string): boolean {
+  return /(เหลือเท่าไหร่|มีกี่ตัว|มีเท่าไหร่|คงเหลือเท่าไหร่|หมดกี่ตัว|ยอดคงเหลือ|จำนวนคงเหลือ|เหลือกี่)/i.test(text);
+}
+
+export function isStockTotalQuestion(text: string): boolean {
+  return /(เหลือทั้งหมด|คงเหลือทั้งหมด|สรุปภาพรวม|สถานะสต็อก|สรุปสถานะ)/i.test(text);
+}
+
+/**
+ * Extract a keyword from inventory text by stripping known noise words.
+ * Returns null if nothing meaningful remains.
+ */
+export function extractPartKeyword(text: string): string | null {
+  const cleaned = text
+    // Remove quantity/summary noise
+    .replace(/(สรุปสถานะ|สรุป|ภาพรวม|สถานะสต็อก|สถานะ|สต็อก|คงเหลือ|เหลือเท่าไหร่|มีกี่ตัว|มีเท่าไหร่|เหลือทั้งหมด|ทั้งหมด|หมดกี่ตัว|มีอะไรบ้าง|มีอะไร|อะไรบ้าง|เท่าไหร่|เหลือ|ใกล้หมด|ต่ำกว่าขั้นต่ำ|ต้องเติม|อะไรหมด|อันไหนใกล้หมด|ค้นหา|หา|ดู|เช็ค|ตรวจสอบ|ตรวจ|มีไหม|หรือเปล่า|หรือยัง|ไหม|ไม่|ครับ|ค่ะ|นะ|จ้ะ|จ๊ะ|น่ะ|ตอนนี้|ปัจจุบัน)/gi, "")
+    // Remove locators
+    .replace(/(?:บล็อค|บล็อก|block|บล้อค)\s*\S+/gi, "")
+    .replace(/(?:อาคาร|ตึก)\s*\S+/gi, "")
+    .replace(/ใน\s*/gi, "")
+    // Remove standalone Thai particles/grammar (repeated)
+    .replace(/\b(อะไร|บ้าง|ตอน|นี้|ไหม|ยัง|ครับ|ค่ะ|นะ|จ้ะ|จ๊ะ|น่ะ|ใน|ของ|ที่)\b/gi, "")
+    // Collapse spaces
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned || cleaned.length < 2) return null;
+  // Treat overly-generic "part" keywords as no keyword
+  if (/^(อะไหล่|spare\s*part|parts?)$/i.test(cleaned)) return null;
+  return cleaned;
+}
+
+/**
+ * Extract plant/building/keyword from user text deterministically.
+ * Used by the rule-based pre-router before LLM normalization.
+ */
+export function extractInventoryFilters(text: string): {
+  keyword: string | null;
+  plant: string | null;
+  buildingName: string | null;
+  categoryName: string | null;
+} {
+  // Plant
+  const plantMatch = text.match(/(?:บล็อค|บล็อก|block|บล้อค)\s*(\d+|SPECIAL\s*PART)/i);
+  const plant = plantMatch?.[1]?.trim() ?? null;
+
+  // Building
+  const buildingMatch = text.match(/(?:อาคาร|ตึก\s*)?(ท\.?\d{3})/i);
+  const buildingName = buildingMatch ? normalizeBuildingName(buildingMatch[1]) : null;
+
+  // Keyword
+  const keyword = extractPartKeyword(text);
+
+  return { keyword, plant, buildingName, categoryName: null };
+}
+
+/**
+ * Rule-based fallback: map quantity/summary questions directly to
+ * stock_summary intents without calling the LLM.
+ * Returns null when no rule matches (fall through to existing classifier).
+ */
+export function normalizeIntentRuleFallback(text: string): NormalizedIntent | null {
+  const filters = extractInventoryFilters(text);
+
+  // ── Case 1: "how much of X is left?" → stock_summary with keyword
+  if (isQuantityQuestion(text)) {
+    return {
+      intent: "stock_summary",
+      keyword: filters.keyword,
+      plant: filters.plant,
+      buildingName: filters.buildingName,
+      categoryName: null,
+      from: null,
+      to: null,
+      confidence: 0.9,
+    };
+  }
+
+  // ── Case 2: "summary of stock at block X building Y" → stock_summary (no keyword)
+  if (isStockSummaryQuestion(text)) {
+    return {
+      intent: "stock_summary",
+      keyword: null,
+      plant: filters.plant,
+      buildingName: filters.buildingName,
+      categoryName: null,
+      from: null,
+      to: null,
+      confidence: 0.9,
+    };
+  }
+
+  return null;
+}
+
 // ── Term detection helpers (regex, no LLM needed) ───────────────────
 
 const SUMMARY_PATTERN =
@@ -173,10 +369,10 @@ export function hasTrendTerms(text: string): boolean {
 
 /**
  * Quick check: should we try LLM normalization for this text?
- * Returns true if text contains summary, locator, or trend keywords.
+ * Returns true if text contains summary, locator, trend, or quantity keywords.
  */
 export function shouldNormalize(text: string): boolean {
-  return hasSummaryTerms(text) || hasLocatorTerms(text) || hasTrendTerms(text);
+  return hasSummaryTerms(text) || hasLocatorTerms(text) || hasTrendTerms(text) || isQuantityQuestion(text);
 }
 
 // ── Inventory content detection ─────────────────────────────────────
@@ -211,7 +407,7 @@ export function normalizeIntentRegexFallback(text: string): NormalizedIntent | n
 
   // Extract keyword — remove trend/locator/prefix words, keep the rest
   let keyword: string | null = text
-    .replace(/(เดือนนี้|สัปดาห์นี้|ปีนี้|แนวโน้ม|สถิติ|ใช้ไป|กี่ครั้ง|usage|trend|ประวัติ|เบิก|movement|ไปเยอะไหม|หรือเปล่า|ไหม|ครับ|ค่ะ|นะ|จ้ะ)/gi, "")
+    .replace(/(เหลือเท่าไหร่|มีกี่ตัว|มีเท่าไหร่|คงเหลือ|เดือนนี้|สัปดาห์นี้|ปีนี้|แนวโน้ม|สถิติ|ใช้ไป|กี่ครั้ง|usage|trend|ประวัติ|เบิก|movement|ไปเยอะไหม|หรือเปล่า|ไหม|ครับ|ค่ะ|นะ|จ้ะ)/gi, "")
     .replace(/(?:บล็อค|บล็อก|block|บล้อค)\s*\S+/gi, "")
     .replace(/(?:อาคาร|ตึก)\s*\S+/gi, "")
     .replace(/ใน\s*/gi, "")

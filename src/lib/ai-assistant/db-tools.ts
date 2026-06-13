@@ -40,6 +40,7 @@ export type CleanPart = {
 export type SearchPartsResult = {
   parts: CleanPart[];
   totalCount: number;
+  totalQuantity: number;
   keyword: string;
 };
 
@@ -123,27 +124,54 @@ function extractRelName(obj: Record<string, unknown>, key: string): string | nul
   return null;
 }
 
-function buildPartWhere(input: DbToolInput): Record<string, unknown> {
-  const where: Record<string, unknown> = { isActive: true };
+function buildKeywordWhere(keyword: string | null | undefined): Prisma.PartWhereInput | null {
+  if (!keyword || keyword.trim().length === 0) return null;
+  const k = keyword.trim();
+  return {
+    OR: [
+      { partNumber: { contains: k } },
+      { partName: { contains: k } },
+      { barcodeValue: { contains: k } },
+      { description: { contains: k } },
+      { subcategory: { contains: k } },
+      { category: { is: { name: { contains: k } } } },
+    ],
+  } as Prisma.PartWhereInput;
+}
+
+function buildPartWhere(input: DbToolInput): Prisma.PartWhereInput {
+  const ands: Prisma.PartWhereInput[] = [];
+
+  // Always active parts
+  ands.push({ isActive: true });
 
   if (input.plant) {
-    where.plant = input.plant;
+    ands.push({ plant: input.plant });
   }
 
-  // Normalize building name before DB query
   const normalized = normalizeBuildingName(input.buildingName);
   if (normalized) {
-    where.building = { name: normalized };
+    ands.push({ building: { name: normalized } });
   }
 
   if (input.buildingId) {
-    where.buildingId = input.buildingId;
-  }
-  if (input.categoryName) {
-    where.category = { name: input.categoryName };
+    ands.push({ buildingId: input.buildingId });
   }
 
-  return where;
+  if (input.categoryName) {
+    ands.push({ category: { name: input.categoryName } });
+  }
+
+  // Keyword filter for stock_summary and related tools
+  const keywordWhere = buildKeywordWhere(input.keyword);
+  if (keywordWhere) {
+    ands.push(keywordWhere);
+  }
+
+  if (ands.length === 1) {
+    return ands[0];
+  }
+  return { AND: ands };
 }
 
 // ── 1. searchPartsTool ──────────────────────────────────────────────
@@ -162,9 +190,12 @@ export async function searchPartsTool(input: DbToolInput): Promise<SearchPartsRe
 
   const cleanParts = parts.slice(0, limit).map((p) => toCleanPart(p as unknown as Record<string, unknown>));
 
+  const totalQuantity = cleanParts.reduce((sum, p) => sum + p.quantity, 0);
+
   return {
     parts: cleanParts,
     totalCount: parts.length, // searchPartsForLine returns all matches already
+    totalQuantity,
     keyword,
   };
 }

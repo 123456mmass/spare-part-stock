@@ -14,9 +14,19 @@ export interface AiCallOptions {
   timeoutMs?: number;
 }
 
+export interface VisionDiagnostics {
+  model: string;
+  provider: "reverseproxy" | "gateway";
+  imageBlockCount: number;
+  mediaTypes: string[];
+  requestMode: "text-only" | "multimodal";
+  latencyMs: number;
+}
+
 export interface AiCallResult {
   text: string;
   provider: "reverseproxy" | "gateway";
+  diagnostics?: VisionDiagnostics;
 }
 
 function reverseproxyEnabled(): boolean {
@@ -45,6 +55,30 @@ export function gatewayModel(): string {
 
 export async function currentGatewayModel(): Promise<string> {
   return getConfiguredAiModel();
+}
+
+const VISION_FALLBACK_MODEL = "xiaomi-direct/mimo-v2.5-pro";
+
+export function visionModel(): string {
+  return process.env.SPARE_PART_AI_VISION_MODEL || "";
+}
+
+export async function currentVisionModel(): Promise<string> {
+  // 1. Explicit vision model env
+  const env = visionModel();
+  if (env) return env;
+
+  // 2. Try the configured gateway model — but only if provider-prefixed
+  //    (bare model names like "mimo-v2.5-pro" won't work for vision)
+  try {
+    const configured = await currentGatewayModel();
+    if (configured && configured.includes("/")) return configured;
+  } catch {
+    // DB might not be reachable at startup — fall through
+  }
+
+  // 3. Hard vision fallback — never a bare model name
+  return VISION_FALLBACK_MODEL;
 }
 
 export function gatewayKey(): string {
@@ -137,13 +171,18 @@ function toReverseproxyMessages(content: AiContentBlock[]): Array<{ role: string
 }
 
 
-async function callReverseproxy(content: AiContentBlock[], opts: AiCallOptions): Promise<string> {
+async function callReverseproxy(content: AiContentBlock[], opts: AiCallOptions, modelOverride?: string): Promise<{ text: string; diagnostics: VisionDiagnostics }> {
+  const model = modelOverride || reverseproxyModel();
+  const imageBlocks = content.filter((b) => b.type === "image" && b.imageBase64);
+  const requestMode = imageBlocks.length > 0 ? "multimodal" : "text-only";
+  const start = Date.now();
+
   const response = await fetch(`${reverseproxyUrl()}/v1/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
     body: JSON.stringify({
-      model: reverseproxyModel(),
+      model,
       stream: true,
       messages: toReverseproxyMessages(content),
     }),
@@ -193,11 +232,28 @@ async function callReverseproxy(content: AiContentBlock[], opts: AiCallOptions):
   if (!text) {
     throw new Error("reverseproxy returned empty content");
   }
-  return text;
+  return {
+    text,
+    diagnostics: {
+      model,
+      provider: "reverseproxy",
+      imageBlockCount: imageBlocks.length,
+      mediaTypes: [...new Set(imageBlocks.map((b) => b.mediaType || "image/jpeg"))],
+      requestMode,
+      latencyMs: Date.now() - start,
+    },
+  };
 }
 
 function extractTextFromOpenAI(payload: unknown): string {
   if (!payload || typeof payload !== "object") return "";
+  // Check for error payload before extracting text
+  const err = (payload as { error?: { type?: string; message?: string } }).error;
+  if (err) {
+    throw new Error(
+      `gateway error: ${err.type || "unknown"}: ${err.message || "No error message"}`,
+    );
+  }
   const outputText = (payload as { output_text?: unknown }).output_text;
   if (typeof outputText === "string" && outputText.trim()) {
     return outputText.trim();
@@ -227,32 +283,63 @@ function extractTextContent(content: unknown): string {
     .trim();
 }
 
-function extractTextFromOpenAIStream(raw: string): string {
+export function extractTextFromOpenAIStream(raw: string): string {
   let text = "";
+  let streamError: { type: string; message: string } | null = null;
+
   for (const line of raw.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed.startsWith("data:")) continue;
     const data = trimmed.slice(5).trim();
     if (!data || data === "[DONE]") continue;
+
+    let parsed: {
+      error?: { type?: string; message?: string };
+      choices?: Array<{ delta?: { content?: string; reasoning_content?: string } }>;
+    };
     try {
-      const parsed = JSON.parse(data) as {
-        choices?: Array<{ delta?: { content?: string } }>;
-      };
-      const delta = parsed.choices?.[0]?.delta?.content;
-      if (delta) text += delta;
+      parsed = JSON.parse(data);
     } catch {
-      // Ignore malformed event chunks and keep reading the stream.
+      // Malformed event chunk — skip and keep reading
+      continue;
     }
+
+    // Check for SSE error frames FIRST — never ignore them
+    if (parsed.error) {
+      streamError = {
+        type: parsed.error.type || "unknown",
+        message: parsed.error.message || "No error message",
+      };
+      // Don't break immediately — collect any content already streamed,
+      // but the error will be thrown after the loop
+      continue;
+    }
+
+    // Only accumulate delta.content (NOT reasoning_content)
+    const delta = parsed.choices?.[0]?.delta;
+    if (delta?.content) text += delta.content;
   }
+
+  if (streamError) {
+    throw new Error(
+      `gateway stream error: ${streamError.type}: ${streamError.message}`,
+    );
+  }
+
   return text.trim();
 }
 
-async function callGateway(content: AiContentBlock[], opts: AiCallOptions): Promise<string> {
+async function callGateway(content: AiContentBlock[], opts: AiCallOptions, modelOverride?: string): Promise<{ text: string; diagnostics: VisionDiagnostics }> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
   };
   const apiKey = gatewayKey();
   if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+
+  const imageBlocks = content.filter((b) => b.type === "image" && b.imageBase64);
+  const requestMode = imageBlocks.length > 0 ? "multimodal" : "text-only";
+  const start = Date.now();
+  const model = modelOverride || await currentGatewayModel();
 
   const parts: unknown[] = [];
   const textOnly: string[] = [];
@@ -291,7 +378,7 @@ async function callGateway(content: AiContentBlock[], opts: AiCallOptions): Prom
     headers,
     signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
     body: JSON.stringify({
-      model: await currentGatewayModel(),
+      model,
       max_tokens: opts.maxTokens ?? 4096,
       temperature: opts.temperature ?? 0,
       messages,
@@ -302,26 +389,37 @@ async function callGateway(content: AiContentBlock[], opts: AiCallOptions): Prom
     throw new Error(`gateway returned ${response.status}`);
   }
   const raw = await response.text();
+  const latencyMs = Date.now() - start;
+  const diagnostics: VisionDiagnostics = {
+    model,
+    provider: "gateway",
+    imageBlockCount: imageBlocks.length,
+    mediaTypes: [...new Set(imageBlocks.map((b) => b.mediaType || "image/jpeg"))],
+    requestMode,
+    latencyMs,
+  };
+
   if (raw.trim().startsWith("data:")) {
-    return extractTextFromOpenAIStream(raw);
+    return { text: extractTextFromOpenAIStream(raw), diagnostics };
   }
-  return extractTextFromOpenAI(JSON.parse(raw));
+  return { text: extractTextFromOpenAI(JSON.parse(raw)), diagnostics };
 }
 
 export async function callPartAi(
   content: AiContentBlock[],
   opts: AiCallOptions = {},
+  modelOverride?: string,
 ): Promise<AiCallResult> {
   if (reverseproxyEnabled()) {
     try {
-      const text = await callReverseproxy(content, opts);
-      return { text, provider: "reverseproxy" };
+      const result = await callReverseproxy(content, opts, modelOverride);
+      return { text: result.text, provider: "reverseproxy", diagnostics: result.diagnostics };
     } catch (err) {
       console.warn(
         `reverseproxy failed (${(err as Error).message}), falling back to gateway`,
       );
     }
   }
-  const text = await callGateway(content, opts);
-  return { text, provider: "gateway" };
+  const result = await callGateway(content, opts, modelOverride);
+  return { text: result.text, provider: "gateway", diagnostics: result.diagnostics };
 }
