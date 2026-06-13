@@ -138,6 +138,14 @@ export function parseLineInventoryQuery(
   const normalized = text.replace(/\s+/g, " ").trim();
   if (!normalized) return null;
 
+  // ── Guard: NEVER treat summary/quantity questions as inventory queries ──
+  // These are handled upstream by detectQuickIntent → stock_summary/low_stock.
+  const isSummaryOrQuantity =
+    /(สรุป|ภาพรวม|สถานะ.*สต็?อก|stock\s*summary)/i.test(normalized) ||
+    /(เหลือเท่าไหร่|มีกี่ตัว|มีเท่าไหร่|คงเหลือเท่าไหร่|หมดกี่ตัว|ยอดคงเหลือ|จำนวนคงเหลือ|เหลือกี่)/i.test(normalized) ||
+    /(เหลือทั้งหมด|คงเหลือทั้งหมด)/i.test(normalized);
+  if (isSummaryOrQuantity) return null;
+
   const hasPartTerm =
     hasKnownPartTerm(normalized) || isLikelyPartCode(normalized);
   const findMatch = normalized.match(/(?:^|\s)หา\s*(\S+)/i);

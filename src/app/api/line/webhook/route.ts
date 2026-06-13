@@ -468,6 +468,15 @@ export async function POST(request: Request) {
         continue;
       }
 
+      // ── 0. Deterministic quick-intent guard (BEFORE login gate) ──
+      //    Summary/quantity/low-stock must NEVER fall through to search.
+      const quick = detectQuickIntent(text);
+      if (quick && quick.intent !== "general_chat") {
+        console.log("[LINE quick intent]", JSON.stringify({ text, quickIntent: quick.intent, keyword: quick.keyword, plant: quick.plant, buildingName: quick.buildingName }));
+        await handleNormalizedIntent(quick, replyToken);
+        continue;
+      }
+
       // ── Get user ──
       const user = await findLineLinkedUser(lineUserId);
 
@@ -495,12 +504,23 @@ export async function POST(request: Request) {
       }
 
       // ── Intent dispatch ──
-      // 1. Deterministic rule-based pre-router (quantity/summary/low stock)
-      //    This bypasses the LLM for patterns we can classify exactly.
-      const quickIntent = detectQuickIntent(text);
-      if (quickIntent) {
-        await handleNormalizedIntent(quickIntent, replyToken);
-        continue;
+      // 2. LLM normalizer for complex queries (locator, trend) only
+      if (shouldNormalize(text)) {
+        try {
+          const normalized = await normalizeIntent(text);
+          if (normalized.confidence >= 0.7 && normalized.intent !== "general_chat") {
+            await handleNormalizedIntent(normalized, replyToken);
+            continue;
+          }
+          // Regex fallback for trend/history when LLM is uncertain
+          const fallback = normalizeIntentRegexFallback(text);
+          if (fallback) {
+            await handleNormalizedIntent(fallback, replyToken);
+            continue;
+          }
+        } catch {
+          // Fall through to regex classifier
+        }
       }
 
       // 2. LLM normalizer for complex queries (summary, locator, trend)
@@ -821,9 +841,12 @@ async function handleTextSearch(text: string, replyToken: string) {
     { inStock: 0, lowStock: 0, outOfStock: 0 },
   );
 
+  // Aggregate total quantity from returned parts for clarity
+  const totalQuantity = parts.reduce((sum, p) => sum + p.quantity, 0);
+
   const summaryLines = [
-    `🔍 ค้นหา "${query.keyword}" พบ ${parts.length} รายการ`,
-    `คงเหลือ: ${statusCounts.inStock} | ต่ำกว่าขั้นต่ำ: ${statusCounts.lowStock} | หมด: ${statusCounts.outOfStock}`,
+    `🔍 ค้นหา "${query.keyword}" พบ ${parts.length} รายการ (รวม ${totalQuantity} ชิ้น)`,
+    `รายการมีของ: ${statusCounts.inStock} | ต่ำกว่าขั้นต่ำ: ${statusCounts.lowStock} | หมด: ${statusCounts.outOfStock}`,
   ];
 
   await sendLineReply(replyToken, [

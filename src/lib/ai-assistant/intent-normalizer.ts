@@ -151,7 +151,8 @@ export async function normalizeIntent(text: string): Promise<NormalizedIntent> {
  *   "คงเหลือทั้งหมด"
  */
 export function isStockSummaryQuestion(text: string): boolean {
-  const hasSummary = /(สรุปสถานะ|สรุป|ภาพรวม|สถานะสต็อก|สถานะ|สต็อกของ|สต็อก|คงเหลือทั้งหมด|เหลือทั้งหมด|หมดกี่ตัว|stock\s*summary)/i.test(text);
+  // Broader catch-all for summary phrases (with or without spaces, with or without สต็อก/สต็อ็ก)
+  const hasSummary = /(สรุปสถานะ?|สรุป|ภาพรวม|สถานะ?|สต็อก?|คงเหลือทั้งหมด|เหลือทั้งหมด|หมดกี่ตัว|stock\s*summary)/i.test(text);
   // Quantity questions (Case 1 in ruleFallback) take priority
   const hasQuantityQuestion = isQuantityQuestion(text);
   return hasSummary && !hasQuantityQuestion;
@@ -282,7 +283,7 @@ export function extractInventoryFilters(text: string): {
   buildingName: string | null;
   categoryName: string | null;
 } {
-  // Plant
+  // Plant — with optional space between prefix and number (e.g. "บล็อค1" or "บล็อค 1")
   const plantMatch = text.match(/(?:บล็อค|บล็อก|block|บล้อค)\s*(\d+|SPECIAL\s*PART)/i);
   const plant = plantMatch?.[1]?.trim() ?? null;
 
