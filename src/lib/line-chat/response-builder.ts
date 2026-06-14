@@ -25,14 +25,14 @@ type LineMessage =
 export function buildAssistantMessages(
   result: AiAssistantResult,
 ): LineMessage[] {
-  const messages: LineMessage[] = [createTextMessage(result.reply)];
-
   const flex = buildFlexForToolCalls(result.toolCalls);
   if (flex) {
-    messages.push(createFlexMessage(flex.altText, flex.contents));
+    // When we have a structured data card, the Flex already shows the answer.
+    // Sending duplicate text feels robotic; use just the card.
+    return [createFlexMessage(flex.altText, flex.contents)];
   }
 
-  return messages;
+  return [createTextMessage(result.reply)];
 }
 
 function buildFlexForToolCalls(toolCalls?: AssistantToolCall[]): {
