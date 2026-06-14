@@ -41,10 +41,22 @@ function buildFlexForToolCalls(toolCalls?: AssistantToolCall[]): {
 } | null {
   if (!toolCalls || toolCalls.length === 0) return null;
 
-  // Prefer the most specific read tool if multiple were called.
-  const main = toolCalls.find((t) =>
-    ["get_stock_summary", "search_parts", "get_low_stock"].includes(t.name),
-  ) ?? toolCalls[toolCalls.length - 1];
+  // Prefer the primary read tool that the reply is most likely about.
+  // If conflicting tools were called (e.g. search_parts + get_stock_summary),
+  // prefer get_stock_summary because the reply's aggregate numbers ("รวม X ชิ้น")
+  // match the stock-summary card better than the search-parts carousel.
+  const hasSummary = toolCalls.some((t) => t.name === "get_stock_summary");
+  const hasLowStock = toolCalls.some((t) => t.name === "get_low_stock");
+  const hasSearch = toolCalls.some((t) => t.name === "search_parts");
+
+  const preferredOrder = [
+    hasSummary ? "get_stock_summary" : null,
+    hasLowStock ? "get_low_stock" : null,
+    hasSearch ? "search_parts" : null,
+    "get_part_detail",
+  ].filter(Boolean) as string[];
+
+  const main = toolCalls.find((t) => preferredOrder.includes(t.name)) ?? toolCalls[toolCalls.length - 1];
 
   switch (main.name) {
     case "get_stock_summary": {

@@ -21,7 +21,7 @@ export const AI_TOOL_DEFINITIONS = [
     type: "function" as const,
     function: {
       name: "search_parts",
-      description: "ค้นหาอะไหล่จากชื่อ รหัส ตำแหน่ง อาคาร หรือ Block",
+      description: "ค้นหาอะไหล่จากชื่อ รหัส ตำแหน่ง อาคาร หรือ Block (ใช้เมื่อผู้ใช้พูด หา/ค้นหา/มี...ไหม) อย่าใช้คู่กับ get_stock_summary",
       parameters: {
         type: "object",
         properties: {
@@ -86,7 +86,7 @@ export const AI_TOOL_DEFINITIONS = [
     type: "function" as const,
     function: {
       name: "get_stock_summary",
-      description: "สรุปสถานะสต็อกตามตัวกรอง (plant, buildingName, categoryName) คืนจำนวนทั้งหมด, คงเหลือ, ต่ำกว่าขั้นต่ำ, หมด",
+      description: "สรุปสถานะสต็อกตามตัวกรอง (plant, buildingName, categoryName) คืนจำนวนทั้งหมด, คงเหลือ, ต่ำกว่าขั้นต่ำ, หมด (ใช้เมื่อผู้ใช้ถาม เหลือเท่าไหร่/มีกี่ตัว/สรุป/ภาพรวม) อย่าใช้คู่กับ search_parts",
       parameters: {
         type: "object",
         properties: {
