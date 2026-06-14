@@ -12,6 +12,7 @@ import { AI_TOOL_DEFINITIONS, executeAiTool } from "./tools";
 import type {
   AiAssistantInput,
   AiAssistantResult,
+  AssistantToolCall,
   ToolExecutionContext,
 } from "./types";
 
@@ -38,6 +39,7 @@ type ToolCall = {
 type ExecutedToolCalls = {
   executed: boolean;
   pendingActionIds: string[];
+  toolCalls: AssistantToolCall[];
 };
 
 type StreamEvent =
@@ -48,6 +50,7 @@ type StreamEvent =
       reply: string;
       conversationId?: string;
       pendingActionIds: string[];
+      toolCalls?: AssistantToolCall[];
     };
 
 const MAX_CONTEXT_MESSAGES = 20;
@@ -104,11 +107,13 @@ export async function runAiAssistant(
   };
 
   let pendingActionIds: string[] = [];
+  let toolCalls: AssistantToolCall[] | undefined;
   let reply: string;
   try {
     const result = await callLlmWithTools(messages, context);
     reply = result.reply;
     pendingActionIds = result.pendingActionIds;
+    toolCalls = result.toolCalls;
   } catch (error) {
     console.error("AI assistant failed:", error);
     reply = "ขออภัย เกิดข้อผิดพลาดในการประมวลผล กรุณาลองใหม่อีกครั้ง";
@@ -125,7 +130,7 @@ export async function runAiAssistant(
     });
   }
 
-  return { reply, conversationId, pendingActionIds };
+  return { reply, conversationId, pendingActionIds, toolCalls };
 }
 
 export async function runAiAssistantStream(
@@ -161,6 +166,7 @@ export async function runAiAssistantStream(
   };
 
   const pendingActionIds: string[] = [];
+  const toolCallResult: AssistantToolCall[] = [];
   let reply = "";
   try {
     await onEvent({ type: "status", message: "กำลังทำความเข้าใจคำถาม" });
@@ -174,6 +180,7 @@ export async function runAiAssistantStream(
       await onEvent({ type: "status", message: "กำลังค้นข้อมูลในระบบสต็อก" });
       const executed = await executeToolCalls(toolCalls, messages, context);
       pendingActionIds.push(...executed.pendingActionIds);
+      toolCallResult.push(...executed.toolCalls);
 
       await onEvent({ type: "status", message: "กำลังเรียบเรียงคำตอบ" });
       reply = await callGatewayStream(messages, false, async (delta) => {
@@ -201,8 +208,9 @@ export async function runAiAssistantStream(
     });
   }
 
-  await onEvent({ type: "done", reply, conversationId, pendingActionIds });
-  return { reply, conversationId, pendingActionIds };
+  const toolCallsForReturn = toolCallResult.length > 0 ? toolCallResult : undefined;
+  await onEvent({ type: "done", reply, conversationId, pendingActionIds, toolCalls: toolCallsForReturn });
+  return { reply, conversationId, pendingActionIds, toolCalls: toolCallsForReturn };
 }
 
 async function resolveConversationId(
@@ -293,7 +301,7 @@ function buildUserContent(
 async function callLlmWithTools(
   messages: ChatMessage[],
   context: ToolExecutionContext,
-): Promise<{ reply: string; pendingActionIds: string[] }> {
+): Promise<{ reply: string; pendingActionIds: string[]; toolCalls: AssistantToolCall[] }> {
   const first = await callGateway(messages, true);
   const choice = first.choices?.[0];
   if (!choice?.message) throw new Error("No response from LLM");
@@ -305,6 +313,7 @@ async function callLlmWithTools(
         sanitizeRawToolMarkup(messageText(choice.message)) ||
         "ขออภัย ไม่สามารถประมวลผลได้",
       pendingActionIds: [],
+      toolCalls: [],
     };
   }
 
@@ -317,6 +326,7 @@ async function callLlmWithTools(
       sanitizeRawToolMarkup(messageText(second.choices?.[0]?.message)) ||
       "ขออภัย ไม่สามารถประมวลผลได้",
     pendingActionIds: executed.pendingActionIds,
+    toolCalls: executed.toolCalls,
   };
 }
 
@@ -362,9 +372,11 @@ async function executeToolCalls(
   context: ToolExecutionContext,
 ): Promise<ExecutedToolCalls> {
   const pendingActionIds: string[] = [];
+  const executedToolCalls: AssistantToolCall[] = [];
 
   for (const toolCall of toolCalls) {
     const name = toolCall.function?.name;
+    const args = parseToolArguments(toolCall.function?.arguments);
     if (!name) {
       messages.push({
         role: "tool",
@@ -374,22 +386,24 @@ async function executeToolCalls(
       continue;
     }
 
-    const args = parseToolArguments(toolCall.function?.arguments);
     let content: string;
+    let resultObject: unknown;
     try {
-      const result = await withTimeout(
+      const toolResult = await withTimeout(
         executeAiTool(name, normalizeToolArgs(name, args), context),
         TOOL_EXECUTION_TIMEOUT_MS,
         `Tool ${name}`,
       );
-      content = result.content;
-      if (result.pendingActionId) pendingActionIds.push(result.pendingActionId);
+      content = toolResult.content;
+      resultObject = toolResult.result;
+      if (toolResult.pendingActionId) pendingActionIds.push(toolResult.pendingActionId);
     } catch (error) {
       console.error(`AI tool ${name} failed:`, error);
       content =
         error instanceof Error
           ? error.message
           : "เกิดข้อผิดพลาดในการเรียก tool";
+      resultObject = undefined;
     }
 
     messages.push({
@@ -397,9 +411,30 @@ async function executeToolCalls(
       tool_call_id: toolCall.id,
       content,
     });
+
+    executedToolCalls.push({
+      name,
+      arguments: args,
+      result: resultObject ?? parseToolResult(name, content),
+    });
   }
 
-  return { executed: toolCalls.length > 0, pendingActionIds };
+  return { executed: toolCalls.length > 0, pendingActionIds, toolCalls: executedToolCalls };
+}
+
+function parseToolResult(name: string, content: string): unknown {
+  try {
+    const parsed = JSON.parse(content);
+    if (name === "search_parts" && typeof parsed === "object" && parsed !== null) {
+      return parsed;
+    }
+    if (name.startsWith("get_") || name === "search_parts") {
+      return parsed;
+    }
+  } catch {
+    // Not JSON — return as-is via the string content path.
+  }
+  return undefined;
 }
 
 function getToolCalls(message?: ChatMessage): ToolCall[] {

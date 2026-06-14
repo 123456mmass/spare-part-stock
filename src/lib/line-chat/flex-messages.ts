@@ -963,12 +963,30 @@ type StockSummaryForFlex = {
   outOfStockCount: number;
   inStockCount: number;
   examples: FlexPart[];
+  breakdown?: {
+    buildingName: string;
+    totalParts: number;
+    totalQuantity: number;
+    plants: { plant: string; totalParts: number; totalQuantity: number }[];
+  }[];
 };
 
 export function createStockSummaryFlex(
   result: StockSummaryForFlex,
   filterText: string,
 ): unknown {
+  const exampleHeader = {
+    type: "box",
+    layout: "horizontal",
+    spacing: "sm",
+    margin: "sm",
+    contents: [
+      { type: "text", text: "NAME", size: "xs", color: "#9CA3AF", weight: "bold", flex: 3 },
+      { type: "text", text: "PART NO.", size: "xs", color: "#9CA3AF", weight: "bold", flex: 2 },
+      { type: "text", text: "คงเหลือ", size: "xs", color: "#9CA3AF", weight: "bold", align: "end", flex: 2 },
+    ],
+  };
+
   const exampleRows = result.examples.slice(0, 5).map((p) => {
     const status = stockStatus(p);
     return {
@@ -977,12 +995,46 @@ export function createStockSummaryFlex(
       spacing: "sm",
       margin: "sm",
       contents: [
-        { type: "text", text: status.text, size: "xs", color: status.color, flex: 1 },
-        { type: "text", text: p.partNumber, size: "xs", color: "#111111", weight: "bold", flex: 3, wrap: true },
-        { type: "text", text: `${p.quantity} ${p.unit || "pcs"}`, size: "xs", color: "#6B7280", align: "end", flex: 2 },
+        { type: "text", text: p.partName, size: "xs", color: status.color, weight: "bold", flex: 3, wrap: true },
+        { type: "text", text: p.partNumber, size: "xs", color: "#4B5563", flex: 2, wrap: true },
+        { type: "text", text: `${p.quantity} ${p.unit || "pcs"}`, size: "xs", color: "#4B5563", align: "end", flex: 2 },
       ],
     };
   });
+
+  const breakdown = result.breakdown ?? [];
+  const breakdownRows: unknown[] = [];
+  if (breakdown.length > 0) {
+    breakdownRows.push({ type: "separator" });
+    breakdownRows.push({ type: "text", text: "แยกตามอาคาร", size: "sm", weight: "bold", color: "#4B5563" });
+    for (const b of breakdown.slice(0, 5)) {
+      breakdownRows.push({
+        type: "box",
+        layout: "vertical",
+        spacing: "none",
+        margin: "md",
+        contents: [
+          {
+            type: "box",
+            layout: "horizontal",
+            contents: [
+              { type: "text", text: `🏢 ${b.buildingName}`, size: "xs", weight: "bold", color: "#111111", flex: 2, wrap: true },
+              { type: "text", text: `${b.totalParts} รายการ / ${b.totalQuantity} ชิ้น`, size: "xs", color: "#6B7280", align: "end", flex: 2 },
+            ],
+          },
+          ...b.plants.slice(0, 3).map((pl) => ({
+            type: "box",
+            layout: "horizontal",
+            margin: "sm",
+            contents: [
+              { type: "text", text: `  ├ บล็อค ${pl.plant}`, size: "xs", color: "#4B5563", flex: 2 },
+              { type: "text", text: `${pl.totalParts} รายการ / ${pl.totalQuantity} ชิ้น`, size: "xs", color: "#6B7280", align: "end", flex: 2 },
+            ],
+          })),
+        ],
+      });
+    }
+  }
 
   return {
     type: "bubble",
@@ -1042,10 +1094,12 @@ export function createStockSummaryFlex(
             },
           ],
         },
+        ...breakdownRows,
         result.examples.length > 0 ? { type: "separator" } : null,
         result.examples.length > 0
           ? { type: "text", text: "ตัวอย่างอะไหล่", size: "sm", weight: "bold", color: "#4B5563" }
           : null,
+        result.examples.length > 0 ? exampleHeader : null,
         ...exampleRows,
       ].filter(Boolean),
     },

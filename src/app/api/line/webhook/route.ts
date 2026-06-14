@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { resolvePartFromCode } from "@/lib/part-lookup";
 import {
   verifyLineSignature,
   sendLineReply,
@@ -11,7 +10,8 @@ import {
   type LineWebhookBody,
 } from "@/lib/line";
 import { orchestrate } from "@/lib/line-chat/orchestrator";
-import { searchPartsByImageForLine, searchPartsForLine, parseLineInventoryQuery } from "@/lib/line-chat/tools";
+import { searchPartsByImageForLine, searchPartsForLine } from "@/lib/line-chat/tools";
+import { buildAssistantMessages } from "@/lib/line-chat/response-builder";
 import {
   cancelPendingActionByCode,
   confirmPendingActionByCode,
@@ -27,7 +27,6 @@ import { suggestPartFromImage } from "@/lib/part-ai";
 import { generatePartBarcodeValue } from "@/lib/barcode";
 import { listBuildings, resolveBuildingIdByName } from "@/lib/buildings";
 import { RateLimitError, rateLimitKey } from "@/lib/rate-limit";
-import { createLineExportUrl } from "@/lib/line-chat/export-token";
 import {
   checkLinePermission,
   getActionLabel,
@@ -42,7 +41,6 @@ import {
 import {
   isBotMentioned,
   stripMentionText,
-  isExplicitWebSearch,
 } from "@/lib/line-chat/mentions";
 import {
   storeGroupImage,
@@ -54,10 +52,6 @@ import {
   createLoginRequiredFlex,
   createLoginRequiredForActionFlex,
   createSearchResultsFlex,
-  createStockInfoFlex,
-  createStatsFlex,
-  createNotFoundFlex,
-  createExportFlex,
   createImageIntentFlex,
   createAddPreviewFlex,
   createAddSuccessFlex,
@@ -67,82 +61,12 @@ import {
   type FlexPart,
   type AddPreviewSuggestion,
 } from "@/lib/line-chat/flex-messages";
-import { normalizeIntent, shouldNormalize, normalizeIntentRegexFallback, detectQuickIntent } from "@/lib/ai-assistant/intent-normalizer";
-import {
-  getStockSummaryTool,
-  getLowStockTool,
-  getPartMovementsTool,
-  getUsageTrendsTool,
-  searchPartsTool,
-} from "@/lib/ai-assistant/db-tools";
-import {
-  renderStockSummary,
-  renderLowStock,
-  renderMovements,
-  renderTrends,
-  renderSearchResult,
-} from "@/lib/ai-assistant/renderers";
-
 // Bot name สำหรับ group mention detection
 const BOT_MENTION = process.env.LINE_BOT_NAME || "@SpareBot";
 
 // Pattern สำหรับ reference to recent image ("รูปนี้", "อันนี้", etc.)
 const IMAGE_REFERENCE_PATTERN =
   /(?:รูปนี้|รูปเมื่อกี้|อันนี้|ตัวนี้|อะไหล่นี้|รูปที่ส่ง|รูปนั้น|รูปที่แล้ว|รูปเมื่อสักครู่|ภาพนี้|ภาพเมื่อกี้)/i;
-
-type TextIntent = "inventory_search" | "general_chat" | "pending_action" | "help" | "export";
-
-// ── Intent classifiers ────────────────────────────────────────────
-
-function classifyTextIntent(text: string): TextIntent {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (!normalized) return "general_chat";
-
-  if (parsePendingActionCommand(normalized)) return "pending_action";
-  if (isMenuRequest(normalized)) return "help";
-  if (isExcelExportRequest(normalized)) return "export";
-
-  const cmdLower = normalized.toLowerCase();
-  if (/^(stock\s+|ค้นหา\s+|search\s+|help|ช่วยเหลือ)$/i.test(cmdLower)) return "help";
-
-  if (
-    /(คืออะไร|คือ|หมายถึง|แปลว่า|อธิบาย|ช่วยอธิบาย|วิธี|ยังไง|อย่างไร|ทำไง|ขั้นตอน|คู่มือ|ใช้งาน|ทำอะไรได้บ้าง|ทำไรได้บ้าง|ช่วยอะไรได้บ้าง|definition|meaning|explain|how.?to)/i.test(normalized) &&
-    !/(stock|สต็อก|สต๊อก|คงเหลือ|เหลือ|จำนวน|มีไหม|มีกี่|ค้นหา|หา|เช็ค|ตรวจ)/i.test(normalized)
-  ) {
-    return "general_chat";
-  }
-
-  if (
-    /^(ดี|สบายดี|เป็นไง|หวัดดี|สวัสดี|hello|hi|hey|ok|โอเค|ขอบคุณ|thank|ครับ|ค่ะ|คะ|จ้า)$/i.test(normalized.trim()) ||
-    /(วันนี้ทำอะไร|อากาศ|กินข้าว|หิว|ง่วง|เพลง|หนัง|เกม|ข่าว|เมื่อวาน|พรุ่งนี้)/i.test(normalized)
-  ) {
-    return "general_chat";
-  }
-
-  const inventoryQuery = parseLineInventoryQuery(normalized);
-  if (inventoryQuery) return "inventory_search";
-
-  return "general_chat";
-}
-
-function isMenuRequest(text: string): boolean {
-  return /^(สวัสดี|หวัดดี|hello|hi|help|ช่วยเหลือ|เมนู|menu|เริ่มต้น|ทำอะไรได้บ้าง|ทำไรได้บ้าง|ช่วยอะไรได้บ้าง|ใช้งานยังไง|ใช้ยังไง)$/i.test(text.trim());
-}
-
-function parsePendingActionCommand(text: string): { action: "confirm" | "cancel"; code: string } | null {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  const match = normalized.match(/^(ยืนยัน|confirm|ok|ตกลง|ยกเลิก|cancel)\s+([a-z0-9]{4,12})$/i);
-  if (!match) return null;
-  return {
-    action: /^(ยกเลิก|cancel)$/i.test(match[1]) ? "cancel" : "confirm",
-    code: match[2],
-  };
-}
-
-function isExcelExportRequest(text: string): boolean {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  return /(excel|xlsx|เอ็กเซล|เอกเซล|ส่งออก|export|ดาวน์โหลด|download|โหลด).*(อะไหล่|สต็อก|สต๊อก|รายการ|ไฟล์)?/i.test(normalized);
-}
 
 function lineRateLimitKey(event: LineWebhookBody["events"][number]): string {
   const source = event.source;
@@ -458,7 +382,6 @@ export async function POST(request: Request) {
 
       // Strip @mention
       const text = isGroup ? stripMentionText(rawText, event, BOT_MENTION) : rawText;
-      const wantsWebSearch = isExplicitWebSearch(text);
 
       if (!text) {
         // Only @mention, no message — show help only in 1:1
@@ -468,32 +391,8 @@ export async function POST(request: Request) {
         continue;
       }
 
-      // ── 0. Deterministic quick-intent guard (BEFORE login gate) ──
-      //    Summary/quantity/low-stock must NEVER fall through to search.
-      const quick = detectQuickIntent(text);
-      if (quick && quick.intent !== "general_chat") {
-        console.log("[LINE quick intent]", JSON.stringify({ text, quickIntent: quick.intent, keyword: quick.keyword, plant: quick.plant, buildingName: quick.buildingName }));
-        await handleNormalizedIntent(quick, replyToken);
-        continue;
-      }
-
       // ── Get user ──
       const user = await findLineLinkedUser(lineUserId);
-
-      // ── Resolve "รูปนี้" / "อันนี้" references in groups ──
-      if (isGroup && lineGroupId && IMAGE_REFERENCE_PATTERN.test(text)) {
-        const resolved = await resolveImageReference(lineGroupId, lineUserId, replyToken, user);
-        if (resolved === "selection_sent") continue; // selection flex sent, user will pick
-        if (resolved === "not_found") continue;      // error already sent
-        if (resolved === "searched") continue;       // unlinked inline search — already replied
-        // resolved is { imageBase64, sessionId } — linked user, show intent flex
-        if (resolved && typeof resolved === "object") {
-          await sendLineReply(replyToken, [
-            createFlexMessage("จัดการรูปภาพ", createImageIntentFlex(resolved.sessionId)),
-          ]);
-          continue;
-        }
-      }
 
       // 1:1: anonymous users must login before anything
       if (!isGroup && !user) {
@@ -503,95 +402,29 @@ export async function POST(request: Request) {
         continue;
       }
 
-      // ── Intent dispatch ──
-      // 2. LLM normalizer for complex queries (locator, trend) only
-      if (shouldNormalize(text)) {
-        try {
-          const normalized = await normalizeIntent(text);
-          if (normalized.confidence >= 0.7 && normalized.intent !== "general_chat") {
-            await handleNormalizedIntent(normalized, replyToken);
-            continue;
-          }
-          // Regex fallback for trend/history when LLM is uncertain
-          const fallback = normalizeIntentRegexFallback(text);
-          if (fallback) {
-            await handleNormalizedIntent(fallback, replyToken);
-            continue;
-          }
-        } catch {
-          // Fall through to regex classifier
-        }
-      }
-
-      // 2. LLM normalizer for complex queries (summary, locator, trend)
-      if (shouldNormalize(text)) {
-        try {
-          const normalized = await normalizeIntent(text);
-          if (normalized.confidence >= 0.7 && normalized.intent !== "general_chat") {
-            await handleNormalizedIntent(normalized, replyToken);
-            continue;
-          }
-          // Regex fallback for trend/history when LLM is uncertain
-          const fallback = normalizeIntentRegexFallback(text);
-          if (fallback) {
-            await handleNormalizedIntent(fallback, replyToken);
-            continue;
-          }
-        } catch {
-          // Fall through to regex classifier
-        }
-      }
-
-      const intent = classifyTextIntent(text);
-
-      if (intent === "pending_action") {
-        await handleTextPendingAction(text, user, replyToken);
+      // Explicit confirmation/cancel codes are handled deterministically
+      // (fast, avoids LLM latency, and prevents accidental mutations).
+      const pendingCmd = parsePendingActionCommand(text);
+      if (pendingCmd) {
+        await handleTextPendingAction(pendingCmd, user, replyToken);
         continue;
       }
 
-      if (intent === "help") {
-        await sendLineReply(replyToken, [
-          createFlexMessage("เมนู Spare Part Stock", createHelpFlex()),
-        ]);
-        continue;
-      }
-
-      if (intent === "export") {
-        // Export requires login
-        if (!user) {
+      // ── Resolve "รูปนี้" / "อันนี้" references in groups ──
+      if (isGroup && lineGroupId && IMAGE_REFERENCE_PATTERN.test(text)) {
+        const resolved = await resolveImageReference(lineGroupId, lineUserId, replyToken, user);
+        if (resolved === "selection_sent") continue;
+        if (resolved === "not_found") continue;
+        if (resolved === "searched") continue;
+        if (resolved && typeof resolved === "object") {
           await sendLineReply(replyToken, [
-            createFlexMessage("ต้องล็อกอินก่อน", createLoginRequiredFlex()),
+            createFlexMessage("จัดการรูปภาพ", createImageIntentFlex(resolved.sessionId)),
           ]);
           continue;
         }
-        const exportUri = await createLineExportUrl({ userId: user.id });
-        await sendLineReply(replyToken, [
-          createFlexMessage("ส่งออก Excel", createExportFlex(exportUri)),
-        ]);
-        continue;
       }
 
-      if (intent === "inventory_search" && !wantsWebSearch) {
-        await handleTextSearch(text, replyToken);
-        continue;
-      }
-
-      // Legacy commands (backward compatibility)
-      if (!wantsWebSearch) {
-        const legacyReply = await tryLegacyCommand(text, replyToken);
-        if (legacyReply) continue;
-      }
-
-      // Explicit web search request → offer web search Flex directly.
-      if (wantsWebSearch) {
-        await sendLineReply(replyToken, [
-          createFlexMessage(`ไม่พบในฐานข้อมูล`, createWebSearchOfferFlex(text)),
-          createTextMessage(`"${text}" ไม่พบในคลัง กด "ค้นเว็บ" เพื่อค้นหาจากแหล่งข้อมูลภายนอก`),
-        ]);
-        continue;
-      }
-
-      // ── General chat ──
+      // ── LLM brain: route everything else through the orchestrator ──
       try {
         const userId = user?.id || "anonymous";
         const userRole = user?.role || "STAFF";
@@ -600,12 +433,7 @@ export async function POST(request: Request) {
         const skipSaveUserMessage = isGroup;
         const result = await orchestrate(userId, lineGroupId, text, isGroup || false, userRole, lineUserId, skipSaveUserMessage);
 
-        const flexReply = await tryFormatAsFlex(result.reply, text);
-        if (flexReply) {
-          await sendLineReply(replyToken, [flexReply]);
-        } else {
-          await sendLineReply(replyToken, [createTextMessage(result.reply)]);
-        }
+        await sendLineReply(replyToken, buildAssistantMessages(result));
       } catch (error) {
         console.error("Orchestrator error:", error);
         await sendLineReply(replyToken, [
@@ -729,10 +557,20 @@ async function resolveImageReference(
   return "selection_sent";
 }
 
+function parsePendingActionCommand(text: string): { action: "confirm" | "cancel"; code: string } | null {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  const match = normalized.match(/^(ยืนยัน|confirm|ok|ตกลง|ยกเลิก|cancel)\s+([a-z0-9]{4,12})$/i);
+  if (!match) return null;
+  return {
+    action: /^(ยกเลิก|cancel)$/i.test(match[1]) ? "cancel" : "confirm",
+    code: match[2],
+  };
+}
+
 // ── Text pending action handler ────────────────────────────────────
 
 async function handleTextPendingAction(
-  text: string,
+  cmd: { action: "confirm" | "cancel"; code: string },
   user: { id: string; role: string } | null,
   replyToken: string,
 ) {
@@ -743,7 +581,6 @@ async function handleTextPendingAction(
     return;
   }
 
-  const cmd = parsePendingActionCommand(text)!;
   try {
     const result =
       cmd.action === "confirm"
@@ -753,163 +590,6 @@ async function handleTextPendingAction(
   } catch (error) {
     await sendLineReply(replyToken, [
       createTextMessage(error instanceof Error ? error.message : "ไม่สามารถทำรายการได้"),
-    ]);
-  }
-}
-
-// ── Legacy command support ─────────────────────────────────────────
-
-async function tryLegacyCommand(text: string, replyToken: string): Promise<boolean> {
-  const command = text.toLowerCase();
-
-  const stockMatch = text.match(/^stock\s+(.+)$/i);
-  if (stockMatch) {
-    const part = await resolvePartFromCode(stockMatch[1].trim());
-    if (part) {
-      await sendLineReply(replyToken, [
-        createFlexMessage(`สต็อก ${part.partNumber}`, createStockInfoFlex(part)),
-      ]);
-    } else {
-      await sendLineReply(replyToken, [
-        createFlexMessage("ไม่พบ", createNotFoundFlex(stockMatch[1].trim())),
-      ]);
-    }
-    return true;
-  }
-
-  const searchMatch = text.match(/^(?:ค้นหา|search)\s+(.+)$/i);
-  if (searchMatch) {
-    const keyword = searchMatch[1].trim();
-    const parts = await prisma.part.findMany({
-      where: {
-        isActive: true,
-        OR: [
-          { partNumber: { contains: keyword } },
-          { partName: { contains: keyword } },
-        ],
-      },
-      include: {
-        category: { select: { name: true } },
-        building: { select: { name: true } },
-      },
-      take: 5,
-      orderBy: { partNumber: "asc" },
-    });
-
-    await sendLineReply(replyToken, [
-      createFlexMessage(`ค้นหา ${keyword}`, createSearchResultsFlex(keyword, parts)),
-    ]);
-    return true;
-  }
-
-  if (command === "help" || command === "ช่วยเหลือ") {
-    await sendLineReply(replyToken, [createFlexMessage("วิธีใช้", createHelpFlex())]);
-    return true;
-  }
-
-  return false;
-}
-
-// ── Text inventory search handler ──────────────────────────────────
-
-async function handleTextSearch(text: string, replyToken: string) {
-  const query = parseLineInventoryQuery(text);
-  if (!query) {
-    await sendLineReply(replyToken, [
-      createTextMessage("ไม่เข้าใจคำค้นหา กรุณาลองระบุชื่ออะไหล่ รหัส หรือประเภท"),
-    ]);
-    return;
-  }
-
-  const parts = await searchPartsForLine(query);
-  if (parts.length === 0) {
-    // DB miss → offer web search
-    await sendLineReply(replyToken, [
-      createFlexMessage(`ไม่พบ "${query.keyword}"`, createWebSearchOfferFlex(query.keyword)),
-      createTextMessage(`ไม่พบ "${query.keyword}" ในคลัง กด "ค้นเว็บ" เพื่อค้นหาจากแหล่งข้อมูลภายนอก`),
-    ]);
-    return;
-  }
-
-  const statusCounts = parts.reduce(
-    (acc, p) => {
-      if (p.quantity <= 0) acc.outOfStock++;
-      else if (p.quantity <= p.minimumQuantity) acc.lowStock++;
-      else acc.inStock++;
-      return acc;
-    },
-    { inStock: 0, lowStock: 0, outOfStock: 0 },
-  );
-
-  // Aggregate total quantity from returned parts for clarity
-  const totalQuantity = parts.reduce((sum, p) => sum + p.quantity, 0);
-
-  const summaryLines = [
-    `🔍 ค้นหา "${query.keyword}" พบ ${parts.length} รายการ (รวม ${totalQuantity} ชิ้น)`,
-    `รายการมีของ: ${statusCounts.inStock} | ต่ำกว่าขั้นต่ำ: ${statusCounts.lowStock} | หมด: ${statusCounts.outOfStock}`,
-  ];
-
-  await sendLineReply(replyToken, [
-    createFlexMessage(`ค้นหา ${query.keyword}`, createSearchResultsFlex(query.keyword, parts)),
-    createTextMessage(summaryLines.join("\n")),
-  ]);
-}
-
-// ── LLM normalizer intent handler ─────────────────────────────────
-
-async function handleNormalizedIntent(
-  intent: { intent: string; keyword?: string | null; plant?: string | null; buildingName?: string | null; categoryName?: string | null; from?: string | null; to?: string | null },
-  replyToken: string,
-) {
-  const args = {
-    keyword: intent.keyword,
-    plant: intent.plant,
-    buildingName: intent.buildingName,
-    categoryName: intent.categoryName,
-    from: intent.from,
-    to: intent.to,
-  };
-
-  try {
-    switch (intent.intent) {
-      case "stock_summary": {
-        const result = await getStockSummaryTool(args);
-        const messages = renderStockSummary(result);
-        await sendLineReply(replyToken, messages);
-        return;
-      }
-      case "low_stock": {
-        const result = await getLowStockTool(args);
-        const messages = renderLowStock(result);
-        await sendLineReply(replyToken, messages);
-        return;
-      }
-      case "movement_history": {
-        const result = await getPartMovementsTool(args);
-        const messages = renderMovements(result);
-        await sendLineReply(replyToken, messages);
-        return;
-      }
-      case "usage_trend": {
-        const result = await getUsageTrendsTool(args);
-        const messages = renderTrends(result);
-        await sendLineReply(replyToken, messages);
-        return;
-      }
-      case "inventory_search": {
-        const result = await searchPartsTool(args);
-        const messages = renderSearchResult(result);
-        await sendLineReply(replyToken, messages);
-        return;
-      }
-      default:
-        // Fall through — will be caught by regex classifier
-        return;
-    }
-  } catch (error) {
-    console.error("Normalized intent handler error:", error);
-    await sendLineReply(replyToken, [
-      createTextMessage("ขออภัย เกิดข้อผิดพลาดในการค้นหาข้อมูล"),
     ]);
   }
 }
@@ -1536,30 +1216,3 @@ async function handleSelectImage(
   }
 }
 
-// ── Format orchestrator reply as Flex ──────────────────────────────
-
-async function tryFormatAsFlex(reply: string, originalText: string) {
-  const stockMatch = reply.match(/📦\s*(\S+)\s*-\s*(.+)/);
-  if (stockMatch) {
-    const partNumber = stockMatch[1];
-    const part = await prisma.part.findFirst({
-      where: { partNumber, isActive: true },
-      include: { category: { select: { name: true } }, building: { select: { name: true } } },
-    });
-    if (part) {
-      return createFlexMessage(`สต็อก ${partNumber}`, createStockInfoFlex(part));
-    }
-  }
-
-  if (reply.includes("📊 สรุปสต็อก") || originalText.includes("สรุปสต็อก")) {
-    try {
-      const { getStorageSummary } = await import("@/lib/storage-summary");
-      const stats = await getStorageSummary();
-      return createFlexMessage("สรุปสต็อก", createStatsFlex(stats));
-    } catch {
-      // Fallback to text
-    }
-  }
-
-  return null;
-}

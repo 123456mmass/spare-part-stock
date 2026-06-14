@@ -33,10 +33,17 @@ export type AiAssistantInput = {
   skipSaveUserMessage?: boolean;
 };
 
+export type AssistantToolCall = {
+  name: string;
+  arguments: Record<string, unknown>;
+  result?: unknown;
+};
+
 export type AiAssistantResult = {
   reply: string;
   conversationId?: string;
   pendingActionIds: string[];
+  toolCalls?: AssistantToolCall[];
 };
 
 export type ToolExecutionContext = {

@@ -44,6 +44,17 @@ export type SearchPartsResult = {
   keyword: string;
 };
 
+export type StockSummaryBreakdown = {
+  buildingName: string;
+  totalParts: number;
+  totalQuantity: number;
+  plants: {
+    plant: string;
+    totalParts: number;
+    totalQuantity: number;
+  }[];
+};
+
 export type StockSummaryResult = {
   totalParts: number;
   totalQuantity: number;
@@ -55,6 +66,7 @@ export type StockSummaryResult = {
   buildingName: string | null;
   categoryName: string | null;
   keyword: string | null;
+  breakdown: StockSummaryBreakdown[];
 };
 
 export type LowStockResult = {
@@ -223,14 +235,22 @@ export async function getStockSummaryTool(input: DbToolInput): Promise<StockSumm
   const totalQuantity = agg._sum.quantity ?? 0;
 
   // Low stock & out of stock — count from full set, not just samples
+  // Also collect breakdown by building → plant (block)
   const allPartsForCounting = await prisma.part.findMany({
     where,
-    select: { quantity: true, minimumQuantity: true },
+    select: {
+      quantity: true,
+      minimumQuantity: true,
+      plant: true,
+      building: { select: { name: true } },
+    },
   });
 
   const lowStockCount = allPartsForCounting.filter((p) => p.quantity > 0 && p.quantity <= p.minimumQuantity).length;
   const outOfStockCount = allPartsForCounting.filter((p) => p.quantity <= 0).length;
   const inStockCount = totalParts - lowStockCount - outOfStockCount;
+
+  const breakdown = buildStockSummaryBreakdown(allPartsForCounting);
 
   return {
     totalParts,
@@ -243,7 +263,51 @@ export async function getStockSummaryTool(input: DbToolInput): Promise<StockSumm
     buildingName: input.buildingName ?? null,
     categoryName: input.categoryName ?? null,
     keyword: input.keyword ?? null,
+    breakdown,
   };
+}
+
+function buildStockSummaryBreakdown(
+  parts: Array<{
+    quantity: number;
+    minimumQuantity: number;
+    plant: string | null;
+    building: { name: string | null } | null;
+  }>,
+): StockSummaryBreakdown[] {
+  const map = new Map<string, { totalParts: number; totalQuantity: number; plants: Map<string, { totalParts: number; totalQuantity: number }> }>();
+
+  for (const p of parts) {
+    const buildingName = p.building?.name ?? "ไม่ระบุอาคาร";
+    const plant = p.plant ?? "ไม่ระบุบล็อค";
+
+    let building = map.get(buildingName);
+    if (!building) {
+      building = { totalParts: 0, totalQuantity: 0, plants: new Map() };
+      map.set(buildingName, building);
+    }
+    building.totalParts += 1;
+    building.totalQuantity += p.quantity;
+
+    let plantGroup = building.plants.get(plant);
+    if (!plantGroup) {
+      plantGroup = { totalParts: 0, totalQuantity: 0 };
+      building.plants.set(plant, plantGroup);
+    }
+    plantGroup.totalParts += 1;
+    plantGroup.totalQuantity += p.quantity;
+  }
+
+  return Array.from(map.entries())
+    .sort((a, b) => b[1].totalQuantity - a[1].totalQuantity)
+    .map(([buildingName, b]) => ({
+      buildingName,
+      totalParts: b.totalParts,
+      totalQuantity: b.totalQuantity,
+      plants: Array.from(b.plants.entries())
+        .sort((a, b) => b[1].totalQuantity - a[1].totalQuantity)
+        .map(([plant, g]) => ({ plant, totalParts: g.totalParts, totalQuantity: g.totalQuantity })),
+    }));
 }
 
 // ── 3. getLowStockTool ──────────────────────────────────────────────

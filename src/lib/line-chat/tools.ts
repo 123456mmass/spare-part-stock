@@ -138,8 +138,9 @@ export function parseLineInventoryQuery(
   const normalized = text.replace(/\s+/g, " ").trim();
   if (!normalized) return null;
 
-  // ── Guard: NEVER treat summary/quantity questions as inventory queries ──
-  // These are handled upstream by detectQuickIntent → stock_summary/low_stock.
+  // ── Guard: summary/quantity questions route through the LLM orchestrator ──
+  // so they can call get_stock_summary / get_low_stock. Don't treat them as
+  // generic inventory_search here.
   const isSummaryOrQuantity =
     /(สรุป|ภาพรวม|สถานะ.*สต็?อก|stock\s*summary)/i.test(normalized) ||
     /(เหลือเท่าไหร่|มีกี่ตัว|มีเท่าไหร่|คงเหลือเท่าไหร่|หมดกี่ตัว|ยอดคงเหลือ|จำนวนคงเหลือ|เหลือกี่)/i.test(normalized) ||

@@ -273,27 +273,27 @@ export async function executeAiTool(
   name: string,
   args: Record<string, unknown>,
   context: ToolExecutionContext
-): Promise<{ content: string; pendingActionId?: string }> {
+): Promise<{ content: string; result?: unknown; pendingActionId?: string }> {
   // New read tools — handle directly with db-tools (returns structured JSON)
   if (name === "get_stock_summary") {
     const result = await getStockSummaryTool(dbToolInput(args));
-    return { content: JSON.stringify(result) };
+    return { content: JSON.stringify(result), result };
   }
   if (name === "get_low_stock") {
     const result = await getLowStockTool(dbToolInput(args));
-    return { content: JSON.stringify(result) };
+    return { content: JSON.stringify(result), result };
   }
   if (name === "get_part_movements") {
     const result = await getPartMovementsTool(dbToolInput(args));
-    return { content: JSON.stringify(result) };
+    return { content: JSON.stringify(result), result };
   }
   if (name === "get_usage_trends") {
     const result = await getUsageTrendsTool(dbToolInput(args));
-    return { content: JSON.stringify(result) };
+    return { content: JSON.stringify(result), result };
   }
   if (name === "get_part_detail") {
     const result = await searchPartsTool({ ...dbToolInput(args), limit: 1 });
-    return { content: JSON.stringify(result) };
+    return { content: JSON.stringify(result), result };
   }
 
   // Existing read tools — delegate to inventory executor

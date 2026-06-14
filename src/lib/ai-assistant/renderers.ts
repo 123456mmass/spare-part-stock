@@ -60,7 +60,6 @@ export function renderStockSummary(
       `สรุปสต็อก${filterText}`,
       createStockSummaryFlex(result, filterText),
     ),
-    createTextMessage(lines.join("\n")),
   ];
 }
 
