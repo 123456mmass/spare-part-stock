@@ -35,6 +35,8 @@ export function buildAssistantMessages(
   return [createTextMessage(result.reply)];
 }
 
+const FALLBACK_ALT_TEXT = "สรุปข้อมูลจากระบบสต็อก";
+
 function buildFlexForToolCalls(toolCalls?: AssistantToolCall[]): {
   altText: string;
   contents: unknown;
@@ -69,7 +71,7 @@ function buildFlexForToolCalls(toolCalls?: AssistantToolCall[]): {
       if (data.keyword) filters.push(`"${data.keyword}"`);
       const filterText = filters.length > 0 ? ` (${filters.join(", ")})` : "";
       return {
-        altText: `สรุปสต็อก${filterText}`,
+        altText: `สรุปสต็อก${filterText}` || FALLBACK_ALT_TEXT,
         contents: createStockSummaryFlex(data, filterText),
       };
     }
@@ -90,7 +92,7 @@ function buildFlexForToolCalls(toolCalls?: AssistantToolCall[]): {
         building: p.buildingName ? { name: p.buildingName } : null,
       }));
       return {
-        altText: `ค้นหา ${data.keyword}`,
+        altText: (data.keyword ? `ค้นหา ${data.keyword}` : FALLBACK_ALT_TEXT),
         contents: createSearchResultsFlex(data.keyword, flexParts),
       };
     }
