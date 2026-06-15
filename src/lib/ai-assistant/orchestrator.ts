@@ -311,7 +311,22 @@ async function callLlmWithTools(
   const choice = first.choices?.[0];
   if (!choice?.message) throw new Error("No response from LLM");
 
-  const toolCalls = getToolCalls(choice.message);
+  let toolCalls = getToolCalls(choice.message);
+
+  // If LLM didn't call a tool but the message looks like reasoning/thinking
+  // (e.g. "ผู้ใช้ถาม...", "ดังนั้นควรใช้..."), retry with tool_choice forced.
+  if (toolCalls.length === 0 && looksLikeReasoning(messageText(choice.message))) {
+    console.warn("LLM returned reasoning instead of tool call, retrying with tool_choice=required");
+    const retry = await callGateway(messages, true, "required");
+    const retryChoice = retry.choices?.[0];
+    if (retryChoice?.message) {
+      toolCalls = getToolCalls(retryChoice.message);
+      if (toolCalls.length > 0) {
+        choice.message = retryChoice.message;
+      }
+    }
+  }
+
   if (toolCalls.length === 0) {
     return {
       reply:
@@ -335,7 +350,7 @@ async function callLlmWithTools(
   };
 }
 
-async function callGateway(messages: ChatMessage[], includeTools: boolean) {
+async function callGateway(messages: ChatMessage[], includeTools: boolean, toolChoice?: string) {
   const headers: Record<string, string> = {
     "content-type": "application/json",
   };
@@ -353,7 +368,7 @@ async function callGateway(messages: ChatMessage[], includeTools: boolean) {
       stream: false,
       messages,
       ...(includeTools
-        ? { tools: AI_TOOL_DEFINITIONS, tool_choice: "auto" }
+        ? { tools: AI_TOOL_DEFINITIONS, tool_choice: toolChoice || "auto" }
         : {}),
     }),
   });
@@ -669,6 +684,14 @@ async function streamTextFallback(
 
 function sanitizeLineReply(reply: string): string {
   return sanitizeRawToolMarkup(reply)
+    // Strip thinking/reasoning patterns that LLM sometimes leaks
+    .replace(/^ผู้ใช้ถาม.*?$/gm, "")
+    .replace(/^ซึ่งเป็นคำถาม.*?$/gm, "")
+    .replace(/^ดังนั้นควรใช้.*?$/gm, "")
+    .replace(/^ผมจะใช้.*?$/gm, "")
+    .replace(/^ฉันจะใช้.*?$/gm, "")
+    .replace(/^ควรใช้ tool.*?$/gm, "")
+    .replace(/^จะเรียก.*?$/gm, "")
     .replace(/```[\s\S]*?```/g, "")
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/__(.*?)__/g, "$1")
@@ -688,4 +711,25 @@ function sanitizeRawToolMarkup(reply: string): string {
     .replace(/<tool_call\b[^>]*>[\s\S]*?<\/tool_call>/gi, "")
     .replace(/<function=[^>]+>[\s\S]*?<\/function>/gi, "")
     .trim();
+}
+
+/**
+ * Detect if the LLM's reply is reasoning/thinking text instead of a tool call.
+ * This happens when the model explains why it should call a tool instead of
+ * actually calling it.
+ */
+function looksLikeReasoning(text: string): boolean {
+  if (!text || text.length < 20) return false;
+  const patterns = [
+    /ผู้ใช้ถาม/i,
+    /ควรใช้ (tool|เครื่องมือ)/i,
+    /ดังนั้นควร/i,
+    /จะเรียกใช้/i,
+    /จะใช้ get_stock/i,
+    /จะใช้ search_parts/i,
+    /ซึ่งเป็นคำถามเกี่ยวกับ/i,
+    /เพื่อให้ได้ข้อมูล/i,
+  ];
+  const matchCount = patterns.filter((p) => p.test(text)).length;
+  return matchCount >= 2;
 }
