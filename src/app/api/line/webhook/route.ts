@@ -860,9 +860,11 @@ async function handlePartImageAdd(
   const session = await requireImageSession(sid, userId, replyToken);
   if (!session) return;
 
-  // Instead of showing a Flex preview card in LINE, open the LIFF add-part
-  // page which will load the image and auto-trigger AI suggest.
-  const liffUrl = `${process.env.NEXT_PUBLIC_APP_URL || "https://spare.birdsphichitchai.dev"}/liff?lineSid=${encodeURIComponent(session.id)}`;
+  // Open the LIFF add-part page using LIFF deep link (liff.line.me/ID/path)
+  // so LINE opens it in the LIFF in-app browser, NOT external browser.
+  // Web URLs (spare.birdsphichitchai.dev/liff/...) cause LIFF SDK to fail.
+  const LIFF_ID = process.env.NEXT_PUBLIC_LIFF_ID || "2010187689-ZCU84P4L";
+  const liffUrl = `https://liff.line.me/${LIFF_ID}/liff?lineSid=${encodeURIComponent(session.id)}`;
 
   await pushOrReply(pushTarget, replyToken, [
     {

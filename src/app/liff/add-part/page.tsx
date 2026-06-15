@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { liffFetch } from "@/lib/liff-api";
@@ -62,9 +62,14 @@ export default function LiffAddPartPage() {
   const selectedPlant = watch("plant");
   const selectedBuildingId = watch("buildingId");
 
+  // Guard against double-invocation (React Strict Mode / re-renders)
+  const sessionLoadedRef = useRef(false);
+
   useEffect(() => {
     const sid = searchParams.get("lineSid");
     if (!sid) return;
+    if (sessionLoadedRef.current) return;
+    sessionLoadedRef.current = true;
 
     let cancelled = false;
     setIsLoadingDraft(true);
