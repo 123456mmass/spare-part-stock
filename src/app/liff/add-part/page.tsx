@@ -75,7 +75,22 @@ export default function LiffAddPartPage() {
         if (cancelled) return;
 
         const s = payload.suggestion || {};
-        setImagePreview(payload.imageDataUrl || null);
+        const dataUrl = payload.imageDataUrl as string | undefined;
+        setImagePreview(dataUrl || null);
+
+        // Convert dataURL to File object so AI suggest button works
+        if (dataUrl) {
+          try {
+            const res = await fetch(dataUrl);
+            const blob = await res.blob();
+            const file = new File([blob], "line-image.jpg", { type: blob.type || "image/jpeg" });
+            setImageFile(file);
+          } catch {
+            // If conversion fails, user can still upload manually
+          }
+        }
+
+        // Pre-fill from suggestion if available
         if (s.partNumber) setValue("partNumber", s.partNumber);
         if (s.partName) setValue("partName", s.partName);
         if (s.description) setValue("description", s.description);
@@ -90,7 +105,14 @@ export default function LiffAddPartPage() {
         if (s.matchedCategoryName || s.categoryName) {
           setValue("categoryName" as keyof FormValues, s.matchedCategoryName || s.categoryName);
         }
-        toast({ title: "โหลดข้อมูลจาก LINE แล้ว", description: "เลือก Block และอาคารก่อนบันทึก" });
+
+        // If suggestion has data, we're good. If not, auto-trigger AI.
+        const hasSuggestion = s.partName || s.partNumber;
+        if (!hasSuggestion && dataUrl) {
+          toast({ title: "กำลังให้ AI วิเคราะห์รูป..." });
+        } else {
+          toast({ title: "โหลดข้อมูลจาก LINE แล้ว", description: "เลือก Block และอาคารก่อนบันทึก" });
+        }
       })
       .catch((error) => {
         if (!cancelled) {
@@ -149,6 +171,18 @@ export default function LiffAddPartPage() {
       setIsSubmitting(false);
     }
   };
+
+  // Auto-trigger AI suggest when image is loaded from LINE session
+  const [autoTriggered, setAutoTriggered] = useState(false);
+  useEffect(() => {
+    if (!imageFile || autoTriggered || isAiSuggesting) return;
+    const sid = searchParams.get("lineSid");
+    if (!sid) return; // Only auto-trigger for LINE session flow
+
+    setAutoTriggered(true);
+    handleAiSuggest();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imageFile, autoTriggered, searchParams]);
 
   const handleImageChange = (e: FormEvent<HTMLInputElement>) => {
     const file = e.currentTarget.files?.[0];
