@@ -8,10 +8,8 @@
  *   --delay N   Milliseconds to wait between each part (default: 300)
  */
 
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../src/lib/prisma";
 import { regeneratePartTextEmbedding } from "../src/lib/part-text-embedding";
-
-const prisma = new PrismaClient();
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -103,4 +101,4 @@ main()
     console.error("Backfill failed:", error);
     process.exit(1);
   })
-  .finally(() => prisma.$disconnect());
+  .finally(() => process.exit(0));

@@ -2,7 +2,9 @@ import sharp from "sharp";
 
 const MAX_INPUT_SIZE = 5 * 1024 * 1024;
 const VOYAGE_ENDPOINT = "https://api.voyageai.com/v1/multimodalembeddings";
+const VOYAGE_TEXT_ENDPOINT = "https://api.voyageai.com/v1/embeddings";
 const DEFAULT_VOYAGE_MODEL = "voyage-multimodal-3.5";
+const DEFAULT_VOYAGE_TEXT_MODEL = "voyage-4-lite";
 
 export type ImageEmbeddingProvider = "clip" | "voyage";
 
@@ -133,11 +135,10 @@ async function embedImageWithClip(buffer: Buffer): Promise<Float32Array> {
 
 export async function embedTextWithMetadata(
   text: string,
-  _inputType: "query" | "document" = "document"
+  inputType: "query" | "document" = "document"
 ): Promise<ImageEmbeddingResult> {
   if (imageEmbeddingProvider() === "voyage") {
-    // TODO: implement Voyage text embedding or fallback to CLIP
-    throw new Error("Text embeddings for Voyage provider are not yet implemented");
+    return embedTextWithVoyage(text, inputType);
   }
 
   const vector = await embedTextWithClip(text);
@@ -149,8 +150,11 @@ export async function embedTextWithMetadata(
   };
 }
 
-export async function embedText(text: string): Promise<Float32Array> {
-  return (await embedTextWithMetadata(text)).vector;
+export async function embedText(
+  text: string,
+  inputType: "query" | "document" = "document"
+): Promise<Float32Array> {
+  return (await embedTextWithMetadata(text, inputType)).vector;
 }
 
 async function embedTextWithClip(text: string): Promise<Float32Array> {
@@ -169,6 +173,56 @@ async function embedTextWithClip(text: string): Promise<Float32Array> {
   }
   const data = embeds.data instanceof Float32Array ? embeds.data : new Float32Array(embeds.data);
   return normalizeVector(data);
+}
+
+async function embedTextWithVoyage(
+  text: string,
+  inputType: "query" | "document"
+): Promise<ImageEmbeddingResult> {
+  const apiKey = process.env.VOYAGE_API_KEY;
+  if (!apiKey) throw new Error("VOYAGE_API_KEY is not configured");
+
+  const model = process.env.VOYAGE_TEXT_MODEL || DEFAULT_VOYAGE_TEXT_MODEL;
+  const truncated = text.slice(0, 8000); // Voyage supports up to 32K tokens
+
+  const response = await fetch(VOYAGE_TEXT_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    signal: AbortSignal.timeout(30_000),
+    body: JSON.stringify({
+      input: truncated,
+      model,
+      input_type: inputType,
+      truncation: true,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Voyage text embedding failed ${response.status}: ${body}`);
+  }
+
+  const data = (await response.json()) as {
+    data?: Array<{ embedding?: number[] }>;
+    model?: string;
+    usage?: { total_tokens: number };
+  };
+
+  const values = data.data?.[0]?.embedding;
+  if (!Array.isArray(values) || values.length === 0) {
+    throw new Error("Voyage text embedding returned no vector");
+  }
+
+  const vector = normalizeVector(new Float32Array(values));
+  return {
+    vector,
+    provider: "voyage",
+    model: data.model || model,
+    dimension: vector.length,
+  };
 }
 
 async function embedImageWithVoyage(

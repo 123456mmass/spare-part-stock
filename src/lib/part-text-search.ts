@@ -53,7 +53,7 @@ export async function searchPartsByTextEmbedding(
   options: TextSearchOptions = {},
 ): Promise<TextSearchMatch[]> {
   const {
-    minSimilarity = 0.45,
+    minSimilarity = 0.35,
     limit = 10,
     plant,
     buildingId,
@@ -65,7 +65,7 @@ export async function searchPartsByTextEmbedding(
   // Embed the query text
   let queryVector: Float32Array;
   try {
-    queryVector = await embedText(queryText);
+    queryVector = await embedText(queryText, "query");
   } catch (error) {
     console.error("Text embedding for search failed:", error);
     return [];

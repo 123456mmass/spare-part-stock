@@ -1,9 +1,13 @@
 /**
  * Helpers for generating and storing text embeddings for Part records.
  *
- * Text embeddings are stored in Part.textEmbedding using the same CLIP model
- * that produces image embeddings, so text queries and image queries live in the
- * same vector space and can be compared interchangeably.
+ * Text embeddings are stored in Part.textEmbedding. The embedding provider
+ * (CLIP local or Voyage API) is determined by IMAGE_EMBEDDING_PROVIDER /
+ * VOYAGE_API_KEY env vars — same as image embeddings.
+ *
+ * Note: Voyage text embeddings and CLIP image embeddings live in DIFFERENT
+ * vector spaces, so text queries search against textEmbedding and image
+ * queries search against imageEmbedding independently.
  */
 
 import { prisma } from "@/lib/prisma";
@@ -47,7 +51,7 @@ export async function regeneratePartTextEmbedding(partId: string): Promise<void>
 
   const text = buildPartText(part);
   try {
-    const vector = await embedText(text);
+    const vector = await embedText(text, "document");
     await prisma.part.update({
       where: { id: partId },
       data: {
