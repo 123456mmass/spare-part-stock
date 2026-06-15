@@ -86,7 +86,7 @@ export const AI_TOOL_DEFINITIONS = [
     type: "function" as const,
     function: {
       name: "get_stock_summary",
-      description: "สรุปสถานะสต็อกตามตัวกรอง (plant, buildingName, categoryName) คืนจำนวนทั้งหมด, คงเหลือ, ต่ำกว่าขั้นต่ำ, หมด (ใช้เมื่อผู้ใช้ถาม เหลือเท่าไหร่/มีกี่ตัว/สรุป/ภาพรวม) อย่าใช้คู่กับ search_parts",
+      description: "สรุปสถานะสต็อกตามตัวกรอง (plant, buildingName, categoryName, keyword) คืนจำนวนทั้งหมด, จำนวนรวม, คงเหลือ, ต่ำกว่าขั้นต่ำ, หมด แยกตาม building และ plant (ใช้เมื่อผู้ใช้ถาม สถานะ/เหลือเท่าไหร่/มีกี่ตัว/สรุป/ภาพรวมของอะไหล่ประเภทหนึ่ง เช่น สถานะเบรกเกอร์ หรือ contactor เหลือเท่าไหร่ โดยส่ง keyword เป็นชื่ออะไหล่เข้าไป) อย่าใช้คู่กับ search_parts",
       parameters: {
         type: "object",
         properties: {
