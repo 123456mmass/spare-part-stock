@@ -4,10 +4,26 @@ import { useEffect } from "react";
 import { useLiffAuth } from "@/lib/liff-auth";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { QrCode, PackageOpen, PlusCircle, Image, LogOut } from "lucide-react";
+import { QrCode, PackageOpen, PlusCircle, Image, LogOut, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 const MENU = [
+  {
+    key: "search",
+    label: "ค้นหาอะไหล่",
+    desc: "ค้นจากชื่อหรือรหัส กรองตาม Block",
+    icon: Search,
+    color: "text-blue-600",
+    bg: "bg-blue-50",
+  },
+  {
+    key: "image-search",
+    label: "ค้นหาด้วยรูป",
+    desc: "ถ่ายรูปอะไหล่ AI ค้นหาให้",
+    icon: Image,
+    color: "text-purple-600",
+    bg: "bg-purple-50",
+  },
   {
     key: "scan",
     label: "สแกนบาร์โค้ด",
@@ -31,15 +47,6 @@ const MENU = [
     icon: PackageOpen,
     color: "text-orange-600",
     bg: "bg-orange-50",
-  },
-  {
-    key: "image-search",
-    label: "ค้นหาด้วยรูป",
-    desc: "เร็วๆ นี้",
-    icon: Image,
-    color: "text-gray-400",
-    bg: "bg-gray-100",
-    disabled: true,
   },
 ];
 
@@ -86,13 +93,8 @@ export default function LiffHome() {
             <Card
               key={item.key}
               role="button"
-              className={`p-4 flex flex-col items-center text-center gap-2 transition-colors ${
-                item.disabled
-                  ? "opacity-50 cursor-not-allowed"
-                  : "cursor-pointer hover:bg-accent active:scale-[0.98]"
-              }`}
+              className="p-4 flex flex-col items-center text-center gap-2 transition-colors cursor-pointer hover:bg-accent active:scale-[0.98]"
               onClick={() => {
-                if (item.disabled) return;
                 router.push(`/liff/${item.key}`);
               }}
             >
