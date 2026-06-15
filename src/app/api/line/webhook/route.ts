@@ -868,22 +868,34 @@ async function handlePartImageAdd(
   const LIFF_ID = process.env.NEXT_PUBLIC_LIFF_ID || "2010187689-ZCU84P4L";
   const liffUrl = `https://liff.line.me/${LIFF_ID}/add-part?lineSid=${encodeURIComponent(session.id)}`;
 
+  // Use Flex message with a button — more reliable than template messages
+  // and consistent with the rest of the bot's Flex-based UI.
   await pushOrReply(pushTarget, replyToken, [
-    {
-      type: "template",
-      altText: "เพิ่มอะไหล่ใหม่จากรูป",
-      template: {
-        type: "buttons",
-        text: "📸 กดปุ่มด้านล่างเพื่อเพิ่มอะไหล่\nระบบจะวิเคราะห์รูปและกรอกข้อมูลให้อัตโนมัติ",
-        actions: [
+    createFlexMessage("เพิ่มอะไหล่ใหม่จากรูป", {
+      type: "bubble",
+      size: "kilo",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        contents: [
+          { type: "text", text: "📸 เพิ่มอะไหล่ใหม่", weight: "bold", size: "md" },
+          { type: "text", text: "กดปุ่มด้านล่างเพื่อเปิดฟอร์ม\nระบบจะวิเคราะห์รูปและกรอกข้อมูลให้อัตโนมัติ", size: "xs", color: "#6B7280", wrap: true },
+        ],
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        contents: [
           {
-            type: "uri",
-            label: "➕ เพิ่มอะไหล่ใหม่",
-            uri: liffUrl,
+            type: "button",
+            action: { type: "uri", label: "เพิ่มอะไหล่ใหม่", uri: liffUrl },
+            style: "primary",
+            color: "#1DB446",
           },
         ],
       },
-    },
+    }),
   ]);
 }
 
