@@ -215,8 +215,39 @@ export async function searchPartsTool(input: DbToolInput): Promise<SearchPartsRe
 // ── 2. getStockSummaryTool ──────────────────────────────────────────
 
 export async function getStockSummaryTool(input: DbToolInput): Promise<StockSummaryResult> {
-  const where = buildPartWhere(input) as Prisma.PartWhereInput;
   const limit = clampLimit(input.limit);
+
+  // When a keyword is provided, use hybrid search (SQL + vector) via
+  // searchPartsForLine to find semantic matches that plain SQL `contains`
+  // would miss (e.g. "เบรกเกอร์" → "Circuit Breaker").
+  let where = buildPartWhere(input) as Prisma.PartWhereInput;
+
+  if (input.keyword && input.keyword.trim().length >= 2) {
+    const hybridResults = await searchPartsForLine({
+      keyword: input.keyword.trim(),
+      plant: input.plant ?? undefined,
+      building: normalizeBuildingName(input.buildingName) ?? undefined,
+      buildingId: input.buildingId ?? undefined,
+      limit: 500, // fetch many to compute accurate stats
+    });
+
+    if (hybridResults.length > 0) {
+      // Use the IDs from hybrid search as the filter set
+      const matchedIds = hybridResults.map((p) => p.id);
+
+      // Rebuild where without the keyword filter — we already found the IDs
+      const whereNoKeyword = buildPartWhere({
+        ...input,
+        keyword: null,
+      }) as Prisma.PartWhereInput;
+
+      where = {
+        AND: [whereNoKeyword, { id: { in: matchedIds } }],
+      } as Prisma.PartWhereInput;
+    } else {
+      // Hybrid search found nothing — fall through to SQL-only (will return 0)
+    }
+  }
 
   const [totalParts, agg, allParts] = await Promise.all([
     prisma.part.count({ where }),
