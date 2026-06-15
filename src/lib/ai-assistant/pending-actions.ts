@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { createStockMovement, StockError } from "@/lib/stock";
 import { notifyLowStock } from "@/lib/notifications";
 import { partSchema } from "@/lib/validators";
+import { regeneratePartTextEmbedding } from "@/lib/part-text-embedding";
 import type { AiAssistantChannel, ToolExecutionContext } from "./types";
 
 const PENDING_ACTION_TTL_MS = 10 * 60 * 1000;
@@ -388,8 +389,12 @@ async function executePendingAction(action: {
         barcodeValue: parsed.barcodeValue,
         createdBy: action.userId,
       },
-      select: { partNumber: true, partName: true, quantity: true, unit: true },
+      include: { category: { select: { name: true } }, building: { select: { name: true } } },
     });
+
+    // Generate text embedding asynchronously; do not block confirmation response.
+    void regeneratePartTextEmbedding(part.id);
+
     return `สร้างอะไหล่สำเร็จ: ${part.partNumber} - ${part.partName} จำนวน ${part.quantity} ${part.unit}`;
   }
 

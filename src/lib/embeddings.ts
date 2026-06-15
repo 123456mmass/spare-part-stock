@@ -17,11 +17,13 @@ export type ImageEmbeddingResult = ImageEmbeddingMetadata & {
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let modelPromise: Promise<{ processor: any; model: any; RawImage: any }> | null = null;
+let imageModelPromise: Promise<{ processor: any; model: any; RawImage: any }> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let textModelPromise: Promise<{ tokenizer: any; model: any }> | null = null;
 
-async function getModel() {
-  if (!modelPromise) {
-    modelPromise = (async () => {
+async function getImageModel() {
+  if (!imageModelPromise) {
+    imageModelPromise = (async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const transformers = await import("@xenova/transformers" as any);
       const { AutoProcessor, CLIPVisionModelWithProjection, RawImage, env } = transformers;
@@ -33,7 +35,24 @@ async function getModel() {
       return { processor, model, RawImage };
     })();
   }
-  return modelPromise;
+  return imageModelPromise;
+}
+
+async function getTextModel() {
+  if (!textModelPromise) {
+    textModelPromise = (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const transformers = await import("@xenova/transformers" as any);
+      const { AutoTokenizer, CLIPTextModelWithProjection, env } = transformers;
+      env.allowLocalModels = false;
+      env.useBrowserCache = false;
+      const modelId = process.env.CLIP_MODEL_ID || "Xenova/clip-vit-large-patch14";
+      const tokenizer = await AutoTokenizer.from_pretrained(modelId);
+      const model = await CLIPTextModelWithProjection.from_pretrained(modelId);
+      return { tokenizer, model };
+    })();
+  }
+  return textModelPromise;
 }
 
 export function imageEmbeddingProvider(): ImageEmbeddingProvider {
@@ -93,7 +112,7 @@ async function embedImageWithClip(buffer: Buffer): Promise<Float32Array> {
     .png()
     .toBuffer();
 
-  const { processor, model, RawImage } = await getModel();
+  const { processor, model, RawImage } = await getImageModel();
   const blob = new Blob([new Uint8Array(pngBuf)], { type: "image/png" });
   const image = await RawImage.fromBlob(blob);
   const inputs = await processor(image);
@@ -110,6 +129,46 @@ async function embedImageWithClip(buffer: Buffer): Promise<Float32Array> {
   const normalized = new Float32Array(data.length);
   for (let i = 0; i < data.length; i++) normalized[i] = data[i] / norm;
   return normalized;
+}
+
+export async function embedTextWithMetadata(
+  text: string,
+  _inputType: "query" | "document" = "document"
+): Promise<ImageEmbeddingResult> {
+  if (imageEmbeddingProvider() === "voyage") {
+    // TODO: implement Voyage text embedding or fallback to CLIP
+    throw new Error("Text embeddings for Voyage provider are not yet implemented");
+  }
+
+  const vector = await embedTextWithClip(text);
+  return {
+    vector,
+    provider: "clip",
+    model: process.env.CLIP_MODEL_ID || "Xenova/clip-vit-large-patch14",
+    dimension: vector.length,
+  };
+}
+
+export async function embedText(text: string): Promise<Float32Array> {
+  return (await embedTextWithMetadata(text)).vector;
+}
+
+async function embedTextWithClip(text: string): Promise<Float32Array> {
+  const truncated = text.slice(0, 1000);
+  const { tokenizer, model } = await getTextModel();
+  const inputs = await tokenizer(truncated, {
+    padding: true,
+    truncation: true,
+    max_length: 77,
+    return_tensors: "pt",
+  });
+  const output = await model(inputs);
+  const embeds = output.text_embeds ?? output.last_hidden_state ?? output.pooler_output;
+  if (!embeds?.data) {
+    throw new Error("CLIP text model returned no embeddings");
+  }
+  const data = embeds.data instanceof Float32Array ? embeds.data : new Float32Array(embeds.data);
+  return normalizeVector(data);
 }
 
 async function embedImageWithVoyage(
@@ -174,7 +233,7 @@ async function embedImageWithVoyage(
   };
 }
 
-function normalizeVector(data: Float32Array): Float32Array {
+export function normalizeVector(data: Float32Array): Float32Array {
   let norm = 0;
   for (let i = 0; i < data.length; i++) norm += data[i] * data[i];
   norm = Math.sqrt(norm) || 1;

@@ -81,6 +81,7 @@ model Part {
   imageEmbeddingProvider String?
   imageEmbeddingModel    String?
   imageEmbeddingDimension Int?
+  textEmbedding   Bytes?
   qrCodeUrl       String?
   barcodeValue    String?   @unique
   isActive        Boolean  @default(true)

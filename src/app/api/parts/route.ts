@@ -5,6 +5,7 @@ import { partSchema } from "@/lib/validators";
 import { requireAuth } from "@/lib/auth";
 import { generatePartBarcodeValue, generatePartNumber } from "@/lib/barcode";
 import { createStockMovement } from "@/lib/stock";
+import { regeneratePartTextEmbedding } from "@/lib/part-text-embedding";
 
 const PAGE_SIZE_DEFAULT = 24;
 const PAGE_SIZE_MAX = 200;
@@ -194,6 +195,11 @@ export async function POST(request: Request) {
         },
       });
     });
+
+    // Generate text embedding asynchronously; do not block the response.
+    if (part) {
+      void regeneratePartTextEmbedding(part.id);
+    }
 
     return NextResponse.json(part, { status: 201 });
   } catch (error) {

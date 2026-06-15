@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma, getP2002Fields } from "@/lib/prisma";
 import { partUpdateSchema } from "@/lib/validators";
 import { requireAuth } from "@/lib/auth";
+import { regeneratePartTextEmbedding } from "@/lib/part-text-embedding";
 
 export async function GET(
   request: Request,
@@ -116,6 +117,9 @@ export async function PUT(
         building: true,
       },
     });
+
+    // Regenerate text embedding asynchronously after update.
+    void regeneratePartTextEmbedding(part.id);
 
     return NextResponse.json(part);
   } catch (error) {
