@@ -61,14 +61,23 @@ export default function LiffHome() {
     }
   }, [status, router]);
 
-  // When LIFF opens with ?lineSid=..., redirect to add-part page
-  // This handles the case where LINE Flex "แก้ไข" button opens LIFF
-  // but the LIFF redirect lands on the home page instead of the sub-path.
+  // When LIFF opens with ?lineSid=..., save it and redirect to add-part page.
+  // LIFF redirects often drop query params, so we also check localStorage
+  // for a saved lineSid from a previous redirect.
   useEffect(() => {
     if (status !== "authenticated") return;
     const lineSid = searchParams.get("lineSid");
     if (lineSid) {
+      // Save to localStorage in case LIFF redirects and drops the param
+      localStorage.setItem("liff_pending_lineSid", lineSid);
       router.replace(`/liff/add-part?lineSid=${encodeURIComponent(lineSid)}`);
+      return;
+    }
+    // Check localStorage for a saved lineSid from a previous LIFF redirect
+    const savedSid = localStorage.getItem("liff_pending_lineSid");
+    if (savedSid) {
+      localStorage.removeItem("liff_pending_lineSid");
+      router.replace(`/liff/add-part?lineSid=${encodeURIComponent(savedSid)}`);
     }
   }, [status, searchParams, router]);
 
