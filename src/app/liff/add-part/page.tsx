@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toaster";
-import { ArrowLeft, Loader2, Sparkles } from "lucide-react";
+import { ArrowLeft, Loader2, Sparkles, Camera, Upload } from "lucide-react";
 
 const BLOCK_OPTIONS = ["BLOCK 1", "BLOCK 2", "SPECIAL PART"] as const;
 const BUILDING_OPTIONS = [
@@ -37,15 +37,115 @@ interface FormValues {
   barcodeValue?: string;
 }
 
+/* ── Skeleton components ────────────────────────────────────────── */
+
+function SkeletonLine({ className = "" }: { className?: string }) {
+  return <div className={`animate-pulse bg-muted rounded ${className}`} />;
+}
+
+function FormSkeleton() {
+  return (
+    <div className="space-y-4">
+      {/* Image + AI skeleton */}
+      <Card>
+        <CardContent className="p-4 space-y-4">
+          <SkeletonLine className="h-4 w-28" />
+          <div className="flex gap-3">
+            <SkeletonLine className="w-20 h-20 rounded-lg flex-shrink-0" />
+            <div className="flex-1 space-y-2">
+              <div className="flex gap-2">
+                <SkeletonLine className="h-8 w-20 rounded-md" />
+                <SkeletonLine className="h-8 w-20 rounded-md" />
+              </div>
+              <SkeletonLine className="h-8 w-32 rounded-md" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Part info skeleton */}
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <SkeletonLine className="h-3 w-16" />
+              <SkeletonLine className="h-9 w-full rounded-md" />
+            </div>
+            <div className="space-y-1">
+              <SkeletonLine className="h-3 w-16" />
+              <SkeletonLine className="h-9 w-full rounded-md" />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <SkeletonLine className="h-3 w-16" />
+            <SkeletonLine className="h-16 w-full rounded-md" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <SkeletonLine className="h-3 w-16" />
+              <SkeletonLine className="h-9 w-full rounded-md" />
+            </div>
+            <div className="space-y-1">
+              <SkeletonLine className="h-3 w-16" />
+              <SkeletonLine className="h-9 w-full rounded-md" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <SkeletonLine className="h-3 w-12" />
+              <SkeletonLine className="h-9 w-full rounded-md" />
+            </div>
+            <div className="space-y-1">
+              <SkeletonLine className="h-3 w-12" />
+              <SkeletonLine className="h-9 w-full rounded-md" />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <SkeletonLine className="h-3 w-12" />
+            <SkeletonLine className="h-9 w-full rounded-md" />
+          </div>
+          <div className="space-y-1">
+            <SkeletonLine className="h-3 w-14" />
+            <SkeletonLine className="h-9 w-full rounded-md" />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Stock info skeleton */}
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <SkeletonLine className="h-4 w-24" />
+          <div className="grid grid-cols-3 gap-3">
+            <SkeletonLine className="h-9 w-full rounded-md" />
+            <SkeletonLine className="h-9 w-full rounded-md" />
+            <SkeletonLine className="h-9 w-full rounded-md" />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Buttons skeleton */}
+      <div className="flex gap-3">
+        <SkeletonLine className="h-10 flex-1 rounded-md" />
+        <SkeletonLine className="h-10 flex-1 rounded-md" />
+      </div>
+    </div>
+  );
+}
+
+/* ── Main page ──────────────────────────────────────────────────── */
+
 export default function LiffAddPartPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAiSuggesting, setIsAiSuggesting] = useState(false);
-  const [isLoadingDraft, setIsLoadingDraft] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  // When coming from LINE, show skeleton until AI fills the form
+  const [dataReady, setDataReady] = useState(false);
+  // Loading phase label for skeleton
+  const [loadingPhase, setLoadingPhase] = useState<string>("กำลังโหลดรูปจาก LINE...");
 
   const {
     register,
@@ -62,17 +162,23 @@ export default function LiffAddPartPage() {
   const selectedPlant = watch("plant");
   const selectedBuildingId = watch("buildingId");
 
-  // Guard against double-invocation (React Strict Mode / re-renders)
+  // Guard against double-invocation
   const sessionLoadedRef = useRef(false);
 
+  // Load LINE image session → auto AI suggest → then show form
   useEffect(() => {
     const sid = searchParams.get("lineSid");
-    if (!sid) return;
+    if (!sid) {
+      // Not from LINE — show form immediately
+      setDataReady(true);
+      return;
+    }
     if (sessionLoadedRef.current) return;
     sessionLoadedRef.current = true;
 
     let cancelled = false;
-    setIsLoadingDraft(true);
+    setLoadingPhase("กำลังโหลดรูปจาก LINE...");
+
     liffFetch(`/api/liff/line-image-sessions/${encodeURIComponent(sid)}`)
       .then(async (res) => {
         const payload = await res.json();
@@ -83,55 +189,96 @@ export default function LiffAddPartPage() {
         const dataUrl = payload.imageDataUrl as string | undefined;
         setImagePreview(dataUrl || null);
 
-        // Convert dataURL to File object so AI suggest button works
+        // Convert dataURL → File for AI suggest
+        let file: File | null = null;
         if (dataUrl) {
           try {
-            const res = await fetch(dataUrl);
-            const blob = await res.blob();
-            const file = new File([blob], "line-image.jpg", { type: blob.type || "image/jpeg" });
+            const blobRes = await fetch(dataUrl);
+            const blob = await blobRes.blob();
+            file = new File([blob], "line-image.jpg", { type: blob.type || "image/jpeg" });
             setImageFile(file);
           } catch {
-            // If conversion fails, user can still upload manually
+            // user can still upload manually
           }
         }
 
-        // Pre-fill from suggestion if available
-        if (s.partNumber) setValue("partNumber", s.partNumber);
-        if (s.partName) setValue("partName", s.partName);
-        if (s.description) setValue("description", s.description);
-        if (s.location) setValue("location", s.location);
-        if (s.unit) setValue("unit", s.unit);
-        if (s.barcodeValue) setValue("barcodeValue", s.barcodeValue);
-        if (s.subcategory) setValue("subcategory", s.subcategory);
-        if (s.plant && BLOCK_OPTIONS.includes(s.plant)) setValue("plant", s.plant);
-        if (s.buildingId) setValue("buildingId", s.buildingId);
-        if (Number.isFinite(s.quantity)) setValue("quantity", s.quantity);
-        if (Number.isFinite(s.minimumQuantity)) setValue("minimumQuantity", s.minimumQuantity);
-        if (s.matchedCategoryName || s.categoryName) {
-          setValue("categoryName" as keyof FormValues, s.matchedCategoryName || s.categoryName);
+        // If suggestion already has data (e.g. backend pre-analyzed), fill it
+        const hasSuggestion = applySuggestion(s);
+
+        if (hasSuggestion) {
+          // Data already available — show form
+          toast({ title: "โหลดข้อมูลจาก LINE แล้ว", description: "ตรวจสอบข้อมูลก่อนบันทึก" });
+          if (!cancelled) setDataReady(true);
+          return;
         }
 
-        // If suggestion has data, we're good. If not, auto-trigger AI.
-        const hasSuggestion = s.partName || s.partNumber;
-        if (!hasSuggestion && dataUrl) {
-          toast({ title: "กำลังให้ AI วิเคราะห์รูป..." });
+        // No suggestion yet — auto-trigger AI and wait for result
+        if (file) {
+          setLoadingPhase("AI กำลังวิเคราะห์รูป...");
+          const aiResult = await runAiSuggest(file);
+          if (cancelled) return;
+
+          if (aiResult) {
+            applySuggestion(aiResult);
+            toast({ title: "AI วิเคราะห์รูปเสร็จ", description: "ตรวจสอบข้อมูลก่อนบันทึก" });
+          } else {
+            toast({ title: "AI ไม่สามารถวิเคราะห์รูปได้", description: "กรอกข้อมูลเองหรือลองใหม่", variant: "destructive" });
+          }
+          if (!cancelled) setDataReady(true);
         } else {
-          toast({ title: "โหลดข้อมูลจาก LINE แล้ว", description: "เลือก Block และอาคารก่อนบันทึก" });
+          // No image — show form empty
+          if (!cancelled) setDataReady(true);
         }
       })
       .catch((error) => {
         if (!cancelled) {
           toast({ title: "โหลดข้อมูลจาก LINE ไม่สำเร็จ", description: (error as Error).message, variant: "destructive" });
+          setDataReady(true); // Still show form so user can fill manually
         }
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoadingDraft(false);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [searchParams, setValue, toast]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  /** Apply suggestion object to form fields. Returns true if any data was filled. */
+  function applySuggestion(s: Record<string, unknown>): boolean {
+    if (!s) return false;
+    let filled = false;
+    if (s.partNumber) { setValue("partNumber", s.partNumber as string); filled = true; }
+    if (s.partName) { setValue("partName", s.partName as string); filled = true; }
+    if (s.description) { setValue("description", s.description as string); filled = true; }
+    if (s.location) { setValue("location", s.location as string); filled = true; }
+    if (s.unit) { setValue("unit", s.unit as string); filled = true; }
+    if (s.barcodeValue) { setValue("barcodeValue", s.barcodeValue as string); filled = true; }
+    if (s.subcategory) { setValue("subcategory", s.subcategory as string); filled = true; }
+    if (s.plant && BLOCK_OPTIONS.includes(s.plant as typeof BLOCK_OPTIONS[number])) { setValue("plant", s.plant as string); filled = true; }
+    if (s.buildingId) { setValue("buildingId", s.buildingId as string); filled = true; }
+    if (Number.isFinite(s.quantity)) { setValue("quantity", s.quantity as number); filled = true; }
+    if (Number.isFinite(s.minimumQuantity)) { setValue("minimumQuantity", s.minimumQuantity as number); filled = true; }
+    const cat = (s.matchedCategoryName || s.categoryName) as string | undefined;
+    if (cat) { setValue("categoryName" as keyof FormValues, cat); filled = true; }
+    return filled;
+  }
+
+  /** Call AI suggest API and return suggestion object, or null on failure. */
+  async function runAiSuggest(file: File): Promise<Record<string, unknown> | null> {
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await liffFetch("/api/liff/parts/ai-suggest", {
+        method: "POST",
+        body: formData,
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "AI suggestion failed");
+      return payload.suggestion || null;
+    } catch {
+      return null;
+    }
+  }
 
   const onSubmit = async (data: FormValues) => {
     setIsSubmitting(true);
@@ -179,7 +326,6 @@ export default function LiffAddPartPage() {
           const liff = mod.default;
           liff.closeWindow();
         } catch {
-          // Fallback: go to LIFF home
           router.push("/liff");
         }
       } else {
@@ -192,18 +338,6 @@ export default function LiffAddPartPage() {
       setIsSubmitting(false);
     }
   };
-
-  // Auto-trigger AI suggest when image is loaded from LINE session
-  const [autoTriggered, setAutoTriggered] = useState(false);
-  useEffect(() => {
-    if (!imageFile || autoTriggered || isAiSuggesting) return;
-    const sid = searchParams.get("lineSid");
-    if (!sid) return; // Only auto-trigger for LINE session flow
-
-    setAutoTriggered(true);
-    handleAiSuggest();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imageFile, autoTriggered, searchParams]);
 
   const handleImageChange = (e: FormEvent<HTMLInputElement>) => {
     const file = e.currentTarget.files?.[0];
@@ -233,18 +367,7 @@ export default function LiffAddPartPage() {
       if (!res.ok) throw new Error(payload.error || "AI suggestion failed");
 
       const s = payload.suggestion || {};
-      if (s.partNumber) setValue("partNumber", s.partNumber);
-      if (s.partName) setValue("partName", s.partName);
-      if (s.description) setValue("description", s.description);
-      if (s.location) setValue("location", s.location);
-      if (s.unit) setValue("unit", s.unit);
-      if (s.barcodeValue) setValue("barcodeValue", s.barcodeValue);
-      if (s.subcategory) setValue("subcategory", s.subcategory);
-      if (Number.isFinite(s.quantity)) setValue("quantity", s.quantity);
-      if (Number.isFinite(s.minimumQuantity)) setValue("minimumQuantity", s.minimumQuantity);
-      if (s.matchedCategoryName || s.categoryName) {
-        setValue("categoryName" as keyof FormValues, s.matchedCategoryName || s.categoryName);
-      }
+      applySuggestion(s);
 
       toast({ title: "AI เติมข้อมูลจากรูป", description: "ตรวจสอบค่าก่อนบันทึก" });
     } catch (error) {
@@ -258,6 +381,8 @@ export default function LiffAddPartPage() {
     }
   };
 
+  const sid = searchParams.get("lineSid");
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
@@ -269,184 +394,193 @@ export default function LiffAddPartPage() {
         <h1 className="text-lg font-bold">เพิ่มอะไหล่ใหม่</h1>
       </div>
 
-      {isLoadingDraft && (
-        <Card>
-          <CardContent className="p-3 text-sm text-muted-foreground flex items-center gap-2">
-            <Loader2 className="size-4 animate-spin" />
-            กำลังโหลดข้อมูลจาก LINE...
-          </CardContent>
-        </Card>
-      )}
-
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-        <Card>
-          <CardContent className="p-4 space-y-4">
-            <p className="text-sm font-medium">รูปอะไหล่ + AI</p>
-            <div className="flex gap-3">
-              <div className="w-20 h-20 bg-muted rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0">
-                {imagePreview ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={imagePreview} alt="Preview" className="max-h-full max-w-full object-contain" />
-                ) : (
-                  <span className="text-muted-foreground text-xs">ไม่มีรูป</span>
-                )}
+      {/* ── Skeleton: show while loading from LINE ── */}
+      {sid && !dataReady ? (
+        <div className="space-y-3">
+          {/* Phase indicator */}
+          <Card>
+            <CardContent className="p-4 flex items-center gap-3">
+              <Loader2 className="size-5 animate-spin text-primary flex-shrink-0" />
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{loadingPhase}</p>
+                <p className="text-xs text-muted-foreground">รอสักครู่ ข้อมูลจะแสดงเมื่อพร้อม</p>
               </div>
-              <div className="flex-1 space-y-2">
-                <input
-                  type="file"
-                  id="liffImageFile"
-                  accept="image/*"
-                  onChange={handleImageChange}
-                  className="hidden"
-                />
-                <input
-                  type="file"
-                  id="liffCameraCapture"
-                  accept="image/*"
-                  capture="environment"
-                  onChange={handleImageChange}
-                  className="hidden"
-                />
-                <div className="flex gap-2">
-                  <Label htmlFor="liffImageFile">
-                    <Button variant="outline" size="sm" asChild className="cursor-pointer">
-                      <span>เลือกรูป</span>
-                    </Button>
-                  </Label>
-                  <Label htmlFor="liffCameraCapture">
-                    <Button variant="outline" size="sm" asChild className="cursor-pointer">
-                      <span>📷 ถ่ายรูป</span>
-                    </Button>
-                  </Label>
-                </div>
-                {imageFile && <p className="text-xs text-muted-foreground truncate">{imageFile.name}</p>}
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleAiSuggest}
-                  disabled={!imageFile || isAiSuggesting}
-                >
-                  {isAiSuggesting ? (
-                    <Loader2 className="size-4 mr-1 animate-spin" />
+            </CardContent>
+          </Card>
+          <FormSkeleton />
+        </div>
+      ) : (
+        /* ── Actual form ── */
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <Card>
+            <CardContent className="p-4 space-y-4">
+              <p className="text-sm font-medium">รูปอะไหล่ + AI</p>
+              <div className="flex gap-3">
+                <div className="w-20 h-20 bg-muted rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0">
+                  {imagePreview ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={imagePreview} alt="Preview" className="max-h-full max-w-full object-contain" />
                   ) : (
-                    <Sparkles className="size-4 mr-1" />
+                    <span className="text-muted-foreground text-xs">ไม่มีรูป</span>
                   )}
-                  AI เติมข้อมูล
-                </Button>
+                </div>
+                <div className="flex-1 space-y-2">
+                  <input
+                    type="file"
+                    id="liffImageFile"
+                    accept="image/*"
+                    onChange={handleImageChange}
+                    className="hidden"
+                  />
+                  <input
+                    type="file"
+                    id="liffCameraCapture"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handleImageChange}
+                    className="hidden"
+                  />
+                  <div className="flex gap-2">
+                    <Label htmlFor="liffImageFile">
+                      <Button variant="outline" size="sm" asChild className="cursor-pointer">
+                        <span><Upload className="size-3.5 mr-1" />เลือกรูป</span>
+                      </Button>
+                    </Label>
+                    <Label htmlFor="liffCameraCapture">
+                      <Button variant="outline" size="sm" asChild className="cursor-pointer">
+                        <span><Camera className="size-3.5 mr-1" />ถ่ายรูป</span>
+                      </Button>
+                    </Label>
+                  </div>
+                  {imageFile && <p className="text-xs text-muted-foreground truncate">{imageFile.name}</p>}
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleAiSuggest}
+                    disabled={!imageFile || isAiSuggesting}
+                  >
+                    {isAiSuggesting ? (
+                      <Loader2 className="size-4 mr-1 animate-spin" />
+                    ) : (
+                      <Sparkles className="size-4 mr-1" />
+                    )}
+                    AI เติมข้อมูล
+                  </Button>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardContent className="p-4 space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="partNumber" className="text-xs">รหัสอะไหล่</Label>
-                <Input id="partNumber" {...register("partNumber")} placeholder="เช่น SP-001" className="h-9 text-sm" />
-                {errors.partNumber && <p className="text-xs text-destructive">{errors.partNumber.message}</p>}
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="partNumber" className="text-xs">รหัสอะไหล่</Label>
+                  <Input id="partNumber" {...register("partNumber")} placeholder="เช่น SP-001" className="h-9 text-sm" />
+                  {errors.partNumber && <p className="text-xs text-destructive">{errors.partNumber.message}</p>}
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="partName" className="text-xs">ชื่ออะไหล่ *</Label>
+                  <Input id="partName" {...register("partName")} placeholder="ชื่ออะไหล่" className="h-9 text-sm" />
+                  {errors.partName && <p className="text-xs text-destructive">{errors.partName.message}</p>}
+                </div>
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="partName" className="text-xs">ชื่ออะไหล่ *</Label>
-                <Input id="partName" {...register("partName")} placeholder="ชื่ออะไหล่" className="h-9 text-sm" />
-                {errors.partName && <p className="text-xs text-destructive">{errors.partName.message}</p>}
-              </div>
-            </div>
 
-            <div className="space-y-1">
-              <Label htmlFor="description" className="text-xs">รายละเอียด</Label>
-              <Textarea id="description" {...register("description")} placeholder="รายละเอียดเพิ่มเติม" className="text-sm" rows={2} />
-            </div>
+              <div className="space-y-1">
+                <Label htmlFor="description" className="text-xs">รายละเอียด</Label>
+                <Textarea id="description" {...register("description")} placeholder="รายละเอียดเพิ่มเติม" className="text-sm" rows={2} />
+              </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="categoryName" className="text-xs">หมวดหมู่</Label>
-                <Input id="categoryName" {...register("categoryName" as keyof FormValues)} placeholder="เช่น อุปกรณ์ไฟฟ้า" className="h-9 text-sm" />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="categoryName" className="text-xs">หมวดหมู่</Label>
+                  <Input id="categoryName" {...register("categoryName" as keyof FormValues)} placeholder="เช่น อุปกรณ์ไฟฟ้า" className="h-9 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="subcategory" className="text-xs">หมวดหมู่ย่อย</Label>
+                  <Input id="subcategory" {...register("subcategory")} placeholder="เช่น Contactor" className="h-9 text-sm" />
+                </div>
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="subcategory" className="text-xs">หมวดหมู่ย่อย</Label>
-                <Input id="subcategory" {...register("subcategory")} placeholder="เช่น Contactor" className="h-9 text-sm" />
-              </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="location" className="text-xs">ที่เก็บ</Label>
-                <Input id="location" {...register("location")} placeholder="เช่น ชั้น A-1" className="h-9 text-sm" />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="location" className="text-xs">ที่เก็บ</Label>
+                  <Input id="location" {...register("location")} placeholder="เช่น ชั้น A-1" className="h-9 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="plant" className="text-xs">Block *</Label>
+                  <input type="hidden" {...register("plant")} />
+                  <Select value={selectedPlant || ""} onValueChange={(value) => setValue("plant", value, { shouldValidate: true })}>
+                    <SelectTrigger id="plant">
+                      <SelectValue placeholder="เลือก Block" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {BLOCK_OPTIONS.map((block) => (
+                        <SelectItem key={block} value={block}>{block}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {errors.plant && <p className="text-xs text-destructive">{errors.plant.message}</p>}
+                </div>
               </div>
+
               <div className="space-y-1">
-                <Label htmlFor="plant" className="text-xs">Block *</Label>
-                <input type="hidden" {...register("plant")} />
-                <Select value={selectedPlant || ""} onValueChange={(value) => setValue("plant", value, { shouldValidate: true })}>
-                  <SelectTrigger id="plant">
-                    <SelectValue placeholder="เลือก Block" />
+                <Label htmlFor="buildingId" className="text-xs">อาคาร *</Label>
+                <input type="hidden" {...register("buildingId")} />
+                <Select value={selectedBuildingId || ""} onValueChange={(value) => setValue("buildingId", value, { shouldValidate: true })}>
+                  <SelectTrigger id="buildingId">
+                    <SelectValue placeholder="เลือกอาคาร" />
                   </SelectTrigger>
                   <SelectContent>
-                    {BLOCK_OPTIONS.map((block) => (
-                      <SelectItem key={block} value={block}>{block}</SelectItem>
+                    {BUILDING_OPTIONS.map((building) => (
+                      <SelectItem key={building.id} value={building.id}>{building.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {errors.plant && <p className="text-xs text-destructive">{errors.plant.message}</p>}
+                {errors.buildingId && <p className="text-xs text-destructive">{errors.buildingId.message}</p>}
               </div>
-            </div>
 
-            <div className="space-y-1">
-              <Label htmlFor="buildingId" className="text-xs">อาคาร *</Label>
-              <input type="hidden" {...register("buildingId")} />
-              <Select value={selectedBuildingId || ""} onValueChange={(value) => setValue("buildingId", value, { shouldValidate: true })}>
-                <SelectTrigger id="buildingId">
-                  <SelectValue placeholder="เลือกอาคาร" />
-                </SelectTrigger>
-                <SelectContent>
-                  {BUILDING_OPTIONS.map((building) => (
-                    <SelectItem key={building.id} value={building.id}>{building.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {errors.buildingId && <p className="text-xs text-destructive">{errors.buildingId.message}</p>}
-            </div>
-
-            <div className="space-y-1">
-              <Label htmlFor="barcodeValue" className="text-xs">บาร์โค้ด</Label>
-              <Input id="barcodeValue" {...register("barcodeValue")} placeholder="รหัสบาร์โค้ด (ถ้ามี)" className="h-9 text-sm" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4 space-y-3">
-            <p className="text-sm font-medium">ข้อมูลสต็อก</p>
-            <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1">
-                <Label htmlFor="quantity" className="text-xs">จำนวน</Label>
-                <Input id="quantity" type="number" min="0" {...register("quantity")} className="h-9 text-sm" />
+                <Label htmlFor="barcodeValue" className="text-xs">บาร์โค้ด</Label>
+                <Input id="barcodeValue" {...register("barcodeValue")} placeholder="รหัสบาร์โค้ด (ถ้ามี)" className="h-9 text-sm" />
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="minimumQuantity" className="text-xs">ขั้นต่ำ</Label>
-                <Input id="minimumQuantity" type="number" min="0" {...register("minimumQuantity")} className="h-9 text-sm" />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="unit" className="text-xs">หน่วย</Label>
-                <Input id="unit" {...register("unit")} placeholder="pcs" className="h-9 text-sm" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <div className="flex gap-3">
-          <Link href="/liff" className="flex-1">
-            <Button variant="outline" type="button" className="w-full">
-              ยกเลิก
+          <Card>
+            <CardContent className="p-4 space-y-3">
+              <p className="text-sm font-medium">ข้อมูลสต็อก</p>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="quantity" className="text-xs">จำนวน</Label>
+                  <Input id="quantity" type="number" min="0" {...register("quantity")} className="h-9 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="minimumQuantity" className="text-xs">ขั้นต่ำ</Label>
+                  <Input id="minimumQuantity" type="number" min="0" {...register("minimumQuantity")} className="h-9 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="unit" className="text-xs">หน่วย</Label>
+                  <Input id="unit" {...register("unit")} placeholder="pcs" className="h-9 text-sm" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="flex gap-3">
+            <Link href="/liff" className="flex-1">
+              <Button variant="outline" type="button" className="w-full">
+                ยกเลิก
+              </Button>
+            </Link>
+            <Button type="submit" className="flex-1" disabled={isSubmitting}>
+              {isSubmitting && <Loader2 className="size-4 mr-2 animate-spin" />}
+              บันทึก
             </Button>
-          </Link>
-          <Button type="submit" className="flex-1" disabled={isSubmitting}>
-            {isSubmitting && <Loader2 className="size-4 mr-2 animate-spin" />}
-            บันทึก
-          </Button>
-        </div>
-      </form>
+          </div>
+        </form>
+      )}
     </div>
   );
 }
