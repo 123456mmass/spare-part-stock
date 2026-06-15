@@ -614,7 +614,7 @@ export function createAddPreviewFlex(
           contents: [
             {
               type: "button",
-              action: { type: "uri", label: "✏️ แก้ไข", uri: liffPath(`add-part?lineSid=${encodeURIComponent(sessionId)}`) },
+              action: { type: "uri", label: "✏️ แก้ไข", uri: liffPath(`?lineSid=${encodeURIComponent(sessionId)}`) },
               style: "secondary",
               flex: 1,
             },

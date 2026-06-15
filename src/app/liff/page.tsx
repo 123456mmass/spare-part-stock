@@ -5,7 +5,7 @@ import { useLiffAuth } from "@/lib/liff-auth";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { QrCode, PackageOpen, PlusCircle, Image, LogOut, Search } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 const MENU = [
   {
@@ -53,12 +53,24 @@ const MENU = [
 export default function LiffHome() {
   const { user, status, logout } = useLiffAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     if (status === "unlinked") {
       router.replace("/liff/link");
     }
   }, [status, router]);
+
+  // When LIFF opens with ?lineSid=..., redirect to add-part page
+  // This handles the case where LINE Flex "แก้ไข" button opens LIFF
+  // but the LIFF redirect lands on the home page instead of the sub-path.
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    const lineSid = searchParams.get("lineSid");
+    if (lineSid) {
+      router.replace(`/liff/add-part?lineSid=${encodeURIComponent(lineSid)}`);
+    }
+  }, [status, searchParams, router]);
 
   if (status !== "authenticated" || !user) return null;
 
