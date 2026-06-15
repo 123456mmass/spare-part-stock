@@ -863,8 +863,10 @@ async function handlePartImageAdd(
   // Open the LIFF add-part page using LIFF deep link (liff.line.me/ID/path)
   // so LINE opens it in the LIFF in-app browser, NOT external browser.
   // Web URLs (spare.birdsphichitchai.dev/liff/...) cause LIFF SDK to fail.
+  // LIFF endpoint is https://spare.birdsphichitchai.dev/liff, so
+  // liff.line.me/{ID}/add-part maps to /liff/add-part (NOT /liff/liff/add-part).
   const LIFF_ID = process.env.NEXT_PUBLIC_LIFF_ID || "2010187689-ZCU84P4L";
-  const liffUrl = `https://liff.line.me/${LIFF_ID}/liff?lineSid=${encodeURIComponent(session.id)}`;
+  const liffUrl = `https://liff.line.me/${LIFF_ID}/add-part?lineSid=${encodeURIComponent(session.id)}`;
 
   await pushOrReply(pushTarget, replyToken, [
     {
