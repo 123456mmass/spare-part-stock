@@ -7,6 +7,7 @@ import { callPartAi, parseJsonObject } from "@/lib/ai-client";
 import { resolvePartFromCode } from "@/lib/part-lookup";
 import { getStorageSummary } from "@/lib/storage-summary";
 import { embedImageWithMetadata, cosineSimilarity, bytesToFloat32 } from "@/lib/embeddings";
+import { searchPartsByTextEmbedding, hasTextEmbeddings, type TextSearchMatch } from "@/lib/part-text-search";
 import { rerankByVision } from "@/lib/image-rerank";
 import { suggestPartFromImage } from "@/lib/part-ai";
 
@@ -415,6 +416,28 @@ export async function searchPartsForLine(
 
   const keywords = await expandSearchKeywords(keyword);
 
+  // Run SQL search and vector search in parallel (hybrid search)
+  const canUseVectorSearch = keyword.length >= 2;
+  const [sqlResults, vectorResults] = await Promise.all([
+    runSqlSearch(args, keywords, limit),
+    canUseVectorSearch ? runVectorSearch(keyword, args, limit) : Promise.resolve([]),
+  ]);
+
+  // Merge: SQL results are authoritative, vector results add semantic matches
+  if (vectorResults.length === 0) {
+    return sqlResults;
+  }
+
+  return mergeHybridResults(sqlResults, vectorResults, keywords, limit);
+}
+
+// ── Hybrid search helpers ────────────────────────────────────────────
+
+async function runSqlSearch(
+  args: LinePartSearchArgs,
+  keywords: string[],
+  limit: number,
+): Promise<LinePartSearchResult[]> {
   async function runSearch(useLocators: boolean) {
     const locatorFilters: Prisma.PartWhereInput[] = [];
     if (useLocators) {
@@ -492,10 +515,87 @@ export async function searchPartsForLine(
 
   const hasLocators = Boolean(args.buildingId || args.building || args.plant);
   const strictResults = await runSearch(hasLocators);
-  if (strictResults.length > 0 || !hasLocators || !keyword)
+  if (strictResults.length > 0 || !hasLocators || !args.keyword.trim())
     return strictResults;
 
   return runSearch(false);
+}
+
+async function runVectorSearch(
+  keyword: string,
+  args: LinePartSearchArgs,
+  limit: number,
+): Promise<TextSearchMatch[]> {
+  // Skip if no parts have text embeddings yet
+  const hasEmbeddings = await hasTextEmbeddings();
+  if (!hasEmbeddings) return [];
+
+  try {
+    return await searchPartsByTextEmbedding(keyword, {
+      limit: Math.max(limit, 5),
+      minSimilarity: 0.45,
+      plant: args.plant ?? undefined,
+      buildingId: args.buildingId ?? undefined,
+      buildingName: args.building ?? undefined,
+    });
+  } catch (error) {
+    console.error("Vector search failed, falling back to SQL-only:", error);
+    return [];
+  }
+}
+
+async function mergeHybridResults(
+  sqlResults: LinePartSearchResult[],
+  vectorResults: TextSearchMatch[],
+  keywords: string[],
+  limit: number,
+): Promise<LinePartSearchResult[]> {
+  // Start with SQL results (authoritative, already scored)
+  const seenIds = new Set(sqlResults.map((p) => p.id));
+  const merged = [...sqlResults];
+
+  // Add vector-only matches that SQL didn't find
+  // Load full Part records for vector matches not already in SQL results
+  const vectorOnlyIds = vectorResults
+    .filter((v) => !seenIds.has(v.id))
+    .map((v) => v.id);
+
+  if (vectorOnlyIds.length > 0) {
+    const extraParts = await prisma.part.findMany({
+      where: { id: { in: vectorOnlyIds } },
+      include: {
+        category: { select: { name: true } },
+        building: { select: { name: true } },
+      },
+    });
+
+    // Sort extra parts by vector similarity
+    const similarityMap = new Map(vectorResults.map((v) => [v.id, v.similarity]));
+    extraParts.sort((a, b) => {
+      const simA = similarityMap.get(a.id) ?? 0;
+      const simB = similarityMap.get(b.id) ?? 0;
+      return simB - simA;
+    });
+
+    for (const part of extraParts) {
+      // Remove imageEmbedding to match LinePartSearchResult type
+      const { imageEmbedding, ...rest } = part;
+      void imageEmbedding;
+      merged.push(rest as LinePartSearchResult);
+    }
+  }
+
+  // Re-score all results with combined SQL + vector score
+  const scored = merged.map((part) => {
+    const sqlScore = scorePartSearchMatch(part, keywords);
+    const vectorMatch = vectorResults.find((v) => v.id === part.id);
+    const vectorScore = vectorMatch ? vectorMatch.similarity * 30 : 0;
+    return { part, score: sqlScore + vectorScore };
+  });
+
+  scored.sort((a, b) => b.score - a.score || b.part.quantity - a.part.quantity);
+
+  return scored.slice(0, limit).map(({ part }) => part);
 }
 
 function scorePartSearchMatch(
