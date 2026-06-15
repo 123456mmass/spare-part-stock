@@ -94,10 +94,11 @@ export function verifyLineSignature(body: string, signature: string): boolean {
 }
 
 interface LineReplyMessage {
-  type: "text" | "flex";
+  type: "text" | "flex" | "template";
   text?: string;
   altText?: string;
   contents?: unknown;
+  template?: unknown;
 }
 
 export async function sendLineReply(

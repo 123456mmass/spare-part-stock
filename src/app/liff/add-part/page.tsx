@@ -157,10 +157,26 @@ export default function LiffAddPartPage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ status: "saved", createdPartId: part.id }),
           }).catch(() => { /* best-effort */ });
+
+          // Push success message + search card back to LINE chat
+          await liffFetch("/api/liff/parts/push-success", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ lineSid: sid, partId: part.id }),
+          }).catch(() => { /* best-effort */ });
         }
 
         toast({ title: "สร้างอะไหล่สำเร็จ" });
-        router.push("/liff");
+
+        // Close LIFF window and return to LINE chat
+        try {
+          const mod = await import("@line/liff");
+          const liff = mod.default;
+          liff.closeWindow();
+        } catch {
+          // Fallback: go to LIFF home
+          router.push("/liff");
+        }
       } else {
         const error = await res.json();
         toast({ title: "เกิดข้อผิดพลาด", description: error.error, variant: "destructive" });

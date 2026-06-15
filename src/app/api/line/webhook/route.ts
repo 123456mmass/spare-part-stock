@@ -855,67 +855,32 @@ async function handlePartImageAdd(
   replyToken: string,
   sid: string | null,
   pushTarget?: string,
-  preserveLocation?: { plant?: string; buildingId?: string; buildingName?: string },
+  _preserveLocation?: { plant?: string; buildingId?: string; buildingName?: string },
 ) {
   const session = await requireImageSession(sid, userId, replyToken);
   if (!session) return;
 
-  const locked = await acquireImageSessionProcessing(session.id, "part_image_add");
-  if (!locked) {
-    await sendLineReply(replyToken, [
-      createTextMessage("กำลังวิเคราะห์รูปนี้อยู่ครับ รอสักครู่ ผลลัพธ์จะตามมาในแชทนี้"),
-    ]);
-    return;
-  }
+  // Instead of showing a Flex preview card in LINE, open the LIFF add-part
+  // page which will load the image and auto-trigger AI suggest.
+  const liffUrl = `${process.env.NEXT_PUBLIC_APP_URL || "https://spare.birdsphichitchai.dev"}/liff?lineSid=${encodeURIComponent(session.id)}`;
 
-  // Only send progress if pushTarget available (replyToken is one-shot)
-  if (pushTarget) {
-    await sendLineReply(replyToken, [
-      createTextMessage("กำลังวิเคราะห์รูปเพื่อเพิ่มอะไหล่ใหม่ครับ รอสักครู่..."),
-    ]);
-  }
-
-  try {
-    await setImageSessionStatus(session.id, "analyzing");
-
-    const buffer = Buffer.from(session.imageBase64, "base64");
-    const file = new File([buffer], "line-image.jpg", { type: "image/jpeg" });
-    const suggestion = await suggestPartFromImage(file);
-
-    const preview: AddPreviewSuggestion = {
-      partNumber: suggestion.partNumber,
-      partName: suggestion.partName,
-      categoryName: suggestion.categoryName || "อะไหล่",
-      subcategory: suggestion.subcategory || "",
-      confidence: suggestion.confidence ?? 0,
-      description: suggestion.description || "",
-      notes: suggestion.notes || "",
-      unit: suggestion.unit || "pcs",
-      categoryId: suggestion.categoryId,
-      matchedCategoryName: suggestion.matchedCategoryName,
-      barcodeValue: suggestion.barcodeValue,
-      quantity: suggestion.quantity ?? 1,
-      minimumQuantity: suggestion.minimumQuantity ?? 1,
-      location: suggestion.location ?? "",
-      plant: preserveLocation?.plant || "",
-      buildingId: preserveLocation?.buildingId || "",
-      buildingName: preserveLocation?.buildingName || "",
-      status: "preview_ready",
-    };
-
-    await updateImageSessionSuggestion(session.id, preview);
-    await releaseImageSessionProcessing(session.id);
-
-    const buildings = await listBuildingsForFlex();
-    await pushOrReply(pushTarget, replyToken, [
-      createFlexMessage("พรีวิว", createAddPreviewFlex(preview, session.id, buildings)),
-    ]);
-  } catch (error) {
-    await releaseImageSessionProcessing(session.id);
-    await pushOrReply(pushTarget, replyToken, [
-      createTextMessage(error instanceof Error ? error.message : "วิเคราะห์รูปไม่สำเร็จ กรุณาลองใหม่"),
-    ]);
-  }
+  await pushOrReply(pushTarget, replyToken, [
+    {
+      type: "template",
+      altText: "เพิ่มอะไหล่ใหม่จากรูป",
+      template: {
+        type: "buttons",
+        text: "📸 กดปุ่มด้านล่างเพื่อเพิ่มอะไหล่\nระบบจะวิเคราะห์รูปและกรอกข้อมูลให้อัตโนมัติ",
+        actions: [
+          {
+            type: "uri",
+            label: "➕ เพิ่มอะไหล่ใหม่",
+            uri: liffUrl,
+          },
+        ],
+      },
+    },
+  ]);
 }
 
 // ── Part add confirm handler ───────────────────────────────────────
