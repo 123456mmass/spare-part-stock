@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import liff from "@line/liff";
 import { liffFetch } from "@/lib/liff-api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,59 +15,23 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toaster";
 import { ArrowLeft, Loader2, Sparkles, Camera, Upload, X, Check, ChevronRight, ChevronLeft, Package } from "lucide-react";
+import {
+  MAX_IMAGES,
+  wizardFormSchema,
+  EMPTY_FORM,
+  readFileAsDataURL,
+  applySuggestionToValues,
+  stockStatus,
+  type ImageEntry,
+  type WizardFormValues,
+  type WizardStep,
+} from "@/lib/multi-image-wizard";
 
 const BLOCK_OPTIONS = ["BLOCK 1", "BLOCK 2", "SPECIAL PART"] as const;
 const BUILDING_OPTIONS = [
   { id: "cmppnrh1q0000rcrzhziogf8k", name: "ท.003" },
   { id: "cmpppo7wy0000j1rzph90nwhr", name: "ท.021" },
 ] as const;
-
-const MAX_IMAGES = 10;
-
-// Form schema — base fields without superRefine so zodResolver is type-safe.
-// Complex cross-field validation (plant required unless special tool) is
-// done in onSubmit before sending to the API.
-const formSchema = z.object({
-  partNumber: z.string().optional(),
-  partName: z.string().min(1, "กรุณากรอกชื่ออะไหล่").regex(/^[^<>]+$/, "ห้ามมี < หรือ >"),
-  description: z.string().regex(/^[^<>]*$/, "ห้ามมี < หรือ >").optional(),
-  categoryName: z.string().optional(),
-  subcategory: z.string().optional(),
-  plant: z.string().optional(),
-  buildingId: z.string().min(1, "กรุณาเลือกอาคาร"),
-  location: z.string().regex(/^[^<>]*$/, "ห้ามมี < หรือ >").optional(),
-  quantity: z.number().min(0, "จำนวนต้องเป็น 0 ขึ้นไป"),
-  minimumQuantity: z.number().min(0, "ขั้นต่ำต้องเป็น 0 ขึ้นไป"),
-  unit: z.string().min(1, "กรุณากรอกหน่วย").regex(/^[^<>]+$/, "ห้ามมี < หรือ >"),
-  barcodeValue: z.string().optional(),
-});
-
-type FormValues = z.infer<typeof formSchema>;
-
-const EMPTY_FORM: FormValues = {
-  partNumber: "",
-  partName: "",
-  description: "",
-  categoryName: "",
-  subcategory: "",
-  plant: "",
-  buildingId: "",
-  location: "",
-  quantity: 0,
-  minimumQuantity: 0,
-  unit: "pcs",
-  barcodeValue: "",
-};
-
-interface ImageEntry {
-  file: File;
-  preview: string;
-  suggestion: Record<string, unknown> | null;
-  formValues: FormValues;
-  analyzed: boolean;
-}
-
-type Step = "upload" | "review" | "summary";
 
 interface PartSuggestion {
   partNumber?: string;
@@ -84,43 +47,6 @@ interface PartSuggestion {
   minimumQuantity?: number;
   matchedCategoryName?: string;
   categoryName?: string;
-}
-
-function applySuggestionToValues(s: PartSuggestion | null): Partial<FormValues> {
-  if (!s) return {};
-  const out: Partial<FormValues> = {};
-  if (s.partNumber) out.partNumber = s.partNumber;
-  if (s.partName) out.partName = s.partName;
-  if (s.description) out.description = s.description;
-  if (s.location) out.location = s.location;
-  if (s.unit) out.unit = s.unit;
-  if (s.barcodeValue) out.barcodeValue = s.barcodeValue;
-  if (s.subcategory) out.subcategory = s.subcategory;
-  if (s.plant && BLOCK_OPTIONS.includes(s.plant as (typeof BLOCK_OPTIONS)[number])) out.plant = s.plant;
-  if (s.buildingId) out.buildingId = s.buildingId;
-  if (Number.isFinite(s.quantity)) out.quantity = s.quantity as number;
-  if (Number.isFinite(s.minimumQuantity)) out.minimumQuantity = s.minimumQuantity as number;
-  const cat = s.matchedCategoryName || s.categoryName;
-  if (cat) out.categoryName = cat;
-  return out;
-}
-
-function readFileAsDataURL(file: File): Promise<string> {
-  const { promise, resolve, reject } = Promise.withResolvers<string>();
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const result = e.target?.result;
-    if (typeof result === "string") resolve(result);
-    else reject(new Error("Failed to read file as data URL"));
-  };
-  reader.onerror = () => reject(new Error("FileReader error"));
-  reader.readAsDataURL(file);
-  return promise;
-}
-
-function stockStatus(qty: number): { label: string; color: string } {
-  if (qty <= 0) return { label: "หมด", color: "text-red-600" };
-  return { label: `${qty}`, color: "text-green-600" };
 }
 
 /* ── Skeleton ──────────────────────────────────────────────────── */
@@ -153,7 +79,7 @@ export default function LiffAddPartPage() {
   const searchParams = useSearchParams();
   const { toast } = useToast();
 
-  const [step, setStep] = useState<Step>("upload");
+  const [step, setStep] = useState<WizardStep>("upload");
   const [images, setImages] = useState<ImageEntry[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -172,8 +98,8 @@ export default function LiffAddPartPage() {
     watch,
     reset,
     formState: { errors },
-  } = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
+  } = useForm<WizardFormValues>({
+    resolver: zodResolver(wizardFormSchema),
     defaultValues: EMPTY_FORM,
   });
 
@@ -349,7 +275,7 @@ export default function LiffAddPartPage() {
 
   // ── Submit all ──
 
-  const onReviewSubmit = (_data: FormValues) => {
+  const onReviewSubmit = () => {
     saveCurrentForm();
     if (currentIndex < images.length - 1) {
       nextImage();
