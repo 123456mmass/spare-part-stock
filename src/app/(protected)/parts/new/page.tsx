@@ -134,7 +134,7 @@ export default function NewPartPage() {
     let successCount = 0;
     const updated = await Promise.all(
       images.map(async (entry) => {
-        if (entry.analyzed) return entry;
+        if (entry.analyzed || !entry.file) return entry;
         try {
           const formData = new FormData();
           formData.append("file", entry.file);
@@ -166,10 +166,12 @@ export default function NewPartPage() {
   // ── Review navigation ──
 
   function goToReview() {
-    if (images.length === 0) return;
+    if (images.length === 0) {
+      setImages([{ file: null, preview: null, suggestion: null, formValues: { ...EMPTY_FORM }, analyzed: true, isManual: true }]);
+    }
     setCurrentIndex(0);
     setStep("review");
-    reset(images[0].formValues);
+    reset(images[0]?.formValues ?? EMPTY_FORM);
   }
 
   function saveCurrentForm() {
@@ -229,13 +231,14 @@ export default function NewPartPage() {
 
         if (res.ok) {
           const part = await res.json();
-          // Upload image
-          const imgFormData = new FormData();
-          imgFormData.append("file", entry.file);
-          await fetch(`/api/parts/${part.id}/upload-image`, {
-            method: "POST",
-            body: imgFormData,
-          }).catch(() => { /* best-effort */ });
+          if (entry.file) {
+            const imgFormData = new FormData();
+            imgFormData.append("file", entry.file);
+            await fetch(`/api/parts/${part.id}/upload-image`, {
+              method: "POST",
+              body: imgFormData,
+            }).catch(() => { /* best-effort */ });
+          }
           results.push({ partNumber: v.partNumber || part.partNumber, partName: v.partName, ok: true, partId: part.id });
         } else {
           results.push({ partNumber: v.partNumber || "(error)", partName: v.partName, ok: false });
@@ -301,8 +304,12 @@ export default function NewPartPage() {
               <div className="grid grid-cols-5 gap-3 mb-4">
                 {images.map((entry, i) => (
                   <div key={i} className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 group">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={entry.preview} alt={`รูป ${i + 1}`} className="w-full h-full object-cover" />
+                    {entry.preview ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img src={entry.preview} alt={`รูป ${i + 1}`} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-slate-400"><Package className="h-6 w-6" /></div>
+                    )}
                     {entry.analyzed && (
                       <div className="absolute top-1 right-1 bg-green-500 rounded-full p-0.5">
                         <Check className="h-3 w-3 text-white" />
@@ -365,9 +372,14 @@ export default function NewPartPage() {
             )}
           </Card>
 
-          {images.length > 0 && (
+          {images.length > 0 ? (
             <Button onClick={goToReview} className="w-full h-11" variant="gold">
               ถัดไป: ตรวจสอบข้อมูล
+              <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
+          ) : (
+            <Button onClick={goToReview} className="w-full h-11" variant="outline">
+              ไม่มีรูป ถัดไปกรอกข้อมูล
               <ChevronRight className="h-4 w-4 ml-1" />
             </Button>
           )}
@@ -382,9 +394,16 @@ export default function NewPartPage() {
             <div className="lg:col-span-1">
               <div className="lg:sticky lg:top-6 space-y-4">
                 <Card className="overflow-hidden">
-                  <div className="relative aspect-square bg-gradient-to-br from-slate-100 to-slate-200">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={images[currentIndex]?.preview} alt="อะไหล่" className="absolute inset-0 h-full w-full object-contain bg-white" />
+                  <div className="relative aspect-square bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-slate-400">
+                    {images[currentIndex]?.preview ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img src={images[currentIndex].preview} alt="อะไหล่" className="absolute inset-0 h-full w-full object-contain bg-white" />
+                    ) : (
+                      <div className="text-center">
+                        <Package className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                        <span className="text-xs">ไม่มีรูป</span>
+                      </div>
+                    )}
                     <div className="absolute top-3 left-3 bg-black/60 text-white text-xs px-2 py-1 rounded-full">
                       รูปที่ {currentIndex + 1}/{images.length}
                     </div>
@@ -554,9 +573,13 @@ export default function NewPartPage() {
                     const status = stockStatus(v.quantity);
                     return (
                       <div key={i} className="flex items-center gap-3 p-3 rounded-lg border border-slate-200">
-                        <div className="w-14 h-14 rounded-lg bg-slate-100 overflow-hidden flex-shrink-0">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={entry.preview} alt="" className="w-full h-full object-cover" />
+                        <div className="w-14 h-14 rounded-lg bg-slate-100 overflow-hidden flex-shrink-0 flex items-center justify-center text-slate-400">
+                          {entry.preview ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img src={entry.preview} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <Package className="h-6 w-6 opacity-50" />
+                          )}
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate text-slate-900">{v.partName || "(ไม่มีชื่อ)"}</p>

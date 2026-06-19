@@ -48,13 +48,14 @@ export const EMPTY_FORM: WizardFormValues = {
   barcodeValue: "",
 };
 
-/** One image + its AI suggestion + form values in the wizard. */
+/** One image + its AI suggestion + form values in the wizard. file/preview may be null for manual entry. */
 export interface ImageEntry {
-  file: File;
-  preview: string;
+  file: File | null;
+  preview: string | null;
   suggestion: Record<string, unknown> | null;
   formValues: WizardFormValues;
   analyzed: boolean;
+  isManual?: boolean;
 }
 
 export type WizardStep = "upload" | "review" | "summary";

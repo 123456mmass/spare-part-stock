@@ -22,6 +22,7 @@ import {
   readFileAsDataURL,
   applySuggestionToValues,
   stockStatus,
+  validatePlant,
   type ImageEntry,
   type WizardFormValues,
   type WizardStep,
@@ -207,10 +208,11 @@ export default function LiffAddPartPage() {
     let successCount = 0;
     const updated = await Promise.all(
       images.map(async (entry) => {
-        if (entry.analyzed) return entry;
+        if (entry.analyzed || !entry.file) return entry;
+        const file = entry.file;
         try {
           const formData = new FormData();
-          formData.append("file", entry.file);
+          formData.append("file", file);
           const res = await liffFetch("/api/liff/parts/ai-suggest", { method: "POST", body: formData });
           const payload = await res.json();
           if (!res.ok) throw new Error(payload.error || "AI failed");
@@ -239,10 +241,12 @@ export default function LiffAddPartPage() {
   // ── Review navigation ──
 
   function goToReview() {
-    if (images.length === 0) return;
+    if (images.length === 0) {
+      setImages([{ file: null, preview: null, suggestion: null, formValues: { ...EMPTY_FORM }, analyzed: true, isManual: true }]);
+    }
     setCurrentIndex(0);
     setStep("review");
-    reset(images[0].formValues);
+    reset(images[0]?.formValues ?? EMPTY_FORM);
   }
 
   function nextImage() {
@@ -294,8 +298,8 @@ export default function LiffAddPartPage() {
       const entry = images[i];
       const v = entry.formValues;
 
-      // Validate plant requirement
-      if (!v.plant || v.plant.trim() === "") {
+      const plantError = validatePlant(v);
+      if (plantError) {
         results.push({ partNumber: v.partNumber || "(ไม่มีรหัส)", partName: v.partName, ok: false });
         continue;
       }
@@ -309,13 +313,15 @@ export default function LiffAddPartPage() {
 
         if (res.ok) {
           const part = await res.json();
-          // Upload image
-          const imgFormData = new FormData();
-          imgFormData.append("file", entry.file);
-          await liffFetch(`/api/liff/parts/${part.id}/upload-image`, {
-            method: "POST",
-            body: imgFormData,
-          }).catch(() => { /* best-effort */ });
+          if (entry.file) {
+            const file = entry.file;
+            const imgFormData = new FormData();
+            imgFormData.append("file", file);
+            await liffFetch(`/api/liff/parts/${part.id}/upload-image`, {
+              method: "POST",
+              body: imgFormData,
+            }).catch(() => { /* best-effort */ });
+          }
           results.push({ partNumber: v.partNumber || part.partNumber, partName: v.partName, ok: true });
         } else {
           results.push({ partNumber: v.partNumber || "(error)", partName: v.partName, ok: false });
@@ -402,8 +408,12 @@ export default function LiffAddPartPage() {
                 <div className="grid grid-cols-4 gap-2">
                   {images.map((entry, i) => (
                     <div key={i} className="relative aspect-square rounded-lg overflow-hidden bg-muted group">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={entry.preview} alt={`รูป ${i + 1}`} className="w-full h-full object-cover" />
+                      {entry.preview ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={entry.preview} alt={`รูป ${i + 1}`} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-slate-400"><Package className="size-6" /></div>
+                      )}
                       {entry.analyzed && (
                         <div className="absolute top-1 right-1 bg-green-500 rounded-full p-0.5">
                           <Check className="size-3 text-white" />
@@ -474,9 +484,14 @@ export default function LiffAddPartPage() {
             </CardContent>
           </Card>
 
-          {images.length > 0 && (
+          {images.length > 0 ? (
             <Button onClick={goToReview} className="w-full" size="lg">
               ถัดไป: ตรวจสอบข้อมูล
+              <ChevronRight className="size-4 ml-1" />
+            </Button>
+          ) : (
+            <Button onClick={goToReview} className="w-full" variant="outline" size="lg">
+              ไม่มีรูป ถัดไปกรอกข้อมูล
               <ChevronRight className="size-4 ml-1" />
             </Button>
           )}
@@ -488,9 +503,16 @@ export default function LiffAddPartPage() {
         <form onSubmit={handleSubmit(onReviewSubmit)} className="space-y-4">
           {/* Current image preview */}
           <Card className="overflow-hidden">
-            <div className="relative aspect-[4/3] bg-muted">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={images[currentIndex]?.preview} alt="อะไหล่" className="w-full h-full object-contain" />
+            <div className="relative aspect-[4/3] bg-muted flex items-center justify-center text-slate-400">
+              {images[currentIndex]?.preview ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={images[currentIndex].preview} alt="อะไหล่" className="w-full h-full object-contain" />
+              ) : (
+                <div className="text-center">
+                  <Package className="size-12 mx-auto mb-1 opacity-50" />
+                  <span className="text-xs">ไม่มีรูป</span>
+                </div>
+              )}
               <div className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full">
                 รูปที่ {currentIndex + 1}/{images.length}
               </div>
@@ -614,9 +636,13 @@ export default function LiffAddPartPage() {
                     const status = stockStatus(v.quantity);
                     return (
                       <div key={i} className="flex items-center gap-3 p-2 rounded-lg border border-slate-200">
-                        <div className="w-12 h-12 rounded bg-muted overflow-hidden flex-shrink-0">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={entry.preview} alt="" className="w-full h-full object-cover" />
+                        <div className="w-12 h-12 rounded bg-muted overflow-hidden flex-shrink-0 flex items-center justify-center text-slate-400">
+                          {entry.preview ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img src={entry.preview} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <Package className="size-5" />
+                          )}
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">{v.partName || "(ไม่มีชื่อ)"}</p>
