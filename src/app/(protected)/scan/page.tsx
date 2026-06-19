@@ -42,6 +42,7 @@ export default function ScanPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const stopCamera = useCallback(() => {
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -203,6 +204,40 @@ export default function ScanPage() {
     startCamera();
   };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "ไฟล์ไม่ใช่รูปภาพ", variant: "destructive" });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => setCapturedPreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+    setSearching(true);
+    setMatches(null);
+
+    const formData = new FormData();
+    formData.append("file", file);
+    fetch("/api/parts/search-by-image", { method: "POST", body: formData })
+      .then(async (res) => {
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          toast({ title: "ค้นหาด้วยรูปไม่สำเร็จ", description: data.error || `HTTP ${res.status}`, variant: "destructive" });
+          return;
+        }
+        const data = (await res.json()) as { matches: Match[] };
+        setMatches(data.matches);
+        if (data.matches.length === 0) {
+          toast({ title: "ไม่พบอะไหล่ที่ตรง", description: "ลองรูปอื่นหรือมุมที่ต่างออกไป", variant: "destructive" });
+        }
+      })
+      .catch((err) => {
+        toast({ title: "เกิดข้อผิดพลาด", description: (err as Error).message, variant: "destructive" });
+      })
+      .finally(() => setSearching(false));
+  };
+
   useEffect(() => {
     return () => stopCamera();
   }, [stopCamera]);
@@ -248,6 +283,21 @@ export default function ScanPage() {
           <Button size="lg" variant="gold" onClick={startCamera} className="w-full">
             เปิดกล้อง
           </Button>
+          {mode === "image" && (
+            <div className="mt-3">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleFileSelect}
+              />
+              <Button size="lg" variant="outline" className="w-full" onClick={() => fileInputRef.current?.click()}>
+                <ImageIcon className="h-5 w-5 mr-2" />
+                เลือกรูปจากคลัง
+              </Button>
+            </div>
+          )}
           {error && (
             <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2 text-left">
               <XCircle className="h-4 w-4 flex-shrink-0" />
@@ -261,18 +311,20 @@ export default function ScanPage() {
         <Card className="overflow-hidden">
           <div className="relative aspect-[4/3] bg-slate-900 overflow-hidden">
             <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div
-                className="relative w-64 h-48 border-2 border-amber-300/80 rounded-lg"
-                style={{ boxShadow: "0 0 0 9999px rgba(0,0,0,0.4)" }}
-              >
-                <div className="absolute -top-0 -left-0 h-5 w-5 border-t-2 border-l-2 border-amber-300 rounded-tl-lg" />
-                <div className="absolute -top-0 -right-0 h-5 w-5 border-t-2 border-r-2 border-amber-300 rounded-tr-lg" />
-                <div className="absolute -bottom-0 -left-0 h-5 w-5 border-b-2 border-l-2 border-amber-300 rounded-bl-lg" />
-                <div className="absolute -bottom-0 -right-0 h-5 w-5 border-b-2 border-r-2 border-amber-300 rounded-br-lg" />
-                {mode === "barcode" && <div className="scanline" />}
+            {mode === "barcode" && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div
+                  className="relative w-64 h-48 border-2 border-amber-300/80 rounded-lg"
+                  style={{ boxShadow: "0 0 0 9999px rgba(0,0,0,0.4)" }}
+                >
+                  <div className="absolute -top-0 -left-0 h-5 w-5 border-t-2 border-l-2 border-amber-300 rounded-tl-lg" />
+                  <div className="absolute -top-0 -right-0 h-5 w-5 border-t-2 border-r-2 border-amber-300 rounded-tr-lg" />
+                  <div className="absolute -bottom-0 -left-0 h-5 w-5 border-b-2 border-l-2 border-amber-300 rounded-bl-lg" />
+                  <div className="absolute -bottom-0 -right-0 h-5 w-5 border-b-2 border-r-2 border-amber-300 rounded-br-lg" />
+                  <div className="scanline" />
+                </div>
               </div>
-            </div>
+            )}
             {mode === "barcode" ? (
               <div className="absolute top-3 left-3 flex items-center gap-1.5 rounded-full bg-black/40 px-2.5 py-1 text-[11px] text-white">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />

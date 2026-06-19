@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import liff from "@line/liff";
 import { liffFetch } from "@/lib/liff-api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { partSchema } from "@/lib/validators";
+import { z } from "zod";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toaster";
-import { ArrowLeft, Loader2, Sparkles, Camera, Upload } from "lucide-react";
+import { ArrowLeft, Loader2, Sparkles, Camera, Upload, X, Check, ChevronRight, ChevronLeft, Package } from "lucide-react";
 
 const BLOCK_OPTIONS = ["BLOCK 1", "BLOCK 2", "SPECIAL PART"] as const;
 const BUILDING_OPTIONS = [
@@ -22,22 +23,107 @@ const BUILDING_OPTIONS = [
   { id: "cmpppo7wy0000j1rzph90nwhr", name: "ท.021" },
 ] as const;
 
-interface FormValues {
-  partNumber: string;
-  partName: string;
-  quantity: number;
-  minimumQuantity: number;
-  unit: string;
-  description?: string;
-  categoryName?: string;
-  subcategory?: string;
-  plant?: string;
-  buildingId: string;
-  location?: string;
-  barcodeValue?: string;
+const MAX_IMAGES = 10;
+
+// Form schema — base fields without superRefine so zodResolver is type-safe.
+// Complex cross-field validation (plant required unless special tool) is
+// done in onSubmit before sending to the API.
+const formSchema = z.object({
+  partNumber: z.string().optional(),
+  partName: z.string().min(1, "กรุณากรอกชื่ออะไหล่").regex(/^[^<>]+$/, "ห้ามมี < หรือ >"),
+  description: z.string().regex(/^[^<>]*$/, "ห้ามมี < หรือ >").optional(),
+  categoryName: z.string().optional(),
+  subcategory: z.string().optional(),
+  plant: z.string().optional(),
+  buildingId: z.string().min(1, "กรุณาเลือกอาคาร"),
+  location: z.string().regex(/^[^<>]*$/, "ห้ามมี < หรือ >").optional(),
+  quantity: z.number().min(0, "จำนวนต้องเป็น 0 ขึ้นไป"),
+  minimumQuantity: z.number().min(0, "ขั้นต่ำต้องเป็น 0 ขึ้นไป"),
+  unit: z.string().min(1, "กรุณากรอกหน่วย").regex(/^[^<>]+$/, "ห้ามมี < หรือ >"),
+  barcodeValue: z.string().optional(),
+});
+
+type FormValues = z.infer<typeof formSchema>;
+
+const EMPTY_FORM: FormValues = {
+  partNumber: "",
+  partName: "",
+  description: "",
+  categoryName: "",
+  subcategory: "",
+  plant: "",
+  buildingId: "",
+  location: "",
+  quantity: 0,
+  minimumQuantity: 0,
+  unit: "pcs",
+  barcodeValue: "",
+};
+
+interface ImageEntry {
+  file: File;
+  preview: string;
+  suggestion: Record<string, unknown> | null;
+  formValues: FormValues;
+  analyzed: boolean;
 }
 
-/* ── Skeleton components ────────────────────────────────────────── */
+type Step = "upload" | "review" | "summary";
+
+interface PartSuggestion {
+  partNumber?: string;
+  partName?: string;
+  description?: string;
+  location?: string;
+  unit?: string;
+  barcodeValue?: string;
+  subcategory?: string;
+  plant?: string;
+  buildingId?: string;
+  quantity?: number;
+  minimumQuantity?: number;
+  matchedCategoryName?: string;
+  categoryName?: string;
+}
+
+function applySuggestionToValues(s: PartSuggestion | null): Partial<FormValues> {
+  if (!s) return {};
+  const out: Partial<FormValues> = {};
+  if (s.partNumber) out.partNumber = s.partNumber;
+  if (s.partName) out.partName = s.partName;
+  if (s.description) out.description = s.description;
+  if (s.location) out.location = s.location;
+  if (s.unit) out.unit = s.unit;
+  if (s.barcodeValue) out.barcodeValue = s.barcodeValue;
+  if (s.subcategory) out.subcategory = s.subcategory;
+  if (s.plant && BLOCK_OPTIONS.includes(s.plant as (typeof BLOCK_OPTIONS)[number])) out.plant = s.plant;
+  if (s.buildingId) out.buildingId = s.buildingId;
+  if (Number.isFinite(s.quantity)) out.quantity = s.quantity as number;
+  if (Number.isFinite(s.minimumQuantity)) out.minimumQuantity = s.minimumQuantity as number;
+  const cat = s.matchedCategoryName || s.categoryName;
+  if (cat) out.categoryName = cat;
+  return out;
+}
+
+function readFileAsDataURL(file: File): Promise<string> {
+  const { promise, resolve, reject } = Promise.withResolvers<string>();
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const result = e.target?.result;
+    if (typeof result === "string") resolve(result);
+    else reject(new Error("Failed to read file as data URL"));
+  };
+  reader.onerror = () => reject(new Error("FileReader error"));
+  reader.readAsDataURL(file);
+  return promise;
+}
+
+function stockStatus(qty: number): { label: string; color: string } {
+  if (qty <= 0) return { label: "หมด", color: "text-red-600" };
+  return { label: `${qty}`, color: "text-green-600" };
+}
+
+/* ── Skeleton ──────────────────────────────────────────────────── */
 
 function SkeletonLine({ className = "" }: { className?: string }) {
   return <div className={`animate-pulse bg-muted rounded ${className}`} />;
@@ -45,90 +131,18 @@ function SkeletonLine({ className = "" }: { className?: string }) {
 
 function FormSkeleton() {
   return (
-    <div className="space-y-4">
-      {/* Image + AI skeleton */}
-      <Card>
-        <CardContent className="p-4 space-y-4">
-          <SkeletonLine className="h-4 w-28" />
-          <div className="flex gap-3">
-            <SkeletonLine className="w-20 h-20 rounded-lg flex-shrink-0" />
-            <div className="flex-1 space-y-2">
-              <div className="flex gap-2">
-                <SkeletonLine className="h-8 w-20 rounded-md" />
-                <SkeletonLine className="h-8 w-20 rounded-md" />
-              </div>
-              <SkeletonLine className="h-8 w-32 rounded-md" />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Part info skeleton */}
-      <Card>
-        <CardContent className="p-4 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <SkeletonLine className="h-3 w-16" />
-              <SkeletonLine className="h-9 w-full rounded-md" />
-            </div>
-            <div className="space-y-1">
-              <SkeletonLine className="h-3 w-16" />
-              <SkeletonLine className="h-9 w-full rounded-md" />
-            </div>
-          </div>
-          <div className="space-y-1">
-            <SkeletonLine className="h-3 w-16" />
-            <SkeletonLine className="h-16 w-full rounded-md" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <SkeletonLine className="h-3 w-16" />
-              <SkeletonLine className="h-9 w-full rounded-md" />
-            </div>
-            <div className="space-y-1">
-              <SkeletonLine className="h-3 w-16" />
-              <SkeletonLine className="h-9 w-full rounded-md" />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <SkeletonLine className="h-3 w-12" />
-              <SkeletonLine className="h-9 w-full rounded-md" />
-            </div>
-            <div className="space-y-1">
-              <SkeletonLine className="h-3 w-12" />
-              <SkeletonLine className="h-9 w-full rounded-md" />
-            </div>
-          </div>
-          <div className="space-y-1">
-            <SkeletonLine className="h-3 w-12" />
-            <SkeletonLine className="h-9 w-full rounded-md" />
-          </div>
-          <div className="space-y-1">
-            <SkeletonLine className="h-3 w-14" />
-            <SkeletonLine className="h-9 w-full rounded-md" />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Stock info skeleton */}
-      <Card>
-        <CardContent className="p-4 space-y-3">
-          <SkeletonLine className="h-4 w-24" />
-          <div className="grid grid-cols-3 gap-3">
-            <SkeletonLine className="h-9 w-full rounded-md" />
-            <SkeletonLine className="h-9 w-full rounded-md" />
-            <SkeletonLine className="h-9 w-full rounded-md" />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Buttons skeleton */}
-      <div className="flex gap-3">
-        <SkeletonLine className="h-10 flex-1 rounded-md" />
-        <SkeletonLine className="h-10 flex-1 rounded-md" />
-      </div>
-    </div>
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <SkeletonLine className="h-4 w-24" />
+        <SkeletonLine className="h-9 w-full" />
+        <SkeletonLine className="h-4 w-16" />
+        <SkeletonLine className="h-9 w-full" />
+        <div className="grid grid-cols-2 gap-3">
+          <SkeletonLine className="h-9 w-full" />
+          <SkeletonLine className="h-9 w-full" />
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -138,38 +152,38 @@ export default function LiffAddPartPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
+
+  const [step, setStep] = useState<Step>("upload");
+  const [images, setImages] = useState<ImageEntry[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isAiSuggesting, setIsAiSuggesting] = useState(false);
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  // When coming from LINE, show skeleton until AI fills the form
+  const [savedParts, setSavedParts] = useState<Array<{ partNumber: string; partName: string; ok: boolean }>>([]);
+
+  // LINE session loading
   const [dataReady, setDataReady] = useState(false);
-  // Loading phase label for skeleton
-  const [loadingPhase, setLoadingPhase] = useState<string>("กำลังโหลดรูปจาก LINE...");
+  const [loadingPhase, setLoadingPhase] = useState("กำลังโหลดรูปจาก LINE...");
+  const sessionLoadedRef = useRef(false);
 
   const {
     register,
     handleSubmit,
     setValue,
     watch,
+    reset,
     formState: { errors },
   } = useForm<FormValues>({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    resolver: zodResolver(partSchema) as any,
-    defaultValues: { quantity: 0, minimumQuantity: 0, unit: "pcs", plant: "", buildingId: "" },
+    resolver: zodResolver(formSchema),
+    defaultValues: EMPTY_FORM,
   });
 
   const selectedPlant = watch("plant");
   const selectedBuildingId = watch("buildingId");
 
-  // Guard against double-invocation
-  const sessionLoadedRef = useRef(false);
-
-  // Load LINE image session → show form with image, let user press "AI เติมข้อมูล" manually
+  // ── Load LINE image session ──
   useEffect(() => {
     const sid = searchParams.get("lineSid");
     if (!sid) {
-      // Not from LINE — show form immediately
       setDataReady(true);
       return;
     }
@@ -185,12 +199,7 @@ export default function LiffAddPartPage() {
         if (!res.ok) throw new Error(payload.error || "โหลดข้อมูลไม่สำเร็จ");
         if (cancelled) return;
 
-        const s = payload.suggestion || {};
         const dataUrl = payload.imageDataUrl as string | undefined;
-        setImagePreview(dataUrl || null);
-
-        // Convert base64 dataURL → File for AI suggest button
-        // fetch(dataUrl) may fail in LIFF in-app browser, so use manual conversion
         if (dataUrl) {
           try {
             const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
@@ -200,172 +209,242 @@ export default function LiffAddPartPage() {
               const bytes = new Uint8Array(binary.length);
               for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
               const file = new File([bytes], "line-image.jpg", { type: mime });
-              setImageFile(file);
+              const preview = await readFileAsDataURL(file);
+              const s = (payload.suggestion || {}) as PartSuggestion;
+              setImages([{
+                file,
+                preview,
+                suggestion: payload.suggestion || null,
+                formValues: { ...EMPTY_FORM, ...applySuggestionToValues(s) },
+                analyzed: !!payload.suggestion,
+              }]);
             }
           } catch {
             // user can still upload manually
           }
         }
 
-        // If suggestion already has data (e.g. backend pre-analyzed), fill it
-        applySuggestion(s);
-
-        // Show form immediately — user can press "AI เติมข้อมูล" if they want
-        toast({ title: "โหลดรูปจาก LINE แล้ว", description: "กด \"AI เติมข้อมูล\" เพื่อวิเคราะห์รูป" });
+        toast({ title: "โหลดรูปจาก LINE แล้ว", description: "กด \"AI วิเคราะห์\" หรือเพิ่มรูปอื่นได้" });
         if (!cancelled) setDataReady(true);
       })
       .catch((error) => {
         if (!cancelled) {
           toast({ title: "โหลดข้อมูลจาก LINE ไม่สำเร็จ", description: (error as Error).message, variant: "destructive" });
-          setDataReady(true); // Still show form so user can fill manually
+          setDataReady(true);
         }
       });
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
-  /** Apply suggestion object to form fields. Returns true if any data was filled. */
-  function applySuggestion(s: Record<string, unknown>): boolean {
-    if (!s) return false;
-    let filled = false;
-    if (s.partNumber) { setValue("partNumber", s.partNumber as string); filled = true; }
-    if (s.partName) { setValue("partName", s.partName as string); filled = true; }
-    if (s.description) { setValue("description", s.description as string); filled = true; }
-    if (s.location) { setValue("location", s.location as string); filled = true; }
-    if (s.unit) { setValue("unit", s.unit as string); filled = true; }
-    if (s.barcodeValue) { setValue("barcodeValue", s.barcodeValue as string); filled = true; }
-    if (s.subcategory) { setValue("subcategory", s.subcategory as string); filled = true; }
-    if (s.plant && BLOCK_OPTIONS.includes(s.plant as typeof BLOCK_OPTIONS[number])) { setValue("plant", s.plant as string); filled = true; }
-    if (s.buildingId) { setValue("buildingId", s.buildingId as string); filled = true; }
-    if (Number.isFinite(s.quantity)) { setValue("quantity", s.quantity as number); filled = true; }
-    if (Number.isFinite(s.minimumQuantity)) { setValue("minimumQuantity", s.minimumQuantity as number); filled = true; }
-    const cat = (s.matchedCategoryName || s.categoryName) as string | undefined;
-    if (cat) { setValue("categoryName" as keyof FormValues, cat); filled = true; }
-    return filled;
+  // ── Image management ──
+
+  async function addFiles(fileList: FileList | null) {
+    if (!fileList) return;
+    const newFiles = Array.from(fileList).filter((f) => f.type.startsWith("image/"));
+    if (newFiles.length === 0) {
+      toast({ title: "ไม่พบไฟล์รูปภาพ", variant: "destructive" });
+      return;
+    }
+    const remaining = MAX_IMAGES - images.length;
+    if (remaining <= 0) {
+      toast({ title: `เพิ่มได้สูงสุด ${MAX_IMAGES} รูป`, variant: "destructive" });
+      return;
+    }
+    const toAdd = newFiles.slice(0, remaining);
+    if (newFiles.length > remaining) {
+      toast({ title: `เพิ่มได้อีก ${remaining} รูปเท่านั้น`, variant: "destructive" });
+    }
+
+    const entries: ImageEntry[] = [];
+    for (const file of toAdd) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast({ title: `${file.name} ใหญ่เกิน 5MB`, variant: "destructive" });
+        continue;
+      }
+      const preview = await readFileAsDataURL(file);
+      entries.push({ file, preview, suggestion: null, formValues: { ...EMPTY_FORM }, analyzed: false });
+    }
+    setImages((prev) => [...prev, ...entries]);
   }
 
-  /** Call AI suggest API and return suggestion object, or null on failure. */
-  async function runAiSuggest(file: File): Promise<Record<string, unknown> | null> {
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await liffFetch("/api/liff/parts/ai-suggest", {
-        method: "POST",
-        body: formData,
-      });
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "AI suggestion failed");
-      return payload.suggestion || null;
-    } catch {
-      return null;
+  function removeImage(index: number) {
+    setImages((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  // ── AI analysis ──
+
+  async function analyzeAll() {
+    if (images.length === 0) return;
+    setIsAnalyzing(true);
+    let successCount = 0;
+    const updated = await Promise.all(
+      images.map(async (entry) => {
+        if (entry.analyzed) return entry;
+        try {
+          const formData = new FormData();
+          formData.append("file", entry.file);
+          const res = await liffFetch("/api/liff/parts/ai-suggest", { method: "POST", body: formData });
+          const payload = await res.json();
+          if (!res.ok) throw new Error(payload.error || "AI failed");
+          const s = (payload.suggestion || {}) as PartSuggestion;
+          successCount++;
+          return {
+            ...entry,
+            suggestion: payload.suggestion || null,
+            formValues: { ...EMPTY_FORM, ...applySuggestionToValues(s) },
+            analyzed: true,
+          };
+        } catch {
+          return { ...entry, analyzed: true };
+        }
+      }),
+    );
+    setImages(updated);
+    setIsAnalyzing(false);
+    if (successCount > 0) {
+      toast({ title: `AI วิเคราะห์แล้ว ${successCount} รูป`, description: "ตรวจสอบข้อมูลแต่ละรูปก่อนบันทึก" });
+    } else {
+      toast({ title: "AI ไม่สามารถวิเคราะห์รูปได้", description: "กรอกข้อมูลด้วยตนเองได้", variant: "destructive" });
     }
   }
 
-  const onSubmit = async (data: FormValues) => {
+  // ── Review navigation ──
+
+  function goToReview() {
+    if (images.length === 0) return;
+    setCurrentIndex(0);
+    setStep("review");
+    reset(images[0].formValues);
+  }
+
+  function nextImage() {
+    if (currentIndex < images.length - 1) {
+      saveCurrentForm();
+      const next = currentIndex + 1;
+      setCurrentIndex(next);
+      reset(images[next].formValues);
+    } else {
+      saveCurrentForm();
+      setStep("summary");
+    }
+  }
+
+  function prevImage() {
+    if (currentIndex > 0) {
+      saveCurrentForm();
+      const prev = currentIndex - 1;
+      setCurrentIndex(prev);
+      reset(images[prev].formValues);
+    }
+  }
+
+  function saveCurrentForm() {
+    const values = watch();
+    setImages((prev) =>
+      prev.map((entry, i) => (i === currentIndex ? { ...entry, formValues: values } : entry)),
+    );
+  }
+
+  // ── Submit all ──
+
+  const onReviewSubmit = (_data: FormValues) => {
+    saveCurrentForm();
+    if (currentIndex < images.length - 1) {
+      nextImage();
+    } else {
+      setStep("summary");
+    }
+  };
+
+  async function saveAll() {
+    saveCurrentForm();
     setIsSubmitting(true);
-    try {
-      const res = await liffFetch("/api/liff/parts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
+    const results: Array<{ partNumber: string; partName: string; ok: boolean }> = [];
+    const sid = searchParams.get("lineSid");
 
-      if (res.ok) {
-        const part = await res.json();
+    for (let i = 0; i < images.length; i++) {
+      const entry = images[i];
+      const v = entry.formValues;
 
-        if (imageFile) {
+      // Validate plant requirement
+      if (!v.plant || v.plant.trim() === "") {
+        results.push({ partNumber: v.partNumber || "(ไม่มีรหัส)", partName: v.partName, ok: false });
+        continue;
+      }
+
+      try {
+        const res = await liffFetch("/api/liff/parts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(v),
+        });
+
+        if (res.ok) {
+          const part = await res.json();
+          // Upload image
           const imgFormData = new FormData();
-          imgFormData.append("file", imageFile);
+          imgFormData.append("file", entry.file);
           await liffFetch(`/api/liff/parts/${part.id}/upload-image`, {
             method: "POST",
             body: imgFormData,
-          });
-        }
-
-        // Mark LINE session as saved (prevents duplicate from LINE confirm button)
-        const sid = searchParams.get("lineSid");
-        if (sid) {
-          await liffFetch(`/api/liff/line-image-sessions/${encodeURIComponent(sid)}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status: "saved", createdPartId: part.id }),
           }).catch(() => { /* best-effort */ });
-
-          // Push success message + search card back to LINE chat
-          await liffFetch("/api/liff/parts/push-success", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ lineSid: sid, partId: part.id }),
-          }).catch(() => { /* best-effort */ });
+          results.push({ partNumber: v.partNumber || part.partNumber, partName: v.partName, ok: true });
+        } else {
+          results.push({ partNumber: v.partNumber || "(error)", partName: v.partName, ok: false });
         }
-
-        toast({ title: "สร้างอะไหล่สำเร็จ" });
-
-        // Close LIFF window and return to LINE chat
-        try {
-          const mod = await import("@line/liff");
-          const liff = mod.default;
-          liff.closeWindow();
-        } catch {
-          router.push("/liff");
-        }
-      } else {
-        const error = await res.json();
-        toast({ title: "เกิดข้อผิดพลาด", description: error.error, variant: "destructive" });
+      } catch {
+        results.push({ partNumber: v.partNumber || "(error)", partName: v.partName, ok: false });
       }
-    } catch {
-      toast({ title: "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์", variant: "destructive" });
-    } finally {
-      setIsSubmitting(false);
     }
-  };
 
-  const handleImageChange = (e: FormEvent<HTMLInputElement>) => {
-    const file = e.currentTarget.files?.[0];
-    if (file) {
-      setImageFile(file);
-      const reader = new FileReader();
-      reader.onload = (ev) => setImagePreview(ev.target?.result as string);
-      reader.readAsDataURL(file);
+    // Mark LINE session as saved
+    if (sid) {
+      await liffFetch(`/api/liff/line-image-sessions/${encodeURIComponent(sid)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "saved" }),
+      }).catch(() => { /* best-effort */ });
     }
-  };
 
-  const handleAiSuggest = async () => {
-    if (!imageFile) {
-      toast({ title: "กรุณาเลือกรูปก่อน", variant: "destructive" });
-      return;
+    setSavedParts(results);
+    setIsSubmitting(false);
+    setStep("summary");
+
+    const okCount = results.filter((r) => r.ok).length;
+    if (okCount > 0) {
+      toast({ title: `บันทึกสำเร็จ ${okCount}/${results.length} รายการ` });
     }
-    setIsAiSuggesting(true);
+  }
+
+  function closeLiff() {
     try {
-      const formData = new FormData();
-      formData.append("file", imageFile);
-      const res = await liffFetch("/api/liff/parts/ai-suggest", {
-        method: "POST",
-        body: formData,
-      });
-
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "AI suggestion failed");
-
-      const s = payload.suggestion || {};
-      applySuggestion(s);
-
-      toast({ title: "AI เติมข้อมูลจากรูป", description: "ตรวจสอบค่าก่อนบันทึก" });
-    } catch (error) {
-      toast({
-        title: "AI ไม่สามารถวิเคราะห์รูปได้",
-        description: (error as Error).message,
-        variant: "destructive",
-      });
-    } finally {
-      setIsAiSuggesting(false);
+      liff.closeWindow();
+    } catch {
+      router.push("/liff");
     }
-  };
+  }
 
   const sid = searchParams.get("lineSid");
+
+  // ── Loading skeleton ──
+  if (sid && !dataReady) {
+    return (
+      <div className="space-y-3">
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <Loader2 className="size-5 animate-spin text-primary flex-shrink-0" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium">{loadingPhase}</p>
+              <p className="text-xs text-muted-foreground">รอสักครู่ ข้อมูลจะแสดงเมื่อพร้อม</p>
+            </div>
+          </CardContent>
+        </Card>
+        <FormSkeleton />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -375,45 +454,56 @@ export default function LiffAddPartPage() {
             <ArrowLeft className="size-4" />
           </Button>
         </Link>
-        <h1 className="text-lg font-bold">เพิ่มอะไหล่ใหม่</h1>
+        <h1 className="text-lg font-bold">
+          {step === "upload" && "เพิ่มอะไหล่ใหม่"}
+          {step === "review" && `ตรวจสอบ (${currentIndex + 1}/${images.length})`}
+          {step === "summary" && "สรุปการบันทึก"}
+        </h1>
       </div>
 
-      {/* ── Skeleton: show while loading from LINE ── */}
-      {sid && !dataReady ? (
-        <div className="space-y-3">
-          {/* Phase indicator */}
-          <Card>
-            <CardContent className="p-4 flex items-center gap-3">
-              <Loader2 className="size-5 animate-spin text-primary flex-shrink-0" />
-              <div className="min-w-0">
-                <p className="text-sm font-medium">{loadingPhase}</p>
-                <p className="text-xs text-muted-foreground">รอสักครู่ ข้อมูลจะแสดงเมื่อพร้อม</p>
-              </div>
-            </CardContent>
-          </Card>
-          <FormSkeleton />
-        </div>
-      ) : (
-        /* ── Actual form ── */
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      {/* ── Step 1: Upload ── */}
+      {step === "upload" && (
+        <div className="space-y-4">
           <Card>
             <CardContent className="p-4 space-y-4">
-              <p className="text-sm font-medium">รูปอะไหล่ + AI</p>
-              <div className="flex gap-3">
-                <div className="w-20 h-20 bg-muted rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0">
-                  {imagePreview ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={imagePreview} alt="Preview" className="max-h-full max-w-full object-contain" />
-                  ) : (
-                    <span className="text-muted-foreground text-xs">ไม่มีรูป</span>
-                  )}
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium">รูปอะไหล่ (สูงสุด {MAX_IMAGES} รูป)</p>
+                <span className="text-xs text-muted-foreground">{images.length}/{MAX_IMAGES}</span>
+              </div>
+
+              {/* Thumbnail grid */}
+              {images.length > 0 && (
+                <div className="grid grid-cols-4 gap-2">
+                  {images.map((entry, i) => (
+                    <div key={i} className="relative aspect-square rounded-lg overflow-hidden bg-muted group">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={entry.preview} alt={`รูป ${i + 1}`} className="w-full h-full object-cover" />
+                      {entry.analyzed && (
+                        <div className="absolute top-1 right-1 bg-green-500 rounded-full p-0.5">
+                          <Check className="size-3 text-white" />
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeImage(i)}
+                        className="absolute bottom-1 right-1 bg-red-500 rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="size-3 text-white" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-                <div className="flex-1 space-y-2">
+              )}
+
+              {/* Add buttons */}
+              {images.length < MAX_IMAGES && (
+                <div className="flex gap-2">
                   <input
                     type="file"
                     id="liffImageFile"
                     accept="image/*"
-                    onChange={handleImageChange}
+                    multiple
+                    onChange={(e) => addFiles(e.target.files)}
                     className="hidden"
                   />
                   <input
@@ -421,48 +511,73 @@ export default function LiffAddPartPage() {
                     id="liffCameraCapture"
                     accept="image/*"
                     capture="environment"
-                    onChange={handleImageChange}
+                    onChange={(e) => addFiles(e.target.files)}
                     className="hidden"
                   />
-                  <div className="flex gap-2">
-                    <Label htmlFor="liffImageFile">
-                      <Button variant="outline" size="sm" asChild className="cursor-pointer">
-                        <span><Upload className="size-3.5 mr-1" />เลือกรูป</span>
-                      </Button>
-                    </Label>
-                    <Label htmlFor="liffCameraCapture">
-                      <Button variant="outline" size="sm" asChild className="cursor-pointer">
-                        <span><Camera className="size-3.5 mr-1" />ถ่ายรูป</span>
-                      </Button>
-                    </Label>
-                  </div>
-                  {imageFile && <p className="text-xs text-muted-foreground truncate">{imageFile.name}</p>}
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={handleAiSuggest}
-                    disabled={!imageFile || isAiSuggesting}
-                  >
-                    {isAiSuggesting ? (
-                      <Loader2 className="size-4 mr-1 animate-spin" />
-                    ) : (
-                      <Sparkles className="size-4 mr-1" />
-                    )}
-                    AI เติมข้อมูล
-                  </Button>
+                  <Label htmlFor="liffImageFile" className="flex-1">
+                    <Button variant="outline" size="sm" asChild className="cursor-pointer w-full">
+                      <span><Upload className="size-3.5 mr-1" />เลือกรูป</span>
+                    </Button>
+                  </Label>
+                  <Label htmlFor="liffCameraCapture" className="flex-1">
+                    <Button variant="outline" size="sm" asChild className="cursor-pointer w-full">
+                      <span><Camera className="size-3.5 mr-1" />ถ่ายรูป</span>
+                    </Button>
+                  </Label>
                 </div>
-              </div>
+              )}
+
+              {/* AI analyze button */}
+              {images.length > 0 && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="w-full"
+                  onClick={analyzeAll}
+                  disabled={isAnalyzing || images.every((e) => e.analyzed)}
+                >
+                  {isAnalyzing ? (
+                    <Loader2 className="size-4 mr-1 animate-spin" />
+                  ) : (
+                    <Sparkles className="size-4 mr-1" />
+                  )}
+                  {isAnalyzing ? "กำลังวิเคราะห์..." : "AI วิเคราะห์ทั้งหมด"}
+                </Button>
+              )}
             </CardContent>
           </Card>
 
+          {images.length > 0 && (
+            <Button onClick={goToReview} className="w-full" size="lg">
+              ถัดไป: ตรวจสอบข้อมูล
+              <ChevronRight className="size-4 ml-1" />
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* ── Step 2: Review (per-image form) ── */}
+      {step === "review" && (
+        <form onSubmit={handleSubmit(onReviewSubmit)} className="space-y-4">
+          {/* Current image preview */}
+          <Card className="overflow-hidden">
+            <div className="relative aspect-[4/3] bg-muted">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={images[currentIndex]?.preview} alt="อะไหล่" className="w-full h-full object-contain" />
+              <div className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full">
+                รูปที่ {currentIndex + 1}/{images.length}
+              </div>
+            </div>
+          </Card>
+
+          {/* Form */}
           <Card>
             <CardContent className="p-4 space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label htmlFor="partNumber" className="text-xs">รหัสอะไหล่</Label>
                   <Input id="partNumber" {...register("partNumber")} placeholder="เช่น SP-001" className="h-9 text-sm" />
-                  {errors.partNumber && <p className="text-xs text-destructive">{errors.partNumber.message}</p>}
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="partName" className="text-xs">ชื่ออะไหล่ *</Label>
@@ -479,7 +594,7 @@ export default function LiffAddPartPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label htmlFor="categoryName" className="text-xs">หมวดหมู่</Label>
-                  <Input id="categoryName" {...register("categoryName" as keyof FormValues)} placeholder="เช่น อุปกรณ์ไฟฟ้า" className="h-9 text-sm" />
+                  <Input id="categoryName" {...register("categoryName")} placeholder="เช่น อุปกรณ์ไฟฟ้า" className="h-9 text-sm" />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="subcategory" className="text-xs">หมวดหมู่ย่อย</Label>
@@ -495,7 +610,7 @@ export default function LiffAddPartPage() {
                 <div className="space-y-1">
                   <Label htmlFor="plant" className="text-xs">Block *</Label>
                   <input type="hidden" {...register("plant")} />
-                  <Select value={selectedPlant || ""} onValueChange={(value) => setValue("plant", value, { shouldValidate: true })}>
+                  <Select value={selectedPlant || ""} onValueChange={(val) => setValue("plant", val, { shouldValidate: true })}>
                     <SelectTrigger id="plant">
                       <SelectValue placeholder="เลือก Block" />
                     </SelectTrigger>
@@ -505,14 +620,13 @@ export default function LiffAddPartPage() {
                       ))}
                     </SelectContent>
                   </Select>
-                  {errors.plant && <p className="text-xs text-destructive">{errors.plant.message}</p>}
                 </div>
               </div>
 
               <div className="space-y-1">
                 <Label htmlFor="buildingId" className="text-xs">อาคาร *</Label>
                 <input type="hidden" {...register("buildingId")} />
-                <Select value={selectedBuildingId || ""} onValueChange={(value) => setValue("buildingId", value, { shouldValidate: true })}>
+                <Select value={selectedBuildingId || ""} onValueChange={(val) => setValue("buildingId", val, { shouldValidate: true })}>
                   <SelectTrigger id="buildingId">
                     <SelectValue placeholder="เลือกอาคาร" />
                   </SelectTrigger>
@@ -529,20 +643,15 @@ export default function LiffAddPartPage() {
                 <Label htmlFor="barcodeValue" className="text-xs">บาร์โค้ด</Label>
                 <Input id="barcodeValue" {...register("barcodeValue")} placeholder="รหัสบาร์โค้ด (ถ้ามี)" className="h-9 text-sm" />
               </div>
-            </CardContent>
-          </Card>
 
-          <Card>
-            <CardContent className="p-4 space-y-3">
-              <p className="text-sm font-medium">ข้อมูลสต็อก</p>
               <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-1">
                   <Label htmlFor="quantity" className="text-xs">จำนวน</Label>
-                  <Input id="quantity" type="number" min="0" {...register("quantity")} className="h-9 text-sm" />
+                  <Input id="quantity" type="number" min="0" {...register("quantity", { valueAsNumber: true })} className="h-9 text-sm" />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="minimumQuantity" className="text-xs">ขั้นต่ำ</Label>
-                  <Input id="minimumQuantity" type="number" min="0" {...register("minimumQuantity")} className="h-9 text-sm" />
+                  <Input id="minimumQuantity" type="number" min="0" {...register("minimumQuantity", { valueAsNumber: true })} className="h-9 text-sm" />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="unit" className="text-xs">หน่วย</Label>
@@ -552,18 +661,98 @@ export default function LiffAddPartPage() {
             </CardContent>
           </Card>
 
-          <div className="flex gap-3">
-            <Link href="/liff" className="flex-1">
-              <Button variant="outline" type="button" className="w-full">
-                ยกเลิก
-              </Button>
-            </Link>
-            <Button type="submit" className="flex-1" disabled={isSubmitting}>
-              {isSubmitting && <Loader2 className="size-4 mr-2 animate-spin" />}
-              บันทึก
+          {/* Navigation */}
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={prevImage} disabled={currentIndex === 0}>
+              <ChevronLeft className="size-4 mr-1" />
+              ก่อนหน้า
+            </Button>
+            <Button type="submit" className="flex-1">
+              {currentIndex < images.length - 1 ? "ถัดไป" : "ดูสรุป"}
+              <ChevronRight className="size-4 ml-1" />
             </Button>
           </div>
         </form>
+      )}
+
+      {/* ── Step 3: Summary ── */}
+      {step === "summary" && (
+        <div className="space-y-4">
+          {!isSubmitting && savedParts.length === 0 && (
+            <>
+              <Card>
+                <CardContent className="p-4 space-y-3">
+                  <p className="text-sm font-medium">สรุปทั้งหมด {images.length} รายการ</p>
+                  {images.map((entry, i) => {
+                    const v = entry.formValues;
+                    const status = stockStatus(v.quantity);
+                    return (
+                      <div key={i} className="flex items-center gap-3 p-2 rounded-lg border border-slate-200">
+                        <div className="w-12 h-12 rounded bg-muted overflow-hidden flex-shrink-0">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={entry.preview} alt="" className="w-full h-full object-cover" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{v.partName || "(ไม่มีชื่อ)"}</p>
+                          <p className="text-xs text-muted-foreground truncate">{v.partNumber || "-"}</p>
+                        </div>
+                        <div className={`text-sm font-medium flex-shrink-0 ${status.color}`}>
+                          {status.label} {v.unit}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => { setStep("review"); setCurrentIndex(0); reset(images[0].formValues); }}>
+                  กลับแก้ไข
+                </Button>
+                <Button onClick={saveAll} className="flex-1" size="lg">
+                  <Check className="size-4 mr-1" />
+                  บันทึกทั้งหมด
+                </Button>
+              </div>
+            </>
+          )}
+
+          {isSubmitting && (
+            <Card>
+              <CardContent className="p-8 text-center">
+                <Loader2 className="size-8 animate-spin mx-auto text-primary mb-3" />
+                <p className="text-sm font-medium">กำลังบันทึก...</p>
+                <p className="text-xs text-muted-foreground mt-1">โปรดรอสักครู่</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {!isSubmitting && savedParts.length > 0 && (
+            <>
+              <Card>
+                <CardContent className="p-4 space-y-3">
+                  <p className="text-sm font-medium">
+                    บันทึกสำเร็จ {savedParts.filter((r) => r.ok).length}/{savedParts.length} รายการ
+                  </p>
+                  {savedParts.map((r, i) => (
+                    <div key={i} className="flex items-center gap-2 text-sm">
+                      {r.ok ? (
+                        <Check className="size-4 text-green-600 flex-shrink-0" />
+                      ) : (
+                        <X className="size-4 text-red-600 flex-shrink-0" />
+                      )}
+                      <span className="flex-1 truncate">{r.partName}</span>
+                      <span className="text-xs text-muted-foreground">{r.partNumber}</span>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+              <Button onClick={closeLiff} className="w-full" size="lg">
+                <Package className="size-4 mr-1" />
+                เสร็จสิ้น
+              </Button>
+            </>
+          )}
+        </div>
       )}
     </div>
   );
