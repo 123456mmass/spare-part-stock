@@ -319,16 +319,19 @@ export default function AssistantPage() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Action failed");
-      setMessages((prev) => [
-        ...prev,
-        {
+      setMessages((prev) =>
+        prev.map((item) =>
+          item.pendingActionIds?.includes(id)
+            ? { ...item, pendingActionIds: item.pendingActionIds.filter((pid) => pid !== id) }
+            : item,
+        ).concat({
           id: crypto.randomUUID(),
           role: "assistant",
           content:
             data.message ||
             (action === "confirm" ? "ทำรายการสำเร็จ" : "ยกเลิกรายการแล้ว"),
-        },
-      ]);
+        }),
+      );
     } catch (error) {
       toast({
         title: action === "confirm" ? "ยืนยันไม่สำเร็จ" : "ยกเลิกไม่สำเร็จ",
