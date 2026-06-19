@@ -9,6 +9,7 @@ import {
 } from "@/lib/line-chat/memory";
 import { prisma } from "@/lib/prisma";
 import { getAiToolDefinitions, getAllInventoryToolDefinitions, executeAiTool } from "./tools";
+import { formatToolResultAsText } from "./text-renderers";
 import {
   hasSummaryTerms,
   hasInventoryContent,
@@ -349,10 +350,16 @@ async function runDirectStreamRoute(
   if (toolResult.pendingActionId) {
     reply = toolResult.content;
   } else {
-    try {
-      reply = await generateReplyFromToolResult(toolResult.content, directTool.name);
-    } catch {
-      reply = toolResult.content;
+    // Prefer deterministic text formatting — avoids weak LLMs echoing raw JSON.
+    const textReply = formatToolResultAsText(directTool.name, toolResult.result);
+    if (textReply) {
+      reply = textReply;
+    } else {
+      try {
+        reply = await generateReplyFromToolResult(toolResult.content, directTool.name);
+      } catch {
+        reply = toolResult.content;
+      }
     }
   }
 
