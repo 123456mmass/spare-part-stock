@@ -37,7 +37,7 @@ export function extractPartKeyword(text: string): string | null {
     // Strip stray quotation marks from LINE auto-complete/selection
     .replace(/[""''`]/g, "")
     // Remove quantity/summary noise
-    .replace(/(สรุปสถานะ|สรุป|ภาพรวม|สถานะสต็อก|สถานะ|สต็อก|คงเหลือ|เหลือเท่าไหร่|มีกี่ตัว|มีเท่าไหร่|เหลือทั้งหมด|ทั้งหมด|หมดกี่ตัว|มีอะไรบ้าง|มีอะไร|อะไรบ้าง|เท่าไหร่|เหลือ|ใกล้หมด|ต่ำกว่าขั้นต่ำ|ต้องเติม|อะไรหมด|อันไหนใกล้หมด|ค้นหา|หา|ดู|เช็ค|ตรวจสอบ|ตรวจ|มีไหม|หรือเปล่า|หรือยัง|ไหม|ไม่|ครับ|ค่ะ|นะ|จ้ะ|จ๊ะ|น่ะ|ตอนนี้|ปัจจุบัน)/gi, "")
+    .replace(/(สรุปสถานะ|สรุปรายการ|สรุป|ภาพรวม|สถานะสต็อก|สถานะ|สต็อกอะไหล่|สต็อก|คงเหลือ|เหลือเท่าไหร่|มีกี่ตัว|มีเท่าไหร่|เหลือทั้งหมด|ทั้งหมด|หมดกี่ตัว|มีอะไรบ้าง|มีอะไร|อะไรบ้าง|เท่าไหร่|เหลือ|ใกล้หมด|ต่ำกว่าขั้นต่ำ|ต้องเติม|อะไรหมด|อันไหนใกล้หมด|ค้นหา|หา|ดู|เช็ค|ตรวจสอบ|ตรวจ|มีไหม|หรือเปล่า|หรือยัง|ไหม|ไม่|ครับ|ค่ะ|นะ|จ้ะ|จ๊ะ|น่ะ|ตอนนี้|ปัจจุบัน|รายการ|ทั้งหมดของ|ของทั้งหมด)/gi, "")
     // Remove locators
     .replace(/(?:บล็อค|บล็อก|block|บล้อค)\s*\S+/gi, "")
     .replace(/(?:อาคาร|ตึก)\s*\S+/gi, "")
@@ -49,8 +49,8 @@ export function extractPartKeyword(text: string): string | null {
     .trim();
 
   if (!cleaned || cleaned.length < 2) return null;
-  // Treat overly-generic "part" keywords as no keyword
-  if (/^(อะไหล่|spare\s*part|parts?)$/i.test(cleaned)) return null;
+  // Treat overly-generic "part" keywords as no keyword (return all parts)
+  if (/^(อะไหล่|spare\s*part|parts?|สต็อก|stock|stocks?|รายการสต็อก|สต็อกอะไหล่|อะไหล่ทั้งหมด|รายการอะไหล่)$/i.test(cleaned)) return null;
   return cleaned;
 }
 

@@ -268,7 +268,10 @@ export async function getStockSummaryTool(input: DbToolInput): Promise<StockSumm
         AND: [whereNoKeyword, { id: { in: matchedIds } }],
       } as Prisma.PartWhereInput;
     } else {
-      // Hybrid search found nothing — fall through to SQL-only (will return 0)
+      // Hybrid search found nothing — drop the keyword filter and return
+      // the full inventory so the user still gets a useful overview instead
+      // of an empty "0 ชิ้น" result.
+      where = buildPartWhere({ ...input, keyword: null }) as Prisma.PartWhereInput;
     }
   }
 
