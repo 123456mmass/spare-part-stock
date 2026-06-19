@@ -67,6 +67,16 @@ KEYS.md
 DEPLOY_KEYS.md
 /key/
 
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Temporary diagnostics
+check-plant.ts
+check-db-temp.ts
+prototype-dashboard.html
+
 # Temporary scripts and patches
 test-ai-*.ts
 test-ai-*.js
@@ -90,6 +100,7 @@ patch_*.js
 backups/
 codebase.zip
 dev.db.backup-*
+dev.db.bak-*
 
 # Temp data scripts (one-off NBC2 imports/improvements)
 scripts/nbc2-*.xlsx
