@@ -61,23 +61,55 @@ export default function LiffHome() {
     }
   }, [status, router]);
 
-  // When LIFF opens with ?lineSid=..., save it and redirect to add-part page.
-  // LIFF redirects often drop query params, so we also check localStorage
-  // for a saved lineSid from a previous redirect.
+  // When LIFF opens with ?lineSid=... and/or ?go=add-part, redirect accordingly.
+  // LIFF deep links wrap our query params inside ?liff.state=... so we try that first.
+  // We also persist to localStorage as a fallback when LIFF drops query params
+  // during the login redirect.
   useEffect(() => {
     if (status !== "authenticated") return;
-    const lineSid = searchParams.get("lineSid");
+
+    // LIFF wraps deep-link query params under ?liff.state=lineSid=...&go=...
+    const liffState = searchParams.get("liff.state");
+    const stateParams = liffState
+      ? new URLSearchParams(liffState.startsWith("?") ? liffState.slice(1) : liffState)
+      : searchParams;
+
+    const lineSid = stateParams.get("lineSid") || searchParams.get("lineSid");
+    const go = stateParams.get("go") || searchParams.get("go");
+
+    // Persist to localStorage before any LIFF redirect could drop URL params
     if (lineSid) {
-      // Save to localStorage in case LIFF redirects and drops the param
       localStorage.setItem("liff_pending_lineSid", lineSid);
-      router.replace(`/liff/add-part?lineSid=${encodeURIComponent(lineSid)}`);
-      return;
     }
-    // Check localStorage for a saved lineSid from a previous LIFF redirect
-    const savedSid = localStorage.getItem("liff_pending_lineSid");
-    if (savedSid) {
+    if (go) {
+      localStorage.setItem("liff_pending_go", go);
+    }
+
+    // Determine redirect target — check URL params first, then localStorage fallback
+    const targetSid = lineSid || localStorage.getItem("liff_pending_lineSid");
+    const targetGo = go || localStorage.getItem("liff_pending_go");
+
+    // Also check liff_login_redirect saved by liff-auth.tsx before LINE login
+    const savedRedirect = localStorage.getItem("liff_login_redirect");
+
+    if (targetSid || targetGo) {
+      // Clean up localStorage
       localStorage.removeItem("liff_pending_lineSid");
-      router.replace(`/liff/add-part?lineSid=${encodeURIComponent(savedSid)}`);
+      localStorage.removeItem("liff_pending_go");
+      localStorage.removeItem("liff_login_redirect");
+
+      if (targetGo === "add-part" && targetSid) {
+        router.replace(`/liff/add-part?lineSid=${encodeURIComponent(targetSid)}`);
+      } else if (targetGo === "add-part") {
+        router.replace("/liff/add-part");
+      } else if (targetSid) {
+        // Legacy: lineSid without go param → default to add-part
+        router.replace(`/liff/add-part?lineSid=${encodeURIComponent(targetSid)}`);
+      }
+    } else if (savedRedirect && savedRedirect !== "/liff" && savedRedirect !== "/liff/") {
+      // LIFF login redirect dropped us on the home page, but we saved where we wanted to go
+      localStorage.removeItem("liff_login_redirect");
+      router.replace(savedRedirect);
     }
   }, [status, searchParams, router]);
 

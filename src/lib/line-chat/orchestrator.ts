@@ -1,10 +1,12 @@
 import type { Role } from "@prisma/client";
 import { runAiAssistant } from "@/lib/ai-assistant/orchestrator";
+import type { AssistantToolCall } from "@/lib/ai-assistant/types";
 
 export type OrchestratorResult = {
   reply: string;
   conversationId?: string;
   pendingActionIds: string[];
+  toolCalls?: AssistantToolCall[];
 };
 
 export async function orchestrate(

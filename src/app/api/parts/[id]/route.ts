@@ -108,7 +108,10 @@ export async function PUT(
         ...(data.unit !== undefined && { unit: data.unit }),
         ...(data.barcodeValue !== undefined && { barcodeValue: data.barcodeValue || null }),
         ...(data.subcategory !== undefined && { subcategory: data.subcategory }),
-        ...(data.plant !== undefined && { plant: data.plant }),
+        ...(data.isSpecialToolPart !== undefined && {
+          isSpecialToolPart: data.isSpecialToolPart,
+          plant: data.isSpecialToolPart ? null : (data.plant ?? null),
+        }),
         ...(data.buildingId !== undefined && { buildingId: data.buildingId }),
         ...(shouldUpdateCategory && { categoryId: resolvedCategoryId ?? null }),
       },

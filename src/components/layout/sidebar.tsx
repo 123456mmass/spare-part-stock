@@ -6,33 +6,53 @@ import {
   LayoutDashboard,
   Package,
   ArrowLeftRight,
-  Scan,
+  ScanLine,
   LogOut,
   Menu,
   X,
-  FileUp,
-  Tag,
-  Building2,
+  Upload,
+  Layers,
+  Grid2x2,
+  Building,
+  Boxes,
   Users,
-  KeyRound,
-  Warehouse,
   Bot,
+  Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 
-const navigation = [
-  { name: "แดชบอร์ด", href: "/dashboard", icon: LayoutDashboard },
-  { name: "AI Assistant", href: "/assistant", icon: Bot },
-  { name: "อะไหล่", href: "/parts", icon: Package },
-  { name: "ประวัติสต็อก", href: "/movements", icon: ArrowLeftRight },
-  { name: "สแกน QR", href: "/scan", icon: Scan },
-  { name: "นำเข้า Excel", href: "/import", icon: FileUp },
-  { name: "หมวดหมู่", href: "/categories", icon: Tag },
-  { name: "บล็อก", href: "/blocks", icon: Building2, adminOnly: true },
-  { name: "อาคาร", href: "/buildings", icon: Warehouse, adminOnly: true },
-  { name: "จัดการผู้ใช้", href: "/users", icon: Users, adminOnly: true },
+type NavItem = { name: string; href: string; icon: typeof LayoutDashboard; adminOnly?: boolean };
+type NavSection = { label: string; items: NavItem[] };
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    label: "ภาพรวม",
+    items: [
+      { name: "แดชบอร์ด", href: "/dashboard", icon: LayoutDashboard },
+      { name: "AI Assistant", href: "/assistant", icon: Bot },
+    ],
+  },
+  {
+    label: "คลังอะไหล่",
+    items: [
+      { name: "อะไหล่", href: "/parts", icon: Package },
+      { name: "ประวัติสต็อก", href: "/movements", icon: ArrowLeftRight },
+      { name: "สแกน QR", href: "/scan", icon: ScanLine },
+      { name: "นำเข้า Excel", href: "/import", icon: Upload },
+    ],
+  },
+  {
+    label: "จัดการ",
+    items: [
+      { name: "หมวดหมู่", href: "/categories", icon: Layers },
+      { name: "บล็อก", href: "/blocks", icon: Grid2x2, adminOnly: true },
+      { name: "อาคาร", href: "/buildings", icon: Building, adminOnly: true },
+      { name: "จัดการผู้ใช้", href: "/users", icon: Users, adminOnly: true },
+      { name: "ตั้งค่า", href: "/settings", icon: Settings },
+    ],
+  },
 ];
 
 interface SidebarProps {
@@ -46,9 +66,12 @@ export function Sidebar({ userName, userRole, mustChangePassword, onLogout }: Si
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const filteredNav = mustChangePassword
+  const sections = mustChangePassword
     ? []
-    : navigation.filter((item) => !(item as { adminOnly?: boolean }).adminOnly || userRole === "ADMIN");
+    : NAV_SECTIONS.map((s) => ({
+        ...s,
+        items: s.items.filter((item) => !item.adminOnly || userRole === "ADMIN"),
+      })).filter((s) => s.items.length > 0);
 
   return (
     <>
@@ -64,86 +87,75 @@ export function Sidebar({ userName, userRole, mustChangePassword, onLogout }: Si
 
       {/* Mobile overlay */}
       {mobileOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/50 md:hidden"
-          onClick={() => setMobileOpen(false)}
-        />
+        <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={() => setMobileOpen(false)} />
       )}
 
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-gray-900 text-white transition-transform duration-300 md:translate-x-0",
+          "side fixed inset-y-0 left-0 z-50 flex w-64 flex-col text-slate-700 transition-transform duration-300 md:translate-x-0",
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
         {/* Logo */}
-        <div className="flex h-16 items-center justify-between px-4 border-b border-gray-800">
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <Package className="h-6 w-6 text-blue-400" />
-            <span className="font-bold text-lg">SparePart</span>
-          </Link>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="md:hidden text-white hover:bg-gray-800"
-            onClick={() => setMobileOpen(false)}
-          >
+        <div className="flex h-16 items-center gap-3 px-5 border-b border-slate-100">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-slate-900 to-slate-700 text-amber-300 shadow-lg shadow-slate-900/20">
+            <Boxes className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold leading-tight tracking-tight text-slate-900">SparePartStock</p>
+            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400">North Bangkok</p>
+          </div>
+          <Button variant="ghost" size="icon" className="ml-auto md:hidden text-slate-500 hover:bg-slate-100" onClick={() => setMobileOpen(false)}>
             <X className="h-5 w-5" />
           </Button>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 space-y-1 px-2 py-4">
-          {filteredNav.map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                onClick={() => setMobileOpen(false)}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-blue-600 text-white"
-                    : "text-gray-300 hover:bg-gray-800 hover:text-white"
-                )}
-              >
-                <item.icon className="h-5 w-5" />
-                {item.name}
-              </Link>
-            );
-          })}
+        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-5 scrollbar-thin">
+          {sections.map((section) => (
+            <div key={section.label}>
+              <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{section.label}</p>
+              <div className="space-y-0.5">
+                {section.items.map((item) => {
+                  const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.name}
+                      href={item.href}
+                      onClick={() => setMobileOpen(false)}
+                      className={cn("nav-item", isActive && "active")}
+                    >
+                      <Icon className="ic h-[18px] w-[18px]" />
+                      <span>{item.name}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
 
-        {/* User info */}
-        <div className="border-t border-gray-800 p-4">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center">
-              <span className="text-sm font-medium">{userName.charAt(0).toUpperCase()}</span>
+        {/* User card */}
+        <div className="border-t border-slate-100 p-3">
+          <div className="flex items-center gap-3 rounded-xl bg-slate-50/80 p-2.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-sm font-semibold text-white">
+              {userName.charAt(0).toUpperCase()}
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{userName}</p>
-              <p className="text-xs text-gray-400">{userRole === "ADMIN" ? "ผู้ดูแลระบบ" : "พนักงาน"}</p>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-slate-800">{userName}</p>
+              <p className="text-[11px] text-slate-500">{userRole === "ADMIN" ? "ผู้ดูแลระบบ" : "พนักงาน"}</p>
             </div>
-          </div>
-          <Link href="/settings/password">
-            <Button
-              variant="ghost"
-              className="w-full justify-start text-gray-300 hover:bg-gray-800 hover:text-white"
+            <button
+              type="button"
+              className="icbtn text-slate-500 hover:text-red-600"
+              title="ออกจากระบบ"
+              onClick={onLogout}
             >
-              <KeyRound className="mr-2 h-4 w-4" />
-              เปลี่ยนรหัสผ่าน
-            </Button>
-          </Link>
-          <Button
-            variant="ghost"
-            className="w-full justify-start text-gray-300 hover:bg-gray-800 hover:text-white"
-            onClick={onLogout}
-          >
-            <LogOut className="mr-2 h-4 w-4" />
-            ออกจากระบบ
-          </Button>
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </aside>
     </>

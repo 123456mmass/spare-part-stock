@@ -860,13 +860,12 @@ async function handlePartImageAdd(
   const session = await requireImageSession(sid, userId, replyToken);
   if (!session) return;
 
-  // Open the LIFF add-part page using LIFF deep link (liff.line.me/ID/path)
-  // so LINE opens it in the LIFF in-app browser, NOT external browser.
-  // Web URLs (spare.birdsphichitchai.dev/liff/...) cause LIFF SDK to fail.
-  // LIFF endpoint is https://spare.birdsphichitchai.dev/liff, so
-  // liff.line.me/{ID}/add-part maps to /liff/add-part (NOT /liff/liff/add-part).
+  // Use base LIFF deep link with query params instead of path suffix.
+  // LIFF deep links often drop the path (e.g. /add-part) on redirect,
+  // so we pass the target as a query param and let the LIFF home page
+  // handle the redirect. This is more reliable across LINE clients.
   const LIFF_ID = process.env.NEXT_PUBLIC_LIFF_ID || "2010187689-ZCU84P4L";
-  const liffUrl = `https://liff.line.me/${LIFF_ID}/add-part?lineSid=${encodeURIComponent(session.id)}`;
+  const liffUrl = `https://liff.line.me/${LIFF_ID}?lineSid=${encodeURIComponent(session.id)}&go=add-part`;
 
   // Use Flex message with a button — more reliable than template messages
   // and consistent with the rest of the bot's Flex-based UI.

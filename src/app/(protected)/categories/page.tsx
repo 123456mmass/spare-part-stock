@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { fetchWithAuth as fetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -17,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toaster";
 import { Plus, Tag, Trash2 } from "lucide-react";
-import { PageHeader } from "@/components/layout";
+import { PageTitle } from "@/components/layout";
 
 interface Category {
   id: string;
@@ -100,39 +99,38 @@ export default function CategoriesPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <PageTitle
         title="หมวดหมู่"
-        description={`จำนวน ${categories.length} หมวดหมู่`}
+        description={<>จำนวน <span className="tnum">{categories.length}</span> หมวดหมู่</>}
         action={
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" className="bg-white text-indigo-700 hover:bg-indigo-50">
+              <Button variant="gold" size="sm">
                 <Plus className="h-4 w-4 mr-2" />
                 เพิ่มหมวดหมู่
               </Button>
             </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>เพิ่มหมวดหมู่ใหม่</DialogTitle>
-              <DialogDescription>กรอกชื่อหมวดหมู่ที่ต้องการเพิ่ม</DialogDescription>
-            </DialogHeader>
-            <div className="py-4">
-              <Label htmlFor="categoryName">ชื่อหมวดหมู่</Label>
-              <Input
-                id="categoryName"
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                placeholder="เช่น อะไหล่เครื่องจักร, อะไหล่ยานยนต์"
-              />
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setDialogOpen(false)}>
-                ยกเลิก
-              </Button>
-              <Button onClick={handleCreateCategory}>บันทึก</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>เพิ่มหมวดหมู่ใหม่</DialogTitle>
+                <DialogDescription>กรอกชื่อหมวดหมู่ที่ต้องการเพิ่ม</DialogDescription>
+              </DialogHeader>
+              <div className="py-4">
+                <Label htmlFor="categoryName">ชื่อหมวดหมู่</Label>
+                <Input
+                  id="categoryName"
+                  className="mt-1"
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  placeholder="เช่น อะไหล่เครื่องจักร, อะไหล่ยานยนต์"
+                />
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setDialogOpen(false)}>ยกเลิก</Button>
+                <Button variant="gold" onClick={handleCreateCategory}>บันทึก</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         }
       />
 
@@ -146,16 +144,14 @@ export default function CategoriesPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="py-2">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-slate-600">
               {deleteTarget && deleteTarget._count.parts > 0
                 ? `อะไหล่ ${deleteTarget._count.parts} รายการที่ใช้หมวดหมู่นี้จะถูกปลดหมวดหมู่ออก (อะไหล่ไม่ถูกลบ)`
                 : "ไม่มีอะไหล่ใช้หมวดหมู่นี้"}
             </p>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={isDeleting}>
-              ยกเลิก
-            </Button>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={isDeleting}>ยกเลิก</Button>
             <Button variant="destructive" onClick={handleDeleteCategory} disabled={isDeleting}>
               {isDeleting ? "กำลังลบ..." : "ลบหมวดหมู่"}
             </Button>
@@ -167,56 +163,48 @@ export default function CategoriesPage() {
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3].map((i) => (
-            <Card key={i} className="animate-pulse">
-              <CardContent className="p-4">
-                <div className="h-16 bg-gray-200 rounded" />
-              </CardContent>
-            </Card>
+            <div key={i} className="bcard p-4 animate-pulse">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-slate-200" />
+                <div className="space-y-2"><div className="h-4 w-24 bg-slate-200 rounded" /><div className="h-3 w-16 bg-slate-200 rounded" /></div>
+              </div>
+            </div>
           ))}
         </div>
       ) : categories.length === 0 ? (
-        <Card>
-          <CardContent className="p-8 text-center">
-            <Tag className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-500">ยังไม่มีหมวดหมู่</p>
-            <Button className="mt-4" onClick={() => setDialogOpen(true)}>
-              เพิ่มหมวดหมู่แรก
-            </Button>
-          </CardContent>
-        </Card>
+        <div className="pcard pcard-pad py-10 text-center">
+          <Tag className="h-12 w-12 text-slate-400 mx-auto mb-4" />
+          <p className="text-slate-500">ยังไม่มีหมวดหมู่</p>
+          <Button variant="gold" className="mt-4" onClick={() => setDialogOpen(true)}>เพิ่มหมวดหมู่แรก</Button>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {categories.map((category) => (
-            <Card key={category.id}>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-blue-100">
-                      <Tag className="h-5 w-5 text-blue-600" />
-                    </div>
-                    <div>
-                      <p className="font-medium">{category.name}</p>
-                      <p className="text-sm text-gray-500">
-                        {category._count.parts} รายการ
-                      </p>
-                    </div>
+            <div key={category.id} className="bcard p-4">
+              <div className="flex items-center justify-between relative z-[1]">
+                <div className="flex items-center gap-3">
+                  <div className="bicon flex h-10 w-10 items-center justify-center rounded-lg">
+                    <Tag className="h-5 w-5" />
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-gray-400 hover:text-red-600"
-                    onClick={() => setDeleteTarget(category)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div>
+                    <p className="font-semibold text-slate-900">{category.name}</p>
+                    <p className="text-sm text-slate-500"><span className="tnum">{category._count.parts}</span> รายการ</p>
+                  </div>
                 </div>
-              </CardContent>
-            </Card>
+                <button
+                  type="button"
+                  className="icbtn text-slate-400 hover:text-red-600"
+                  title="ลบหมวดหมู่"
+                  onClick={() => setDeleteTarget(category)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
           ))}
         </div>
       )}
 
-      {/* Mobile bottom padding */}
       <div className="h-20 md:hidden" />
     </div>
   );

@@ -6,10 +6,11 @@ import { prisma } from "@/lib/prisma";
 import { createStockMovement, StockError } from "@/lib/stock";
 import { notifyLowStock } from "@/lib/notifications";
 import { partSchema } from "@/lib/validators";
+import { normalizeBuildingName } from "@/lib/ai-assistant/intent-normalizer";
 import { regeneratePartTextEmbedding } from "@/lib/part-text-embedding";
 import type { AiAssistantChannel, ToolExecutionContext } from "./types";
 
-const PENDING_ACTION_TTL_MS = 10 * 60 * 1000;
+const PENDING_ACTION_TTL_MS = 30 * 60 * 1000;
 
 const stockInOutPayloadSchema = z.object({
   partNumber: z.string().min(1),
@@ -211,7 +212,37 @@ export async function draftCreatePart(
   raw: unknown,
 ) {
   requireAdmin(context.user.role, "create_part");
-  const payload = createPartPayloadSchema.parse(raw);
+
+  // Accept either buildingId/categoryId (UUID) or buildingName/categoryName (human name).
+  const resolver = raw as Record<string, unknown>;
+
+  if (!resolver.buildingId && resolver.buildingName) {
+    const normalized = normalizeBuildingName(String(resolver.buildingName));
+    const building = await prisma.building.findFirst({
+      where: {
+        isActive: true,
+        name: normalized ?? String(resolver.buildingName),
+      },
+    });
+    if (!building) {
+      throw new Error(`ไม่พบอาคาร "${resolver.buildingName}" ในระบบ`);
+    }
+    resolver.buildingId = building.id;
+  }
+
+  if (!resolver.categoryId && resolver.categoryName) {
+    const category = await prisma.category.findUnique({
+      where: {
+        name: String(resolver.categoryName),
+      },
+    });
+    if (!category) {
+      throw new Error(`ไม่พบหมวดหมู่ "${resolver.categoryName}" ในระบบ`);
+    }
+    resolver.categoryId = category.id;
+  }
+
+  const payload = createPartPayloadSchema.parse(resolver);
   const existing = await prisma.part.findUnique({
     where: { partNumber: payload.partNumber },
   });
@@ -504,7 +535,7 @@ type ImageSessionPayload = {
   processingAction?: string;
 };
 
-const IMAGE_SESSION_TTL_MS = 10 * 60 * 1000; // 10 min
+const IMAGE_SESSION_TTL_MS = 30 * 60 * 1000; // 30 min — LIFF redirect can be slow
 
 export async function createImageSession(
   userId: string,

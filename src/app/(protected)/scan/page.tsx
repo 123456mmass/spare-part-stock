@@ -5,11 +5,12 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { fetchWithAuth as fetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toaster";
 import { Search, Camera, XCircle, ImageIcon, Barcode, Loader2 } from "lucide-react";
-import { PageHeader } from "@/components/layout";
+import { PageTitle } from "@/components/layout";
 
 type Mode = "barcode" | "image";
 
@@ -208,147 +209,156 @@ export default function ScanPage() {
 
   return (
     <div className="space-y-6 max-w-lg mx-auto">
-      <PageHeader
+      <PageTitle
         title={mode === "barcode" ? "สแกนบาร์โค้ด / QR Code" : "ค้นหาด้วยรูปภาพ"}
         description={
           mode === "barcode"
-            ? "เล็งกล้องไปที่บาร์โค้ดหรือ QR Code ของอะไหล่"
+            ? "เล็งกล้องไปที่บาร์โค้ดหรือ QR Code ของอะไหล่ — ระบบสแกนอัตโนมัติ"
             : "ถ่ายรูปอะไหล่เพื่อจับคู่กับฐานข้อมูล"
         }
       />
 
       <div className="grid grid-cols-2 gap-2">
-        <Button
-          variant={mode === "barcode" ? "default" : "outline"}
+        <button
+          type="button"
+          className={cn("smode-btn", mode === "barcode" && "smode-active")}
           onClick={() => switchMode("barcode")}
         >
-          <Barcode className="h-4 w-4 mr-2" />
+          <Barcode className="h-4 w-4" />
           บาร์โค้ด
-        </Button>
-        <Button
-          variant={mode === "image" ? "default" : "outline"}
+        </button>
+        <button
+          type="button"
+          className={cn("smode-btn", mode === "image" && "smode-active")}
           onClick={() => switchMode("image")}
         >
-          <ImageIcon className="h-4 w-4 mr-2" />
+          <ImageIcon className="h-4 w-4" />
           ค้นหาด้วยรูป
-        </Button>
+        </button>
       </div>
 
       {!scanning && !capturedPreview && (
-        <Card>
-          <CardContent className="p-8 text-center">
-            <Camera className="h-16 w-16 text-blue-500 mx-auto mb-4" />
-            <Button size="lg" onClick={startCamera} className="w-full">
-              เปิดกล้อง
-            </Button>
-            {error && (
-              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2">
-                <XCircle className="h-4 w-4 flex-shrink-0" />
-                {error}
-              </div>
-            )}
-          </CardContent>
+        <Card className="p-8 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-100 mx-auto mb-4">
+            <Camera className="h-8 w-8 text-amber-600" />
+          </div>
+          <p className="text-sm text-slate-500 mb-4">
+            {mode === "barcode" ? "กดเพื่อเปิดกล้องแล้วเล็งที่บาร์โค้ด" : "กดเพื่อเปิดกล้องแล้วถ่ายรูปอะไหล่"}
+          </p>
+          <Button size="lg" variant="gold" onClick={startCamera} className="w-full">
+            เปิดกล้อง
+          </Button>
+          {error && (
+            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2 text-left">
+              <XCircle className="h-4 w-4 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
         </Card>
       )}
 
       {scanning && (
         <Card className="overflow-hidden">
-          <CardContent className="p-0">
-            <div className="relative aspect-[4/3] bg-black">
-              <video
-                ref={videoRef}
-                className="w-full h-full object-cover"
-                playsInline
-                muted
-                autoPlay
-              />
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="w-64 h-48 border-2 border-blue-400 rounded-lg" />
+          <div className="relative aspect-[4/3] bg-slate-900 overflow-hidden">
+            <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div
+                className="relative w-64 h-48 border-2 border-amber-300/80 rounded-lg"
+                style={{ boxShadow: "0 0 0 9999px rgba(0,0,0,0.4)" }}
+              >
+                <div className="absolute -top-0 -left-0 h-5 w-5 border-t-2 border-l-2 border-amber-300 rounded-tl-lg" />
+                <div className="absolute -top-0 -right-0 h-5 w-5 border-t-2 border-r-2 border-amber-300 rounded-tr-lg" />
+                <div className="absolute -bottom-0 -left-0 h-5 w-5 border-b-2 border-l-2 border-amber-300 rounded-bl-lg" />
+                <div className="absolute -bottom-0 -right-0 h-5 w-5 border-b-2 border-r-2 border-amber-300 rounded-br-lg" />
+                {mode === "barcode" && <div className="scanline" />}
               </div>
             </div>
-            <div className="p-3 flex gap-2 justify-center">
-              {mode === "image" && (
-                <Button onClick={captureAndSearch}>
-                  <Camera className="h-4 w-4 mr-2" />
-                  ถ่ายและค้นหา
-                </Button>
-              )}
-              <Button variant="outline" size="sm" onClick={stopCamera}>หยุด</Button>
-            </div>
-          </CardContent>
+            {mode === "barcode" ? (
+              <div className="absolute top-3 left-3 flex items-center gap-1.5 rounded-full bg-black/40 px-2.5 py-1 text-[11px] text-white">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                กำลังสแกน...
+              </div>
+            ) : (
+              <div className="absolute top-3 left-3 flex items-center gap-1.5 rounded-full bg-black/40 px-2.5 py-1 text-[11px] text-white">
+                <Camera className="h-3 w-3" />
+                ถ่ายรูปเพื่อค้นหา
+              </div>
+            )}
+          </div>
+          <div className="p-3 flex gap-2 justify-center">
+            {mode === "image" && (
+              <Button variant="gold" onClick={captureAndSearch}>
+                <Camera className="h-4 w-4 mr-2" />
+                ถ่ายและค้นหา
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={stopCamera}>หยุดกล้อง</Button>
+          </div>
         </Card>
       )}
 
       {!scanning && capturedPreview && mode === "image" && (
         <Card className="overflow-hidden">
-          <CardContent className="p-0">
-            <div className="relative aspect-[4/3] bg-black">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={capturedPreview} alt="captured" className="w-full h-full object-cover" />
-              {searching && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 text-white gap-2">
-                  <Loader2 className="h-8 w-8 animate-spin" />
-                  <p className="text-sm">กำลังค้นหา...</p>
-                </div>
-              )}
-            </div>
-            <div className="p-3 flex gap-2 justify-center">
-              <Button variant="outline" size="sm" onClick={retake} disabled={searching}>
-                <Camera className="h-4 w-4 mr-2" />
-                ถ่ายใหม่
-              </Button>
-            </div>
-          </CardContent>
+          <div className="relative aspect-[4/3] bg-black">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={capturedPreview} alt="captured" className="w-full h-full object-cover" />
+            {searching && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 text-white gap-2">
+                <Loader2 className="h-8 w-8 animate-spin" />
+                <p className="text-sm">กำลังค้นหา...</p>
+              </div>
+            )}
+          </div>
+          <div className="p-3 flex gap-2 justify-center">
+            <Button variant="outline" size="sm" onClick={retake} disabled={searching}>
+              <Camera className="h-4 w-4 mr-2" />
+              ถ่ายใหม่
+            </Button>
+          </div>
         </Card>
       )}
 
       {mode === "image" && matches && matches.length > 0 && (
-        <Card>
-          <CardContent className="p-3 space-y-2">
-            <p className="text-sm font-medium text-gray-700 px-1">ผลการค้นหา (เรียงตามความใกล้เคียง)</p>
-            {matches.map((m) => (
-              <button
-                key={m.part.id}
-                onClick={() => router.push(`/parts/${m.part.id}`)}
-                className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 border border-gray-200 text-left"
-              >
-                <div className="relative w-16 h-16 flex-shrink-0 bg-gray-100 rounded overflow-hidden">
-                  {m.part.imageUrl ? (
-                    <Image src={m.part.imageUrl} alt={m.part.partName} fill className="object-cover" sizes="64px" />
-                  ) : null}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate">{m.part.partName}</p>
-                  <p className="text-xs text-gray-500 truncate">{m.part.partNumber}</p>
-                  <p className="text-xs text-gray-500">คงเหลือ {m.part.quantity} {m.part.unit}</p>
-                </div>
-                <div className="text-right flex-shrink-0">
-                  <p className="text-sm font-semibold text-blue-600">
-                    {Math.round(m.similarity * 100)}%
-                  </p>
-                </div>
-              </button>
-            ))}
-          </CardContent>
+        <Card className="p-3 space-y-2">
+          <p className="text-sm font-medium text-slate-700 px-1">ผลการค้นหา (เรียงตามความใกล้เคียง)</p>
+          {matches.map((m) => (
+            <button
+              key={m.part.id}
+              onClick={() => router.push(`/parts/${m.part.id}`)}
+              className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 border border-slate-200 text-left transition-colors"
+            >
+              <div className="relative w-16 h-16 flex-shrink-0 bg-slate-100 rounded overflow-hidden">
+                {m.part.imageUrl ? (
+                  <Image src={m.part.imageUrl} alt={m.part.partName} fill className="object-cover" sizes="64px" />
+                ) : null}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-slate-900 truncate">{m.part.partName}</p>
+                <p className="text-xs text-slate-500 truncate">{m.part.partNumber}</p>
+                <p className="text-xs text-slate-500">คงเหลือ {m.part.quantity} {m.part.unit}</p>
+              </div>
+              <div className="text-right flex-shrink-0">
+                <p className="text-sm font-semibold text-amber-600">{Math.round(m.similarity * 100)}%</p>
+              </div>
+            </button>
+          ))}
         </Card>
       )}
 
       {mode === "barcode" && (
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-sm text-gray-500 mb-2">หรือพิมพ์รหัสอะไหล่/บาร์โค้ด:</p>
-            <div className="flex gap-2">
-              <Input
-                value={manualCode}
-                onChange={(e) => setManualCode(e.target.value)}
-                placeholder="พิมพ์รหัส..."
-                onKeyDown={(e) => e.key === "Enter" && searchByCode(manualCode.trim())}
-              />
-              <Button onClick={() => searchByCode(manualCode.trim())}>
-                <Search className="h-4 w-4" />
-              </Button>
-            </div>
-          </CardContent>
+        <Card className="p-4">
+          <p className="text-sm text-slate-500 mb-2">หรือพิมพ์รหัสอะไหล่/บาร์โค้ด:</p>
+          <div className="flex gap-2">
+            <Input
+              value={manualCode}
+              onChange={(e) => setManualCode(e.target.value)}
+              placeholder="พิมพ์รหัส..."
+              onKeyDown={(e) => e.key === "Enter" && searchByCode(manualCode.trim())}
+            />
+            <Button variant="gold" onClick={() => searchByCode(manualCode.trim())}>
+              <Search className="h-4 w-4" />
+            </Button>
+          </div>
         </Card>
       )}
 

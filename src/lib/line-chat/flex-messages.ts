@@ -1213,7 +1213,7 @@ export function createLowStockFlex(parts: FlexPart[], totalCount: number): unkno
   };
 }
 
-// ── Existing flex builders ──────────────────────────────────────────
+// ── Buildings flex ──────────────────────────────────────────────────
 
 export function createBuildingListFlex(buildings: BuildingFlexItem[]): unknown {
   const rows = buildings.slice(0, 12).map((building) => ({
@@ -1266,6 +1266,240 @@ export function createBuildingListFlex(buildings: BuildingFlexItem[]): unknown {
     },
   };
 }
+
+// ── Blocks flex ──────────────────────────────────────────────────────
+
+type BlockFlexItem = {
+  name: string;
+  partCount: number;
+  totalQuantity: number;
+};
+
+export function createBlockListFlex(blocks: BlockFlexItem[]): unknown {
+  const rows = blocks.slice(0, 12).map((block) => ({
+    type: "box",
+    layout: "horizontal",
+    spacing: "md",
+    contents: [
+      { type: "text", text: `🧱 ${block.name}`, size: "sm", color: "#111111", flex: 3, wrap: true },
+      {
+        type: "text",
+        text: `${block.partCount} รายการ / ${block.totalQuantity} ชิ้น`,
+        size: "sm",
+        color: "#1DB446",
+        weight: "bold",
+        align: "end",
+        flex: 3,
+        wrap: true,
+      },
+    ],
+  }));
+
+  return {
+    type: "bubble",
+    size: "mega",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        { type: "text", text: "Block ที่มีในระบบ", weight: "bold", size: "lg", color: "#111111", wrap: true },
+        { type: "text", text: `ทั้งหมด ${blocks.length} Block`, size: "sm", color: "#4B5563", wrap: true },
+        { type: "separator" },
+        ...rows,
+        blocks.length > rows.length
+          ? { type: "text", text: `และอีก ${blocks.length - rows.length} Block`, size: "xs", color: "#6B7280", wrap: true }
+          : null,
+      ].filter(Boolean),
+    },
+  };
+}
+
+// ── Part detail flex ─────────────────────────────────────────────────
+
+export function createPartDetailFlex(part: FlexPart): unknown {
+  return createStockInfoFlex(part);
+}
+
+// ── Part movements flex ──────────────────────────────────────────────
+
+export type MovementFlexItem = {
+  type: string;
+  partNumber: string;
+  partName: string;
+  quantityChange: number;
+  quantityBefore: number;
+  quantityAfter: number;
+  userName: string | null;
+  note: string | null;
+  createdAt: string;
+};
+
+export function createPartMovementsFlex(movements: MovementFlexItem[], totalCount: number, filters: string): unknown {
+  if (movements.length === 0) {
+    return {
+      type: "bubble",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          { type: "text", text: "📋 ประวัติการเคลื่อนไหว", weight: "bold", size: "lg", wrap: true },
+          { type: "text", text: "ไม่พบข้อมูล", size: "sm", color: "#6B7280", wrap: true },
+        ],
+      },
+    };
+  }
+
+  const typeIcon: Record<string, string> = {
+    STOCK_IN: "📥",
+    STOCK_OUT: "📤",
+    ADJUSTMENT: "🔧",
+  };
+
+  const rows = movements.slice(0, 8).map((m) => {
+    const icon = typeIcon[m.type] || "📋";
+    const changeStr = m.quantityChange >= 0 ? `+${m.quantityChange}` : `${m.quantityChange}`;
+    const changeColor = m.quantityChange >= 0 ? "#1DB446" : "#D32F2F";
+    const dateStr = new Date(m.createdAt).toLocaleDateString("th-TH", { month: "short", day: "numeric" });
+
+    return {
+      type: "box",
+      layout: "horizontal",
+      spacing: "sm",
+      margin: "sm",
+      contents: [
+        { type: "text", text: icon, size: "sm", flex: 1 },
+        { type: "text", text: `${m.partNumber}`, size: "xs", color: "#111111", weight: "bold", flex: 3, wrap: true },
+        { type: "text", text: changeStr, size: "xs", color: changeColor, weight: "bold", align: "end", flex: 2 },
+        { type: "text", text: dateStr, size: "xs", color: "#6B7280", align: "end", flex: 2 },
+      ],
+    };
+  });
+
+  return {
+    type: "bubble",
+    size: "mega",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        { type: "text", text: "📋 ประวัติการเคลื่อนไหว", weight: "bold", size: "lg", color: "#111111", wrap: true },
+        filters && filters !== "ทั้งหมด"
+          ? { type: "text", text: `กรอง: ${filters}`, size: "xs", color: "#6B7280", wrap: true }
+          : null,
+        { type: "separator" },
+        {
+          type: "box",
+          layout: "horizontal",
+          spacing: "sm",
+          contents: [
+            { type: "text", text: "", flex: 1 },
+            { type: "text", text: "รหัส", size: "xs", color: "#9CA3AF", weight: "bold", flex: 3 },
+            { type: "text", text: "จำนวน", size: "xs", color: "#9CA3AF", weight: "bold", align: "end", flex: 2 },
+            { type: "text", text: "วันที่", size: "xs", color: "#9CA3AF", weight: "bold", align: "end", flex: 2 },
+          ],
+        },
+        ...rows,
+        { type: "separator" },
+        { type: "text", text: `รวม ${totalCount} รายการ แสดง ${Math.min(movements.length, 8)} รายการ`, size: "xs", color: "#6B7280", align: "center", wrap: true },
+      ].filter(Boolean),
+    },
+  };
+}
+
+// ── Usage trends flex ────────────────────────────────────────────────
+
+export type TrendFlexMonth = {
+  yearMonth: string;
+  stockInCount: number;
+  stockOutCount: number;
+  adjustmentCount: number;
+  totalIn: number;
+  totalOut: number;
+};
+
+export function createUsageTrendsFlex(monthly: TrendFlexMonth[], summary: string, filters: string): unknown {
+  if (monthly.length === 0) {
+    return {
+      type: "bubble",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          { type: "text", text: "📈 แนวโน้มการใช้งาน", weight: "bold", size: "lg", wrap: true },
+          { type: "text", text: "ไม่พบข้อมูลในช่วงเวลาที่เลือก", size: "sm", color: "#6B7280", wrap: true },
+        ],
+      },
+    };
+  }
+
+  const rows = monthly.slice(0, 8).map((m) => {
+    // Simple bar representation using unicode blocks
+    const inBar = "█".repeat(Math.min(Math.round(m.totalIn / 5), 10));
+    const outBar = "▓".repeat(Math.min(Math.round(m.totalOut / 5), 10));
+
+    return {
+      type: "box",
+      layout: "vertical",
+      spacing: "none",
+      margin: "sm",
+      contents: [
+        {
+          type: "box",
+          layout: "horizontal",
+          contents: [
+            { type: "text", text: m.yearMonth, size: "xs", color: "#111111", weight: "bold", flex: 2 },
+            { type: "text", text: `📥${m.stockInCount}`, size: "xs", color: "#1DB446", flex: 2, align: "center" },
+            { type: "text", text: `📤${m.stockOutCount}`, size: "xs", color: "#D32F2F", flex: 2, align: "center" },
+          ],
+        },
+        {
+          type: "box",
+          layout: "horizontal",
+          spacing: "xs",
+          margin: "xs",
+          contents: [
+            { type: "text", text: `รับ ${m.totalIn}`, size: "xs", color: "#1DB446", flex: 1 },
+            { type: "text", text: `เบิก ${m.totalOut}`, size: "xs", color: "#D32F2F", align: "end", flex: 1 },
+          ],
+        },
+      ],
+    };
+  });
+
+  return {
+    type: "bubble",
+    size: "mega",
+    body: {
+      type: "box",
+      layout: "vertical",
+      spacing: "md",
+      contents: [
+        { type: "text", text: "📈 แนวโน้มการใช้งาน", weight: "bold", size: "lg", color: "#111111", wrap: true },
+        filters && filters !== "ทั้งหมด"
+          ? { type: "text", text: `กรอง: ${filters}`, size: "xs", color: "#6B7280", wrap: true }
+          : null,
+        { type: "separator" },
+        {
+          type: "box",
+          layout: "horizontal",
+          contents: [
+            { type: "text", text: "เดือน", size: "xs", color: "#9CA3AF", weight: "bold", flex: 2 },
+            { type: "text", text: "รับเข้า", size: "xs", color: "#9CA3AF", weight: "bold", flex: 2, align: "center" },
+            { type: "text", text: "เบิกออก", size: "xs", color: "#9CA3AF", weight: "bold", flex: 2, align: "center" },
+          ],
+        },
+        ...rows,
+        { type: "separator" },
+        { type: "text", text: summary, size: "xs", color: "#4B5563", wrap: true },
+      ].filter(Boolean),
+    },
+  };
+}
+
 
 // สร้าง Flex Message สำหรับไม่พบข้อมูล
 export function createNotFoundFlex(keyword: string): unknown {

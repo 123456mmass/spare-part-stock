@@ -3,8 +3,17 @@ import { prisma } from "./prisma";
 type PartSlice = {
   quantity: number;
   plant: string | null;
+  isSpecialToolPart: boolean;
   categoryId: string | null;
 };
+
+const SPECIAL_TOOL_PART_LABEL = "Special Tool Part";
+const UNSPECIFIED_BLOCK_LABEL = "ไม่ระบุ Block";
+
+function resolveBlockName(part: PartSlice): string {
+  if (part.isSpecialToolPart) return SPECIAL_TOOL_PART_LABEL;
+  return part.plant?.trim() || UNSPECIFIED_BLOCK_LABEL;
+}
 
 export interface BlockBreakdown {
   block: string;
@@ -65,7 +74,7 @@ function aggregateBlockMap(parts: PartSlice[]) {
       buildingCategoryIds.add(part.categoryId);
     }
 
-    const block = part.plant?.trim() || "ไม่ระบุ Block";
+    const block = resolveBlockName(part);
     const existing = blockMap.get(block) ?? {
       partCount: 0,
       totalQuantity: 0,
@@ -103,7 +112,7 @@ function computeBlockSummaries(
 
   for (const building of buildings) {
     for (const part of building.parts) {
-      const block = part.plant?.trim() || "ไม่ระบุ Block";
+      const block = resolveBlockName(part);
       const existing = blockMap.get(block) ?? {
         partCount: 0,
         totalQuantity: 0,
@@ -147,7 +156,7 @@ export async function getStorageSummary(): Promise<StorageSummary> {
         include: {
           parts: {
             where: { isActive: true },
-            select: { quantity: true, plant: true, categoryId: true },
+            select: { quantity: true, plant: true, isSpecialToolPart: true, categoryId: true },
           },
         },
       }),

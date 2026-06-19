@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { fetchWithAuth as fetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -17,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toaster";
 import { Building2, Pencil, Trash2, Plus } from "lucide-react";
-import { PageHeader } from "@/components/layout";
+import { PageTitle } from "@/components/layout";
 
 interface BuildingInfo {
   id: string;
@@ -26,6 +25,13 @@ interface BuildingInfo {
   partCount: number;
   totalQuantity: number;
 }
+
+const BAR_GRADIENTS = [
+  "from-indigo-500 to-violet-600",
+  "from-emerald-500 to-teal-600",
+  "from-amber-500 to-orange-600",
+  "from-pink-500 to-rose-600",
+];
 
 export default function BuildingsPage() {
   const { toast } = useToast();
@@ -127,37 +133,32 @@ export default function BuildingsPage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      <PageHeader
+      <PageTitle
         title="อาคารที่เก็บ"
         description="จัดการอาคารที่เก็บอะไหล่ — ตั้งชื่อให้ตรงกับ Excel คอลัมน์ Location"
         action={
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" className="bg-white text-indigo-700 hover:bg-indigo-50">
+              <Button variant="gold" size="sm">
                 <Plus className="h-4 w-4 mr-2" />
                 เพิ่มอาคาร
               </Button>
             </DialogTrigger>
             <DialogContent>
-            <DialogHeader>
-              <DialogTitle>เพิ่มอาคารใหม่</DialogTitle>
-              <DialogDescription>กรอกชื่ออาคารที่ต้องการเพิ่ม</DialogDescription>
-            </DialogHeader>
-            <div className="py-4">
-              <Label htmlFor="newBuildingNameCreate">ชื่ออาคาร</Label>
-              <Input
-                id="newBuildingNameCreate"
-                value={newBuildingName}
-                onChange={(e) => setNewBuildingName(e.target.value)}
-                placeholder="ชื่ออาคาร"
-              />
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setCreateOpen(false)}>ยกเลิก</Button>
-              <Button onClick={handleCreate} disabled={isSubmitting || !newBuildingName.trim()}>บันทึก</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+              <DialogHeader>
+                <DialogTitle>เพิ่มอาคารใหม่</DialogTitle>
+                <DialogDescription>กรอกชื่ออาคารที่ต้องการเพิ่ม</DialogDescription>
+              </DialogHeader>
+              <div className="py-4">
+                <Label htmlFor="newBuildingNameCreate">ชื่ออาคาร</Label>
+                <Input id="newBuildingNameCreate" className="mt-1" value={newBuildingName} onChange={(e) => setNewBuildingName(e.target.value)} placeholder="ชื่ออาคาร" />
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setCreateOpen(false)}>ยกเลิก</Button>
+                <Button variant="gold" onClick={handleCreate} disabled={isSubmitting || !newBuildingName.trim()}>บันทึก</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         }
       />
 
@@ -165,22 +166,15 @@ export default function BuildingsPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>เปลี่ยนชื่ออาคาร</DialogTitle>
-            <DialogDescription>
-              เปลี่ยนจาก &quot;{renameTarget?.name}&quot; ({renameTarget?.partCount} รายการ)
-            </DialogDescription>
+            <DialogDescription>เปลี่ยนจาก &quot;{renameTarget?.name}&quot; ({renameTarget?.partCount} รายการ)</DialogDescription>
           </DialogHeader>
           <div className="py-4">
             <Label htmlFor="newBuildingName">ชื่อใหม่</Label>
-            <Input
-              id="newBuildingName"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="ชื่ออาคาร"
-            />
+            <Input id="newBuildingName" className="mt-1" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="ชื่ออาคาร" />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setRenameTarget(null); setNewName(""); }}>ยกเลิก</Button>
-            <Button onClick={handleRename} disabled={isSubmitting || !newName.trim()}>บันทึก</Button>
+            <Button variant="gold" onClick={handleRename} disabled={isSubmitting || !newName.trim()}>บันทึก</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -189,13 +183,9 @@ export default function BuildingsPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>ลบอาคาร</DialogTitle>
-            <DialogDescription>
-              ลบอาคาร &quot;{deleteTarget?.name}&quot;
-            </DialogDescription>
+            <DialogDescription>ลบอาคาร &quot;{deleteTarget?.name}&quot;</DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-gray-600">
-            ลบได้เฉพาะเมื่อไม่มีอะไหล่อยู่ในอาคารนี้
-          </p>
+          <p className="text-sm text-slate-600">ลบได้เฉพาะเมื่อไม่มีอะไหล่อยู่ในอาคารนี้</p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>ยกเลิก</Button>
             <Button variant="destructive" onClick={handleDelete} disabled={isSubmitting}>ลบ</Button>
@@ -206,59 +196,44 @@ export default function BuildingsPage() {
       {isLoading ? (
         <div className="space-y-3">
           {[1, 2].map((i) => (
-            <Card key={i} className="animate-pulse">
-              <CardContent className="p-4"><div className="h-16 bg-gray-200 rounded" /></CardContent>
-            </Card>
+            <div key={i} className="bcard overflow-hidden animate-pulse"><div className="flex items-stretch"><div className="w-1.5 shrink-0 bg-slate-200" /><div className="flex-1 p-4"><div className="h-8 w-2/3 bg-slate-200 rounded" /></div></div></div>
           ))}
+        </div>
+      ) : buildings.length === 0 ? (
+        <div className="pcard pcard-pad py-10 text-center">
+          <Building2 className="h-12 w-12 text-slate-400 mx-auto mb-4" />
+          <p className="text-slate-500">ยังไม่มีอาคาร</p>
+          <Button variant="gold" className="mt-4" onClick={() => setCreateOpen(true)}>เพิ่มอาคารแรก</Button>
         </div>
       ) : (
         <div className="space-y-3">
           {buildings.map((building, idx) => (
-            <Card key={building.id} className="overflow-hidden">
-              <CardContent className="p-0">
-                <div className="flex items-stretch">
-                  <div
-                    className={`w-1.5 shrink-0 ${
-                      idx % 2 === 0
-                        ? "bg-gradient-to-b from-indigo-500 to-violet-600"
-                        : "bg-gradient-to-b from-emerald-500 to-teal-600"
-                    }`}
-                  />
-                  <div className="flex flex-1 items-center justify-between p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-indigo-50">
-                        <Building2 className="h-5 w-5 text-indigo-600" />
-                      </div>
-                      <div>
-                        <p className="font-semibold text-gray-900">{building.name}</p>
-                        <p className="text-sm text-gray-500">
-                          {building.partCount.toLocaleString("th-TH")} รายการ ·{" "}
-                          {building.totalQuantity.toLocaleString("th-TH")} ชิ้น
-                        </p>
-                      </div>
+            <div key={building.id} className="bcard overflow-hidden">
+              <div className="flex items-stretch">
+                <div className={`w-1.5 shrink-0 bg-gradient-to-b ${BAR_GRADIENTS[idx % BAR_GRADIENTS.length]}`} />
+                <div className="flex flex-1 items-center justify-between p-4 relative z-[1]">
+                  <div className="flex items-center gap-3">
+                    <div className="bicon flex h-10 w-10 items-center justify-center rounded-lg">
+                      <Building2 className="h-5 w-5" />
                     </div>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-gray-400 hover:text-blue-600"
-                        onClick={() => { setRenameTarget(building); setNewName(building.name); }}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-gray-400 hover:text-red-600"
-                        onClick={() => setDeleteTarget(building)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                    <div>
+                      <p className="font-semibold text-slate-900">{building.name}</p>
+                      <p className="text-sm text-slate-500">
+                        <span className="tnum">{building.partCount.toLocaleString("th-TH")}</span> รายการ · <span className="tnum">{building.totalQuantity.toLocaleString("th-TH")}</span> ชิ้น
+                      </p>
                     </div>
                   </div>
+                  <div className="flex items-center gap-1">
+                    <button type="button" className="icbtn text-slate-400 hover:text-amber-600" title="เปลี่ยนชื่อ" onClick={() => { setRenameTarget(building); setNewName(building.name); }}>
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button type="button" className="icbtn text-slate-400 hover:text-red-600" title="ลบ" onClick={() => setDeleteTarget(building)}>
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           ))}
         </div>
       )}

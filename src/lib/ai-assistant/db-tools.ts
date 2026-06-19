@@ -186,6 +186,29 @@ function buildPartWhere(input: DbToolInput): Prisma.PartWhereInput {
   return { AND: ands };
 }
 
+// ── 0. getPartDetailTool ─────────────────────────────────────────────
+
+export async function getPartDetailTool(input: {
+  partNumber?: string | null;
+  barcodeValue?: string | null;
+}): Promise<CleanPart | null> {
+  const code = input.partNumber || input.barcodeValue;
+  if (!code || typeof code !== "string" || code.trim().length === 0) return null;
+
+  const part = await prisma.part.findFirst({
+    where: {
+      isActive: true,
+      OR: [{ partNumber: code }, { barcodeValue: code }],
+    },
+    include: {
+      category: { select: { name: true } },
+      building: { select: { name: true } },
+    },
+  });
+
+  return part ? toCleanPart(part as unknown as Record<string, unknown>) : null;
+}
+
 // ── 1. searchPartsTool ──────────────────────────────────────────────
 
 export async function searchPartsTool(input: DbToolInput): Promise<SearchPartsResult> {
@@ -532,6 +555,140 @@ export async function getUsageTrendsTool(input: DbToolInput): Promise<TrendResul
     monthly,
     summary: `${totalMovements} รายการ (รับเข้า ${totalInMovements}, เบิก/ตัด ${totalOutMovements}) ตั้งแต่ ${from.toLocaleDateString("th-TH")} – ${to.toLocaleDateString("th-TH")}`,
     filters: filters.join(" | ") || "ทั้งหมด",
+  };
+}
+
+// ── 6. listBuildingsTool ──────────────────────────────────────────────
+
+export type BuildingResult = {
+  buildings: Array<{
+    id: string;
+    name: string;
+    partCount: number;
+  }>;
+  totalCount: number;
+};
+
+export async function listBuildingsTool(): Promise<BuildingResult> {
+  const buildings = await prisma.building.findMany({
+    where: { isActive: true },
+    include: {
+      _count: { select: { parts: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+
+  return {
+    buildings: buildings.map((b) => ({
+      id: b.id,
+      name: b.name,
+      partCount: b._count.parts,
+    })),
+    totalCount: buildings.length,
+  };
+}
+
+// ── 7. listBlocksTool ──────────────────────────────────────────────
+
+export type BlockResult = {
+  blocks: Array<{
+    name: string;
+    partCount: number;
+    totalQuantity: number;
+  }>;
+  totalCount: number;
+};
+
+export async function listBlocksTool(): Promise<BlockResult> {
+  // 1. Group by explicit `plant` field
+  const plantBlocks = await prisma.part.groupBy({
+    by: ["plant"],
+    where: { isActive: true, plant: { not: null } },
+    _count: { id: true },
+    _sum: { quantity: true },
+    orderBy: { _count: { id: "desc" } },
+  });
+
+  // 2. Fallback: derive block from `location` when plant is null
+  const locationParts = await prisma.part.findMany({
+    where: { isActive: true, plant: null, location: { not: null } },
+    select: { location: true, quantity: true },
+  });
+
+  const derivedBlocks = new Map<string, { count: number; quantity: number }>();
+  for (const p of locationParts) {
+    if (!p.location) continue;
+    const match = p.location.match(/^(block\s*[^/\s]+)/i);
+    const block = match ? match[1].trim() : null;
+    if (!block) continue;
+    const key = block.replace(/\s+/g, " ").toUpperCase();
+    const current = derivedBlocks.get(key) || { count: 0, quantity: 0 };
+    current.count += 1;
+    current.quantity += p.quantity;
+    derivedBlocks.set(key, current);
+  }
+
+  const combined = new Map<string, { count: number; quantity: number }>();
+  for (const b of plantBlocks) {
+    const key = b.plant!.replace(/\s+/g, " ").toUpperCase();
+    combined.set(key, { count: b._count.id, quantity: b._sum.quantity || 0 });
+  }
+  for (const [key, data] of derivedBlocks) {
+    const existing = combined.get(key) || { count: 0, quantity: 0 };
+    existing.count += data.count;
+    existing.quantity += data.quantity;
+    combined.set(key, existing);
+  }
+
+  const blocks = [...combined.entries()]
+    .sort((a, b) => b[1].count - a[1].count)
+    .map(([name, data]) => ({
+      name,
+      partCount: data.count,
+      totalQuantity: data.quantity,
+    }));
+
+  return {
+    blocks,
+    totalCount: blocks.length,
+  };
+}
+
+// ── 8. searchByImageTool ──────────────────────────────────────────────
+
+export type ImageSearchResult = {
+  parts: CleanPart[];
+  keyword: string;
+  totalCount: number;
+};
+
+export async function searchByImageTool(input: {
+  imageBase64?: string | null;
+}): Promise<ImageSearchResult> {
+  if (!input.imageBase64) {
+    return { parts: [], keyword: "", totalCount: 0 };
+  }
+
+  // Lazy import to avoid circular dependency at module load time
+  const { searchPartsByImageForLine } = await import("@/lib/line-chat/tools");
+  const result = await searchPartsByImageForLine(input.imageBase64);
+
+  const cleanParts = result.parts.map((p) => ({
+    partNumber: p.partNumber,
+    partName: p.partName,
+    quantity: p.quantity,
+    minimumQuantity: p.minimumQuantity,
+    unit: p.unit || "pcs",
+    location: p.location || null,
+    plant: p.plant || null,
+    buildingName: p.building?.name || null,
+    categoryName: p.category?.name || null,
+  }));
+
+  return {
+    parts: cleanParts,
+    keyword: result.keyword,
+    totalCount: cleanParts.length,
   };
 }
 

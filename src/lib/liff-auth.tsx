@@ -50,6 +50,11 @@ async function getLiffProfile(): Promise<{ idToken: string }> {
   await liff.init({ liffId: LIFF_ID, withLoginOnExternalBrowser: true });
 
   if (!liff.isLoggedIn()) {
+    // Save current URL to localStorage so the LIFF home page can restore
+    // the intended path and query params after LINE login redirects back.
+    try {
+      localStorage.setItem("liff_login_redirect", window.location.pathname + window.location.search);
+    } catch { /* ignore storage errors */ }
     liff.login({ redirectUri: window.location.href });
     return new Promise(() => {});
   }

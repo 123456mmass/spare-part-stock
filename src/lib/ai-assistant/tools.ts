@@ -1,4 +1,3 @@
-import { executeTool as executeInventoryReadTool } from "@/lib/line-chat/tools";
 import {
   draftAdjustStock,
   draftCreatePart,
@@ -7,13 +6,19 @@ import {
   draftUpdatePartLocation,
   formatPendingActionForChat,
 } from "./pending-actions";
+import { executeTool as executeInventoryReadTool } from "@/lib/line-chat/tools";
 import {
   searchPartsTool,
   getStockSummaryTool,
   getLowStockTool,
   getPartMovementsTool,
   getUsageTrendsTool,
+  getPartDetailTool,
+  listBuildingsTool,
+  listBlocksTool,
+  searchByImageTool,
 } from "./db-tools";
+import { webSearchTool, isWebSearchEnabled } from "./web-search";
 import type { ToolExecutionContext } from "./types";
 
 export const AI_TOOL_DEFINITIONS = [
@@ -255,6 +260,149 @@ export const AI_TOOL_DEFINITIONS = [
   },
 ];
 
+// Web search tool — only included when TAVILY_API_KEY is set
+const WEB_SEARCH_TOOL_DEF = {
+  type: "function" as const,
+  function: {
+    name: "web_search",
+    description: "ค้นหาข้อมูลจากเว็บภายนอก เพื่อแนะนำรุ่น/สเปค/ทางเลือกเมื่อไม่มีในคลัง หรือเมื่อผู้ใช้ถามรุ่นที่แนะนำ ใช้เมื่อ search_parts ไม่พบหรือผู้ใช้ขอคำแนะนำการซื้อ",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "คำค้นหา เช่น 'PTC sensor Siemens 3RN2010' หรือ 'motor protection relay recommendation'" },
+        maxResults: { type: "integer", minimum: 1, maximum: 10 },
+      },
+      required: ["query"],
+    },
+  },
+};
+
+// Single-tool router for fast LLM tool calling on providers like Umans
+// that slow down significantly with multiple tools (> 1s per tool).
+const INVENTORY_TOOL_DEF = {
+  type: "function" as const,
+  function: {
+    name: "inventory_operation",
+    description: "เรียกคำสั่งสต็อกอะไหล่ทั้งหมด: ค้นหา สรุป ใกล้หมด รายละเอียด อาคาร บล็อก ประวัติ แนวโน้ม ค้นเว็บ หรือร่าง action (รับเข้า เบิกออก ปรับยอด ย้าย สร้าง)",
+    parameters: {
+      type: "object",
+      properties: {
+        intent: {
+          type: "string",
+          enum: [
+            "search", "summary", "low_stock", "detail", "buildings", "blocks", "movements", "trends", "web_search",
+            "draft_stock_in", "draft_stock_out", "draft_adjust_stock", "draft_update_part_location", "draft_create_part",
+          ],
+          description: "ประเภทคำถาม/action",
+        },
+        keyword: { type: "string", description: "คำค้นหา/รหัสอะไหล่" },
+        partNumber: { type: "string", description: "รหัสอะไหล่ (สำหรับ detail/action)" },
+        plant: { type: "string", description: "Block เช่น 1, 2, SPECIAL PART" },
+        buildingName: { type: "string", description: "ชื่ออาคาร เช่น ท.003" },
+        buildingId: { type: "string" },
+        categoryName: { type: "string" },
+        location: { type: "string", description: "ตำแหน่งใหม่ (สำหรับ update_part_location)" },
+        qty: { type: "integer", minimum: 1, description: "จำนวน (stock_in/stock_out)" },
+        newQty: { type: "integer", minimum: 0, description: "จำนวนใหม่ (adjust_stock)" },
+        quantity: { type: "integer", minimum: 0 },
+        minimumQuantity: { type: "integer", minimum: 0 },
+        unit: { type: "string" },
+        partName: { type: "string" },
+        description: { type: "string" },
+        subcategory: { type: "string" },
+        barcodeValue: { type: "string" },
+        note: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 20 },
+      },
+      required: ["intent"],
+    },
+  },
+};
+
+export function getAiToolDefinitions() {
+  if (isWebSearchEnabled()) {
+    return [...AI_TOOL_DEFINITIONS, WEB_SEARCH_TOOL_DEF];
+  }
+  return AI_TOOL_DEFINITIONS;
+}
+
+export function getSingleReadToolDefinitions() {
+  return [INVENTORY_TOOL_DEF];
+}
+
+export function getSingleDraftToolDefinitions() {
+  return [INVENTORY_TOOL_DEF];
+}
+
+export function getAllInventoryToolDefinitions() {
+  return [INVENTORY_TOOL_DEF];
+}
+const DRAFT_TOOL_NAMES = new Set([
+  "draft_stock_in",
+  "draft_stock_out",
+  "draft_adjust_stock",
+  "draft_update_part_location",
+  "draft_create_part",
+]);
+
+export function getReadToolDefinitions() {
+  // Core read tools — keep under 6 to avoid LLM reasoning timeout.
+  // Removed from LLM tool list (still callable via pre-router):
+  //   get_stock, get_stock_stats, list_blocks, search_by_image,
+  //   get_part_movements, get_usage_trends
+  // These are handled by deterministic routing or called less frequently.
+  const coreNames = new Set([
+    "search_parts",
+    "get_stock_summary",
+    "get_low_stock",
+    "get_part_detail",
+    "list_buildings",
+  ]);
+  const base = AI_TOOL_DEFINITIONS.filter((t) =>
+    coreNames.has(t.function.name),
+  );
+  if (isWebSearchEnabled()) {
+    return [...base, WEB_SEARCH_TOOL_DEF];
+  }
+  return base;
+}
+
+/**
+ * Context-aware tool selection: add niche tools only when the message
+ * likely needs them. Keeps the tool count low (fast LLM) while still
+ * supporting image search, movements, trends, and blocks when relevant.
+ */
+export function getReadToolDefinitionsForMessage(message: string) {
+  const tools = getReadToolDefinitions();
+  const text = message.toLowerCase();
+
+  const extraNames = new Set<string>();
+  if (/(บล็อก|บล็อค|block)/i.test(text) && !/(ค้นหา|หา|เช็ค)/i.test(text)) {
+    extraNames.add("list_blocks");
+  }
+  if (/(ประวัติ|เคลื่อนไหว|รับเข้า|เบิกออก|movement)/i.test(text)) {
+    extraNames.add("get_part_movements");
+  }
+  if (/(แนวโน้ม|เทรนด์|trend|สถิติการใช้)/i.test(text)) {
+    extraNames.add("get_usage_trends");
+  }
+  // search_by_image is triggered by attachments, not text — handled separately
+
+  if (extraNames.size === 0) return tools;
+
+  const extra = AI_TOOL_DEFINITIONS.filter((t) =>
+    extraNames.has(t.function.name),
+  );
+  // Keep total under 8 to stay fast
+  return [...tools, ...extra].slice(0, 8);
+}
+
+export function getDraftToolDefinitions() {
+  return AI_TOOL_DEFINITIONS.filter((t) =>
+    DRAFT_TOOL_NAMES.has(t.function.name),
+  );
+}
+
 const READ_TOOL_NAMES = new Set([
   "search_parts",
   "get_stock",
@@ -274,7 +422,90 @@ export async function executeAiTool(
   args: Record<string, unknown>,
   context: ToolExecutionContext
 ): Promise<{ content: string; result?: unknown; pendingActionId?: string }> {
+  // Single-tool router: expand into concrete db-tools
+  if (name === "inventory_operation") {
+    const intent = typeof args.intent === "string" ? args.intent : "";
+    const keyword = typeof args.keyword === "string" ? args.keyword : null;
+    const partNumber = typeof args.partNumber === "string" ? args.partNumber : null;
+    const plant = typeof args.plant === "string" ? args.plant : null;
+    const buildingName = typeof args.buildingName === "string" ? args.buildingName : null;
+    const limit = typeof args.limit === "number" ? args.limit : null;
+
+    switch (intent) {
+      case "search": {
+        const result = await searchPartsTool({ keyword, plant, buildingName, limit });
+        return { content: JSON.stringify(result), result };
+      }
+      case "summary": {
+        const result = await getStockSummaryTool({ keyword, plant, buildingName, limit });
+        return { content: JSON.stringify(result), result };
+      }
+      case "low_stock": {
+        const result = await getLowStockTool({ keyword, plant, buildingName, limit });
+        return { content: JSON.stringify(result), result };
+      }
+      case "detail": {
+        const result = await getPartDetailTool({ partNumber: partNumber || keyword });
+        return { content: JSON.stringify(result), result };
+      }
+      case "buildings": {
+        const result = await listBuildingsTool();
+        return { content: JSON.stringify(result), result };
+      }
+      case "blocks": {
+        const result = await listBlocksTool();
+        return { content: JSON.stringify(result), result };
+      }
+      case "movements": {
+        const result = await getPartMovementsTool({ keyword, from: null, to: null, limit });
+        return { content: JSON.stringify(result), result };
+      }
+      case "trends": {
+        const result = await getUsageTrendsTool({ keyword, from: null, to: null, limit });
+        return { content: JSON.stringify(result), result };
+      }
+      case "draft_stock_in":
+      case "draft_stock_out":
+      case "draft_adjust_stock":
+      case "draft_update_part_location":
+      case "draft_create_part": {
+        // single-router draft action
+        if (!context.user?.id || context.user.id === "anonymous") {
+          return {
+            content:
+              "⚠️ การแก้ไขสต็อกต้องเชื่อมต่อบัญชีผู้ใช้กับ LINE ก่อน กรุณากดปุ่ม Login / Link Account แล้วลองใหม่",
+          };
+        }
+        const draftAction =
+          intent === "draft_stock_in"
+            ? await draftStockIn(context, args)
+            : intent === "draft_stock_out"
+            ? await draftStockOut(context, args)
+            : intent === "draft_adjust_stock"
+            ? await draftAdjustStock(context, args)
+            : intent === "draft_update_part_location"
+            ? await draftUpdatePartLocation(context, args)
+            : await draftCreatePart(context, args);
+        return {
+          content: formatPendingActionForChat(draftAction),
+          pendingActionId: draftAction.id,
+        };
+      }
+      case "web_search": {
+        const result = await webSearchTool({ query: keyword, maxResults: limit });
+        return { content: JSON.stringify(result), result };
+      }
+      default: {
+        return { content: `{"error":"ไม่รู้จัก intent: ${intent}"}` };
+      }
+    }
+  }
+
   // New read tools — handle directly with db-tools (returns structured JSON)
+  if (name === "search_parts") {
+    const result = await searchPartsTool(dbToolInput(args));
+    return { content: JSON.stringify(result), result };
+  }
   if (name === "get_stock_summary") {
     const result = await getStockSummaryTool(dbToolInput(args));
     return { content: JSON.stringify(result), result };
@@ -292,46 +523,107 @@ export async function executeAiTool(
     return { content: JSON.stringify(result), result };
   }
   if (name === "get_part_detail") {
-    const result = await searchPartsTool({ ...dbToolInput(args), limit: 1 });
+    const result = await getPartDetailTool({
+      partNumber: typeof args.partNumber === "string" ? args.partNumber : null,
+    });
+    return { content: JSON.stringify(result), result };
+  }
+  if (name === "list_buildings") {
+    const result = await listBuildingsTool();
+    return { content: JSON.stringify(result), result };
+  }
+  if (name === "list_blocks") {
+    const result = await listBlocksTool();
+    return { content: JSON.stringify(result), result };
+  }
+  if (name === "search_by_image") {
+    const result = await searchByImageTool({
+      imageBase64: typeof args.imageBase64 === "string" ? args.imageBase64 : null,
+    });
+    return { content: JSON.stringify(result), result };
+  }
+  if (name === "web_search") {
+    const result = await webSearchTool({
+      query: typeof args.query === "string" ? args.query : null,
+      maxResults: typeof args.maxResults === "number" ? args.maxResults : null,
+    });
     return { content: JSON.stringify(result), result };
   }
 
-  // Existing read tools — delegate to inventory executor
+  if (name === "inventory_action") {
+    const action = typeof args.action === "string" ? args.action : "";
+    console.log("[inventory_action] action:", action, "args:", Object.keys(args));
+
+    // Require a real linked user for any DB-mutating draft action.
+    if (!context.user?.id || context.user.id === "anonymous") {
+      return {
+        content:
+          "⚠️ การแก้ไขสต็อกต้องเชื่อมต่อบัญชีผู้ใช้กับ LINE ก่อน กรุณากดปุ่ม Login / Link Account แล้วลองใหม่",
+      };
+    }
+
+    const draftAction =
+      action === "draft_stock_in"
+        ? await draftStockIn(context, args)
+        : action === "draft_stock_out"
+        ? await draftStockOut(context, args)
+        : action === "draft_adjust_stock"
+        ? await draftAdjustStock(context, args)
+        : action === "draft_update_part_location"
+        ? await draftUpdatePartLocation(context, args)
+        : action === "draft_create_part"
+        ? await draftCreatePart(context, args)
+        : null;
+
+    if (!draftAction) {
+      return { content: `Tool "${name}" ไม่รู้จัก` };
+    }
+
+    return {
+      content: formatPendingActionForChat(draftAction),
+      pendingActionId: draftAction.id,
+    };
+  }
+
   if (READ_TOOL_NAMES.has(name)) {
     return {
       content: await executeInventoryReadTool(name, stringifyArgs(args)),
     };
   }
 
-    // Require a real linked user for any DB-mutating draft action.
-  if (!context.user?.id || context.user.id === "anonymous") {
+  // Fallback: legacy individual draft tool names (kept for backward compatibility).
+  if (DRAFT_TOOL_NAMES.has(name)) {
+    if (!context.user?.id || context.user.id === "anonymous") {
+      return {
+        content:
+          "⚠️ การแก้ไขสต็อกต้องเชื่อมต่อบัญชีผู้ใช้กับ LINE ก่อน กรุณากดปุ่ม Login / Link Account แล้วลองใหม่",
+      };
+    }
+
+    const draftAction =
+      name === "draft_stock_in"
+        ? await draftStockIn(context, args)
+        : name === "draft_stock_out"
+        ? await draftStockOut(context, args)
+        : name === "draft_adjust_stock"
+        ? await draftAdjustStock(context, args)
+        : name === "draft_update_part_location"
+        ? await draftUpdatePartLocation(context, args)
+        : name === "draft_create_part"
+        ? await draftCreatePart(context, args)
+        : null;
+
+    if (!draftAction) {
+      return { content: `Tool "${name}" ไม่รู้จัก` };
+    }
+
     return {
-      content:
-        "⚠️ การแก้ไขสต็อกต้องเชื่อมต่อบัญชีผู้ใช้กับ LINE ก่อน กรุณากดปุ่ม Login / Link Account แล้วลองใหม่",
+      content: formatPendingActionForChat(draftAction),
+      pendingActionId: draftAction.id,
     };
   }
 
-  const draftAction =
-    name === "draft_stock_in"
-      ? await draftStockIn(context, args)
-      : name === "draft_stock_out"
-      ? await draftStockOut(context, args)
-      : name === "draft_adjust_stock"
-      ? await draftAdjustStock(context, args)
-      : name === "draft_update_part_location"
-      ? await draftUpdatePartLocation(context, args)
-      : name === "draft_create_part"
-      ? await draftCreatePart(context, args)
-      : null;
-
-  if (!draftAction) {
-    return { content: `Tool "${name}" ไม่รู้จัก` };
-  }
-
-  return {
-    content: formatPendingActionForChat(draftAction),
-    pendingActionId: draftAction.id,
-  };
+  return { content: `Tool "${name}" ไม่รู้จัก` };
 }
 
 function stringifyArgs(args: Record<string, unknown>): Record<string, string> {

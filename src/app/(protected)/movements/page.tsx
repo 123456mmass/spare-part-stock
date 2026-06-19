@@ -3,13 +3,11 @@
 import { useState, useEffect } from "react";
 import { fetchWithAuth as fetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toaster";
-import { formatDateTime, cn } from "@/lib/utils";
+import { formatDateTime } from "@/lib/utils";
 import { Download, ArrowUpDown } from "lucide-react";
-import { PageHeader } from "@/components/layout";
+import { PageTitle } from "@/components/layout";
 
 interface Movement {
   id: string;
@@ -21,6 +19,27 @@ interface Movement {
   createdAt: string;
   part: { partNumber: string; partName: string };
   user: { name: string };
+}
+
+function typeBadgeClass(type: Movement["type"]) {
+  if (type === "STOCK_IN") return "bdg-green";
+  if (type === "STOCK_OUT") return "bdg-red";
+  return "bdg-slate";
+}
+function typeLabel(type: Movement["type"]) {
+  if (type === "STOCK_IN") return "รับเข้า";
+  if (type === "STOCK_OUT") return "จ่ายออก";
+  return "ปรับปรุง";
+}
+function changeText(type: Movement["type"], change: number) {
+  if (type === "STOCK_IN") return `+${change}`;
+  if (type === "STOCK_OUT") return `−${Math.abs(change)}`;
+  return `${change >= 0 ? "+" : ""}${change}`;
+}
+function changeColor(type: Movement["type"]) {
+  if (type === "STOCK_IN") return "text-emerald-600";
+  if (type === "STOCK_OUT") return "text-red-600";
+  return "text-blue-600";
 }
 
 export default function MovementsPage() {
@@ -48,6 +67,7 @@ export default function MovementsPage() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchMovements();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typeFilter]);
 
   const handleExport = async () => {
@@ -73,112 +93,78 @@ export default function MovementsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <PageHeader
+      <PageTitle
         title="ประวัติการเคลื่อนไหว"
-        description={`จำนวน ${movements.length} รายการ`}
+        description={<>จำนวน <span className="tnum">{movements.length}</span> รายการ</>}
       />
 
       <div className="flex flex-wrap items-center justify-end gap-2">
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-[150px]">
-              <SelectValue placeholder="ทุกประเภท" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">ทุกประเภท</SelectItem>
-              <SelectItem value="STOCK_IN">รับเข้า</SelectItem>
-              <SelectItem value="STOCK_OUT">จ่ายออก</SelectItem>
-              <SelectItem value="ADJUSTMENT">ปรับปรุง</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button variant="outline" onClick={handleExport}>
-            <Download className="h-4 w-4 mr-2" />
-            ส่งออก
-          </Button>
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="ทุกประเภท" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">ทุกประเภท</SelectItem>
+            <SelectItem value="STOCK_IN">รับเข้า</SelectItem>
+            <SelectItem value="STOCK_OUT">จ่ายออก</SelectItem>
+            <SelectItem value="ADJUSTMENT">ปรับปรุง</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button variant="outline" onClick={handleExport}>
+          <Download className="h-4 w-4 mr-2" />
+          ส่งออก
+        </Button>
       </div>
 
-      <Card className="premium-card border-0 shadow-md overflow-hidden">
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="p-8 text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto" />
-            </div>
-          ) : movements.length === 0 ? (
-            <div className="p-8 text-center">
-              <ArrowUpDown className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-500">ยังไม่มีการเคลื่อนไหว</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">วัน/เวลา</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">อะไหล่</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">ประเภท</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500">ก่อน</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500">เปลี่ยน</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500">หลัง</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">ผู้ใช้</th>
+      <div className="pcard overflow-hidden">
+        {isLoading ? (
+          <div className="p-8 text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500 mx-auto" />
+          </div>
+        ) : movements.length === 0 ? (
+          <div className="p-8 text-center">
+            <ArrowUpDown className="h-12 w-12 text-slate-400 mx-auto mb-4" />
+            <p className="text-slate-500">ยังไม่มีการเคลื่อนไหว</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto scrollbar-thin">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th className="text-left">วัน/เวลา</th>
+                  <th className="text-left">อะไหล่</th>
+                  <th className="text-center">ประเภท</th>
+                  <th className="text-center">ก่อน</th>
+                  <th className="text-center">เปลี่ยน</th>
+                  <th className="text-center">หลัง</th>
+                  <th className="text-center">ผู้ใช้</th>
+                </tr>
+              </thead>
+              <tbody>
+                {movements.map((movement) => (
+                  <tr key={movement.id}>
+                    <td className="text-slate-500 whitespace-nowrap">{formatDateTime(movement.createdAt)}</td>
+                    <td>
+                      <p className="font-medium">{movement.part.partName}</p>
+                      <p className="mono text-xs text-slate-500">{movement.part.partNumber}</p>
+                    </td>
+                    <td className="text-center">
+                      <span className={`bdg ${typeBadgeClass(movement.type)}`}>{typeLabel(movement.type)}</span>
+                    </td>
+                    <td className="text-center tnum whitespace-nowrap">{movement.quantityBefore}</td>
+                    <td className={`text-center font-medium tnum whitespace-nowrap ${changeColor(movement.type)}`}>
+                      {changeText(movement.type, movement.quantityChange)}
+                    </td>
+                    <td className="text-center font-medium tnum whitespace-nowrap">{movement.quantityAfter}</td>
+                    <td className="text-center text-slate-500">{movement.user.name}</td>
                   </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {movements.map((movement) => (
-                    <tr key={movement.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm">{formatDateTime(movement.createdAt)}</td>
-                      <td className="px-4 py-3">
-                        <p className="font-medium text-sm">{movement.part.partName}</p>
-                        <p className="text-xs text-gray-500">{movement.part.partNumber}</p>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge
-                          variant={
-                            movement.type === "STOCK_IN"
-                              ? "success"
-                              : movement.type === "STOCK_OUT"
-                              ? "danger"
-                              : "secondary"
-                          }
-                        >
-                          {movement.type === "STOCK_IN"
-                            ? "รับเข้า"
-                            : movement.type === "STOCK_OUT"
-                            ? "จ่ายออก"
-                            : "ปรับปรุง"}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3 text-right text-sm">{movement.quantityBefore}</td>
-                      <td
-                        className={cn(
-                          "px-4 py-3 text-right text-sm font-medium",
-                          movement.type === "STOCK_IN"
-                            ? "text-green-600"
-                            : movement.type === "STOCK_OUT"
-                            ? "text-red-600"
-                            : "text-blue-600"
-                        )}
-                      >
-                        {movement.type === "STOCK_IN"
-                          ? "+"
-                          : movement.type === "STOCK_OUT"
-                          ? ""
-                          : ""}
-                        {movement.quantityChange}
-                      </td>
-                      <td className="px-4 py-3 text-right text-sm font-medium">
-                        {movement.quantityAfter}
-                      </td>
-                      <td className="px-4 py-3 text-sm">{movement.user.name}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
-      {/* Mobile bottom padding */}
       <div className="h-20 md:hidden" />
     </div>
   );

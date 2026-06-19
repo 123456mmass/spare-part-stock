@@ -165,7 +165,7 @@ export default function LiffAddPartPage() {
   // Guard against double-invocation
   const sessionLoadedRef = useRef(false);
 
-  // Load LINE image session → auto AI suggest → then show form
+  // Load LINE image session → show form with image, let user press "AI เติมข้อมูล" manually
   useEffect(() => {
     const sid = searchParams.get("lineSid");
     if (!sid) {
@@ -189,46 +189,30 @@ export default function LiffAddPartPage() {
         const dataUrl = payload.imageDataUrl as string | undefined;
         setImagePreview(dataUrl || null);
 
-        // Convert dataURL → File for AI suggest
-        let file: File | null = null;
+        // Convert base64 dataURL → File for AI suggest button
+        // fetch(dataUrl) may fail in LIFF in-app browser, so use manual conversion
         if (dataUrl) {
           try {
-            const blobRes = await fetch(dataUrl);
-            const blob = await blobRes.blob();
-            file = new File([blob], "line-image.jpg", { type: blob.type || "image/jpeg" });
-            setImageFile(file);
+            const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+            if (match) {
+              const mime = match[1] || "image/jpeg";
+              const binary = atob(match[2]);
+              const bytes = new Uint8Array(binary.length);
+              for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+              const file = new File([bytes], "line-image.jpg", { type: mime });
+              setImageFile(file);
+            }
           } catch {
             // user can still upload manually
           }
         }
 
         // If suggestion already has data (e.g. backend pre-analyzed), fill it
-        const hasSuggestion = applySuggestion(s);
+        applySuggestion(s);
 
-        if (hasSuggestion) {
-          // Data already available — show form
-          toast({ title: "โหลดข้อมูลจาก LINE แล้ว", description: "ตรวจสอบข้อมูลก่อนบันทึก" });
-          if (!cancelled) setDataReady(true);
-          return;
-        }
-
-        // No suggestion yet — auto-trigger AI and wait for result
-        if (file) {
-          setLoadingPhase("AI กำลังวิเคราะห์รูป...");
-          const aiResult = await runAiSuggest(file);
-          if (cancelled) return;
-
-          if (aiResult) {
-            applySuggestion(aiResult);
-            toast({ title: "AI วิเคราะห์รูปเสร็จ", description: "ตรวจสอบข้อมูลก่อนบันทึก" });
-          } else {
-            toast({ title: "AI ไม่สามารถวิเคราะห์รูปได้", description: "กรอกข้อมูลเองหรือลองใหม่", variant: "destructive" });
-          }
-          if (!cancelled) setDataReady(true);
-        } else {
-          // No image — show form empty
-          if (!cancelled) setDataReady(true);
-        }
+        // Show form immediately — user can press "AI เติมข้อมูล" if they want
+        toast({ title: "โหลดรูปจาก LINE แล้ว", description: "กด \"AI เติมข้อมูล\" เพื่อวิเคราะห์รูป" });
+        if (!cancelled) setDataReady(true);
       })
       .catch((error) => {
         if (!cancelled) {

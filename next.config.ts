@@ -1,8 +1,11 @@
 import type { NextConfig } from "next";
 
+const isDev = process.env.NODE_ENV === "development";
+const evalSrc = isDev ? " 'unsafe-eval'" : "";
+
 const defaultCSP = `
   default-src 'self';
-  script-src 'self' 'unsafe-inline';
+  script-src 'self' 'unsafe-inline'${evalSrc};
   style-src 'self' 'unsafe-inline';
   img-src 'self' data: blob:;
   font-src 'self' data:;
@@ -15,7 +18,7 @@ const defaultCSP = `
 
 const liffCSP = `
   default-src 'self';
-  script-src 'self' 'unsafe-inline' https://static.line-scdn.net https://*.line-scdn.net;
+  script-src 'self' 'unsafe-inline' https://static.line-scdn.net https://*.line-scdn-net${evalSrc};
   style-src 'self' 'unsafe-inline';
   img-src 'self' data: blob: https://profile.line-scdn.net https://*.line-scdn.net;
   font-src 'self' data:;

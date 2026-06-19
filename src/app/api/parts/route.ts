@@ -17,6 +17,7 @@ const partListSelect = {
   partName: true,
   subcategory: true,
   plant: true,
+  isSpecialToolPart: true,
   location: true,
   quantity: true,
   minimumQuantity: true,
@@ -64,7 +65,13 @@ export async function GET(request: Request) {
     }
 
     if (plant) {
-      where.plant = plant === "__none__" ? null : plant;
+      if (plant === "special") {
+        where.isSpecialToolPart = true;
+      } else if (plant === "__none__") {
+        where.plant = null;
+      } else {
+        where.plant = plant;
+      }
     }
 
     if (buildingId) {
@@ -134,7 +141,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { partName, description, categoryId, categoryName, subcategory, plant, buildingId, location, quantity, minimumQuantity, unit, barcodeValue } = parsed.data;
+    const { partName, description, categoryId, categoryName, subcategory, plant, isSpecialToolPart, buildingId, location, quantity, minimumQuantity, unit, barcodeValue } = parsed.data;
     let { partNumber } = parsed.data;
     if (!partNumber || partNumber === "-") {
       partNumber = generatePartNumber();
@@ -160,7 +167,8 @@ export async function POST(request: Request) {
           description,
           categoryId: resolvedCategoryId,
           subcategory: subcategory || null,
-          plant: plant || null,
+          plant: isSpecialToolPart ? null : (plant || null),
+          isSpecialToolPart,
           buildingId,
           createdBy: user.id,
           location,

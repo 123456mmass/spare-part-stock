@@ -50,6 +50,14 @@ export const POST = withCors(async (request: Request) => {
         select: { lineUserId: true },
       });
       lineUserId = dbUser?.lineUserId ?? null;
+      // Also check LineAccount table if User.lineUserId is empty
+      if (!lineUserId) {
+        const lineAccount = await prisma.lineAccount.findFirst({
+          where: { userId: action.userId },
+          select: { lineUserId: true },
+        });
+        lineUserId = lineAccount?.lineUserId ?? null;
+      }
     }
 
     // Fallback: use the authenticated user's lineUserId
@@ -59,6 +67,14 @@ export const POST = withCors(async (request: Request) => {
         select: { lineUserId: true },
       });
       lineUserId = dbUser?.lineUserId ?? null;
+    }
+    // Also check LineAccount table
+    if (!lineUserId) {
+      const lineAccount = await prisma.lineAccount.findFirst({
+        where: { userId: user.id },
+        select: { lineUserId: true },
+      });
+      lineUserId = lineAccount?.lineUserId ?? null;
     }
 
     if (!lineUserId) {

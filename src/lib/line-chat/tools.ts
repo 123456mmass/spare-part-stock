@@ -414,7 +414,22 @@ export async function searchPartsForLine(
     if (exactParts.length > 0) return exactParts;
   }
 
-  const keywords = await expandSearchKeywords(keyword);
+  // Avoid AI keyword expansion for remotely-triggered searches (e.g. LINE AI)
+  // because the extra LLM call adds 5–10s latency and the SQL+vector fallback
+  // already covers Thai/English and partial matches.
+  const keywords = [keyword];
+
+  // Optionally add synonyms for known industrial terms without an LLM round-trip.
+  if (keyword.length >= 2) {
+    const lower = keyword.toLowerCase();
+    for (const group of SEARCH_SYNONYMS) {
+      if (group.triggers.some((trigger) => lower.includes(trigger.toLowerCase()))) {
+        for (const synonym of group.terms) {
+          if (!keywords.includes(synonym)) keywords.push(synonym);
+        }
+      }
+    }
+  }
 
   // Run SQL search and vector search in parallel (hybrid search)
   const canUseVectorSearch = keyword.length >= 2;
@@ -826,7 +841,8 @@ async function handleListBuildings(): Promise<string> {
 }
 
 async function handleListBlocks(): Promise<string> {
-  const blocks = await prisma.part.groupBy({
+  // 1. Group by explicit `plant` field
+  const plantBlocks = await prisma.part.groupBy({
     by: ["plant"],
     where: { isActive: true, plant: { not: null } },
     _count: { id: true },
@@ -834,15 +850,47 @@ async function handleListBlocks(): Promise<string> {
     orderBy: { _count: { id: "desc" } },
   });
 
-  if (blocks.length === 0) {
+  // 2. Fallback: derive block name from `location` when plant is null
+  //    e.g. location = "Block 2" or "Block 2 / A1" → block "Block 2"
+  const locationParts = await prisma.part.findMany({
+    where: { isActive: true, plant: null, location: { not: null } },
+    select: { location: true, quantity: true },
+  });
+
+  const derivedBlocks = new Map<string, { count: number; quantity: number }>();
+  for (const p of locationParts) {
+    if (!p.location) continue;
+    const match = p.location.match(/^(block\s*[^/\s]+)/i);
+    const block = match ? match[1].trim() : null;
+    if (!block) continue;
+    const key = block.replace(/\s+/g, " ").toUpperCase();
+    const current = derivedBlocks.get(key) || { count: 0, quantity: 0 };
+    current.count += 1;
+    current.quantity += p.quantity;
+    derivedBlocks.set(key, current);
+  }
+
+  const combined = new Map<string, { count: number; quantity: number }>();
+  for (const b of plantBlocks) {
+    const key = b.plant!.replace(/\s+/g, " ").toUpperCase();
+    combined.set(key, { count: b._count.id, quantity: b._sum.quantity || 0 });
+  }
+  for (const [key, data] of derivedBlocks) {
+    const existing = combined.get(key) || { count: 0, quantity: 0 };
+    existing.count += data.count;
+    existing.quantity += data.quantity;
+    combined.set(key, existing);
+  }
+
+  if (combined.size === 0) {
     return "ยังไม่มี Block ในระบบ";
   }
 
-  const lines = blocks.map(
-    (b) => `🧱 ${b.plant}: ${b._count.id} รายการ, ${b._sum.quantity || 0} ชิ้น`,
-  );
+  const lines = [...combined.entries()]
+    .sort((a, b) => b[1].count - a[1].count)
+    .map(([name, data]) => `🧱 ${name}: ${data.count} รายการ, ${data.quantity} ชิ้น`);
 
-  return `Block ทั้งหมด ${blocks.length} แห่ง:\n${lines.join("\n")}`;
+  return `Block ทั้งหมด ${combined.size} แห่ง:\n${lines.join("\n")}`;
 }
 
 async function handleSearchByImage(

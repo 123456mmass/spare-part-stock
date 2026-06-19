@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { fetchWithAuth as fetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -15,13 +14,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toaster";
-import { Building2, Pencil, Trash2, GitMerge } from "lucide-react";
-import { PageHeader } from "@/components/layout";
+import { LayoutGrid, Pencil, Trash2, GitMerge } from "lucide-react";
+import { PageTitle } from "@/components/layout";
 
 interface BlockInfo {
   name: string;
   partCount: number;
 }
+
+const BAR_GRADIENTS = [
+  "from-indigo-500 to-violet-600",
+  "from-emerald-500 to-teal-600",
+  "from-amber-500 to-orange-600",
+  "from-pink-500 to-rose-600",
+];
 
 export default function BlocksPage() {
   const { toast } = useToast();
@@ -104,10 +110,7 @@ export default function BlocksPage() {
       const res = await fetch("/api/blocks/merge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceNames: Array.from(selectedSources),
-          target: mergeTarget.trim(),
-        }),
+        body: JSON.stringify({ sourceNames: Array.from(selectedSources), target: mergeTarget.trim() }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -136,17 +139,12 @@ export default function BlocksPage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      <PageHeader
+      <PageTitle
         title="บล็อก / โรงงาน"
-        description={`จัดการบล็อก ${blocks.length} รายการ`}
+        description={<>จัดการบล็อก <span className="tnum">{blocks.length}</span> รายการ</>}
         action={
           blocks.length >= 2 ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-white/30 bg-white/10 text-white hover:bg-white/20"
-              onClick={() => setMergeOpen(true)}
-            >
+            <Button variant="outline" size="sm" onClick={() => setMergeOpen(true)}>
               <GitMerge className="h-4 w-4 mr-2" />
               รวมบล็อก
             </Button>
@@ -159,22 +157,15 @@ export default function BlocksPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>เปลี่ยนชื่อบล็อก</DialogTitle>
-            <DialogDescription>
-              เปลี่ยนจาก &quot;{renameTarget?.name}&quot; ({renameTarget?.partCount} รายการ)
-            </DialogDescription>
+            <DialogDescription>เปลี่ยนจาก &quot;{renameTarget?.name}&quot; ({renameTarget?.partCount} รายการ)</DialogDescription>
           </DialogHeader>
           <div className="py-4">
             <Label htmlFor="newBlockName">ชื่อใหม่</Label>
-            <Input
-              id="newBlockName"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="ชื่อบล็อกใหม่"
-            />
+            <Input id="newBlockName" className="mt-1" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="ชื่อบล็อกใหม่" />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setRenameTarget(null); setNewName(""); }}>ยกเลิก</Button>
-            <Button onClick={handleRename} disabled={isSubmitting || !newName.trim()}>บันทึก</Button>
+            <Button variant="gold" onClick={handleRename} disabled={isSubmitting || !newName.trim()}>บันทึก</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -184,13 +175,9 @@ export default function BlocksPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>ลบบล็อก</DialogTitle>
-            <DialogDescription>
-              ลบบล็อก &quot;{deleteTarget?.name}&quot; ({deleteTarget?.partCount} รายการ)
-            </DialogDescription>
+            <DialogDescription>ลบบล็อก &quot;{deleteTarget?.name}&quot; ({deleteTarget?.partCount} รายการ)</DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-gray-600">
-            อะไหล่ {deleteTarget?.partCount} รายการจะถูกปลดบล็อกออก (อะไหล่ไม่ถูกลบ)
-          </p>
+          <p className="text-sm text-slate-600">อะไหล่ {deleteTarget?.partCount} รายการจะถูกปลดบล็อกออก (อะไหล่ไม่ถูกลบ)</p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>ยกเลิก</Button>
             <Button variant="destructive" onClick={handleDelete} disabled={isSubmitting}>ลบบล็อก</Button>
@@ -208,15 +195,10 @@ export default function BlocksPage() {
           <div className="space-y-4 py-2">
             <div>
               <Label className="mb-2 block">บล็อกต้นทาง</Label>
-              <div className="max-h-40 overflow-y-auto space-y-1">
+              <div className="max-h-40 overflow-y-auto space-y-1 scrollbar-thin">
                 {blocks.map((b) => (
                   <label key={b.name} className="flex items-center gap-2 text-sm py-1 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={selectedSources.has(b.name)}
-                      onChange={() => toggleSource(b.name)}
-                      className="rounded"
-                    />
+                    <input type="checkbox" checked={selectedSources.has(b.name)} onChange={() => toggleSource(b.name)} className="rounded" />
                     {b.name} ({b.partCount} รายการ)
                   </label>
                 ))}
@@ -224,24 +206,15 @@ export default function BlocksPage() {
             </div>
             <div>
               <Label htmlFor="mergeTarget">บล็อกเป้าหมาย</Label>
-              <Input
-                id="mergeTarget"
-                value={mergeTarget}
-                onChange={(e) => setMergeTarget(e.target.value)}
-                placeholder="ชื่อบล็อกที่จะรวมเข้า"
-              />
+              <Input id="mergeTarget" className="mt-1" value={mergeTarget} onChange={(e) => setMergeTarget(e.target.value)} placeholder="ชื่อบล็อกที่จะรวมเข้า" />
             </div>
             {mergeTarget.trim() && blocks.some(b => b.name === mergeTarget.trim()) && (
-              <p className="text-xs text-blue-600">
-                บล็อก &quot;{mergeTarget.trim()}&quot; มีอยู่แล้ว จะถูกรวมเข้า
-              </p>
+              <p className="text-xs text-amber-600">บล็อก &quot;{mergeTarget.trim()}&quot; มีอยู่แล้ว จะถูกรวมเข้า</p>
             )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setMergeOpen(false); setSelectedSources(new Set()); setMergeTarget(""); }}>ยกเลิก</Button>
-            <Button onClick={handleMerge} disabled={isSubmitting || selectedSources.size < 2 || !mergeTarget.trim()}>
-              รวมบล็อก
-            </Button>
+            <Button variant="gold" onClick={handleMerge} disabled={isSubmitting || selectedSources.size < 2 || !mergeTarget.trim()}>รวมบล็อก</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -250,55 +223,42 @@ export default function BlocksPage() {
       {isLoading ? (
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
-            <Card key={i} className="animate-pulse">
-              <CardContent className="p-4"><div className="h-12 bg-gray-200 rounded" /></CardContent>
-            </Card>
+            <div key={i} className="bcard overflow-hidden animate-pulse"><div className="flex items-stretch"><div className="w-1.5 shrink-0 bg-slate-200" /><div className="flex-1 p-4"><div className="h-8 w-2/3 bg-slate-200 rounded" /></div></div></div>
           ))}
         </div>
       ) : blocks.length === 0 ? (
-        <Card>
-          <CardContent className="p-8 text-center">
-            <Building2 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-500">ยังไม่มีบล็อก</p>
-            <p className="text-sm text-gray-400 mt-1">บล็อกจะถูกสร้างเมื่อ import Excel พร้อมระบุบล็อก</p>
-          </CardContent>
-        </Card>
+        <div className="pcard pcard-pad py-10 text-center">
+          <LayoutGrid className="h-12 w-12 text-slate-400 mx-auto mb-4" />
+          <p className="text-slate-500">ยังไม่มีบล็อก</p>
+          <p className="text-sm text-slate-400 mt-1">บล็อกจะถูกสร้างเมื่อ import Excel พร้อมระบุบล็อก</p>
+        </div>
       ) : (
         <div className="space-y-3">
-          {blocks.map((block) => (
-            <Card key={block.name}>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
+          {blocks.map((block, idx) => (
+            <div key={block.name} className="bcard overflow-hidden">
+              <div className="flex items-stretch">
+                <div className={`w-1.5 shrink-0 bg-gradient-to-b ${BAR_GRADIENTS[idx % BAR_GRADIENTS.length]}`} />
+                <div className="flex flex-1 items-center justify-between p-4 relative z-[1]">
                   <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-indigo-100">
-                      <Building2 className="h-5 w-5 text-indigo-600" />
+                    <div className="bicon flex h-10 w-10 items-center justify-center rounded-lg">
+                      <LayoutGrid className="h-5 w-5" />
                     </div>
                     <div>
-                      <p className="font-medium">{block.name}</p>
-                      <p className="text-sm text-gray-500">{block.partCount} รายการ</p>
+                      <p className="font-semibold text-slate-900">{block.name}</p>
+                      <p className="text-sm text-slate-500"><span className="tnum">{block.partCount}</span> รายการ</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-gray-400 hover:text-blue-600"
-                      onClick={() => { setRenameTarget(block); setNewName(block.name); }}
-                    >
+                    <button type="button" className="icbtn text-slate-400 hover:text-amber-600" title="เปลี่ยนชื่อ" onClick={() => { setRenameTarget(block); setNewName(block.name); }}>
                       <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-gray-400 hover:text-red-600"
-                      onClick={() => setDeleteTarget(block)}
-                    >
+                    </button>
+                    <button type="button" className="icbtn text-slate-400 hover:text-red-600" title="ลบ" onClick={() => setDeleteTarget(block)}>
                       <Trash2 className="h-4 w-4" />
-                    </Button>
+                    </button>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           ))}
         </div>
       )}

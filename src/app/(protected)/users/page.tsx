@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toaster";
 import { Plus, Edit2, KeyRound, Trash2, PowerOff, Power, Copy, Check, AlertTriangle } from "lucide-react";
-import { PageHeader } from "@/components/layout";
+import { PageTitle } from "@/components/layout";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -330,25 +330,16 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <PageTitle
         title="จัดการผู้ใช้"
-        description={`จำนวน ${users.length} คน`}
+        description={<><span className="tnum">{users.length}</span> คน</>}
         action={
           <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-red-300/50 bg-red-500/20 text-white hover:bg-red-500/30"
-              onClick={() => setClearDbOpen(true)}
-            >
+            <Button variant="danger" size="sm" onClick={() => setClearDbOpen(true)}>
               <AlertTriangle className="h-4 w-4 mr-2" />
               ล้างฐานข้อมูล
             </Button>
-            <Button
-              size="sm"
-              className="bg-white text-indigo-700 hover:bg-indigo-50"
-              onClick={() => setCreateOpen(true)}
-            >
+            <Button variant="gold" size="sm" onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
               เพิ่มผู้ใช้
             </Button>
@@ -356,75 +347,55 @@ export default function UsersPage() {
         }
       />
 
-      <Card className="premium-card border-0 shadow-md overflow-hidden">
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="p-8 text-center text-gray-500">กำลังโหลด...</div>
-          ) : users.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">ไม่พบผู้ใช้</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">ชื่อ</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">ชื่อผู้ใช้</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500">บทบาท</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500">สถานะ</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500">วันที่สร้าง</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500">เคลื่อนไหว</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500">จัดการ</th>
+      <div className="pcard overflow-hidden">
+        {loading ? (
+          <div className="p-8 text-center text-slate-500">กำลังโหลด...</div>
+        ) : users.length === 0 ? (
+          <div className="p-8 text-center text-slate-500">ไม่พบผู้ใช้</div>
+        ) : (
+          <div className="overflow-x-auto scrollbar-thin">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th className="text-left">ชื่อ</th>
+                  <th className="text-left">ชื่อผู้ใช้</th>
+                  <th className="text-center">บทบาท</th>
+                  <th className="text-center">สถานะ</th>
+                  <th className="text-center">วันที่สร้าง</th>
+                  <th className="text-center">เคลื่อนไหว</th>
+                  <th className="text-center">จัดการ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((user) => (
+                  <tr key={user.id}>
+                    <td className="font-medium">{user.name}</td>
+                    <td className="mono text-slate-600">{user.username}</td>
+                    <td className="text-center"><span className={`bdg ${user.role === "ADMIN" ? "bdg-indigo" : "bdg-slate"}`}>{user.role === "ADMIN" ? "ผู้ดูแล" : "พนักงาน"}</span></td>
+                    <td className="text-center"><span className={`bdg ${user.isActive ? "bdg-green" : "bdg-red"}`}>{user.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</span></td>
+                    <td className="text-center text-slate-500">{formatDate(user.createdAt)}</td>
+                    <td className="text-center text-slate-500 tnum">{user._count.movements}</td>
+                    <td className="text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <button type="button" className="icbtn h-8 w-8" title="แก้ไข" onClick={() => openEdit(user)}><Edit2 className="h-4 w-4" /></button>
+                        <button type="button" className="icbtn h-8 w-8" title="รีเซ็ตรหัสผ่าน" onClick={() => openReset(user)}><KeyRound className="h-4 w-4" /></button>
+                        {user.isActive ? (
+                          <button type="button" className="icbtn h-8 w-8" title="ปิดใช้งาน" onClick={() => openDeactivate(user)}><PowerOff className="h-4 w-4" /></button>
+                        ) : (
+                          <button type="button" className="icbtn h-8 w-8" title="เปิดใช้งาน" onClick={() => openActivate(user)}><Power className="h-4 w-4" /></button>
+                        )}
+                        {user._count.movements === 0 && (
+                          <button type="button" className="icbtn h-8 w-8 text-red-500 hover:text-red-600" title="ลบถาวร" onClick={() => openDelete(user)}><Trash2 className="h-4 w-4" /></button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {users.map((user) => (
-                    <tr key={user.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 font-medium">{user.name}</td>
-                      <td className="px-4 py-3 text-gray-600">{user.username}</td>
-                      <td className="px-4 py-3 text-center">
-                        <Badge variant={user.role === "ADMIN" ? "default" : "secondary"}>
-                          {user.role === "ADMIN" ? "ผู้ดูแล" : "พนักงาน"}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <Badge variant={user.isActive ? "success" : "danger"}>
-                          {user.isActive ? "ใช้งาน" : "ปิดใช้งาน"}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3 text-center text-sm text-gray-500">{formatDate(user.createdAt)}</td>
-                      <td className="px-4 py-3 text-center text-sm text-gray-500">{user._count.movements}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-center gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => openEdit(user)} title="แก้ไข">
-                            <Edit2 className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" onClick={() => openReset(user)} title="รีเซ็ตรหัสผ่าน">
-                            <KeyRound className="h-4 w-4" />
-                          </Button>
-                          {user.isActive ? (
-                            <Button variant="ghost" size="icon" onClick={() => openDeactivate(user)} title="ปิดใช้งาน">
-                              <PowerOff className="h-4 w-4" />
-                            </Button>
-                          ) : (
-                            <Button variant="ghost" size="icon" onClick={() => openActivate(user)} title="เปิดใช้งาน">
-                              <Power className="h-4 w-4" />
-                            </Button>
-                          )}
-                          {user._count.movements === 0 && (
-                            <Button variant="ghost" size="icon" onClick={() => openDelete(user)} title="ลบถาวร" className="text-red-500 hover:text-red-600">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {/* Create Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -469,7 +440,7 @@ export default function UsersPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>ยกเลิก</Button>
-            <Button onClick={handleCreate} disabled={submitting}>สร้าง</Button>
+            <Button variant="gold" onClick={handleCreate} disabled={submitting}>สร้าง</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -481,7 +452,7 @@ export default function UsersPage() {
             <DialogTitle>รหัสผ่านชั่วคราว</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-slate-600">
               รหัสผ่านชั่วคราวสำหรับ <strong>{tempPasswordResult?.name}</strong> ({tempPasswordResult?.username})
             </p>
             <div className="flex items-center gap-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
@@ -530,7 +501,7 @@ export default function UsersPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>ยกเลิก</Button>
-            <Button onClick={handleEdit} disabled={submitting}>บันทึก</Button>
+            <Button variant="gold" onClick={handleEdit} disabled={submitting}>บันทึก</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -541,7 +512,7 @@ export default function UsersPage() {
           <DialogHeader>
             <DialogTitle>รีเซ็ตรหัสผ่าน</DialogTitle>
           </DialogHeader>
-          <p className="text-gray-600">
+          <p className="text-slate-600">
             ยืนยันการรีเซ็ตรหัสผ่านของ <strong>{resetTarget?.name}</strong>?
             ระบบจะสร้างรหัสผ่านชั่วคราวใหม่ให้ผู้ใช้
           </p>
@@ -558,7 +529,7 @@ export default function UsersPage() {
           <DialogHeader>
             <DialogTitle>ปิดใช้งานผู้ใช้</DialogTitle>
           </DialogHeader>
-          <p className="text-gray-600">
+          <p className="text-slate-600">
             ยืนยันการปิดใช้งาน <strong>{deactivateTarget?.name}</strong>?
             ผู้ใช้จะไม่สามารถเข้าสู่ระบบได้อีก
           </p>
@@ -575,7 +546,7 @@ export default function UsersPage() {
           <DialogHeader>
             <DialogTitle>เปิดใช้งานผู้ใช้</DialogTitle>
           </DialogHeader>
-          <p className="text-gray-600">
+          <p className="text-slate-600">
             ยืนยันการเปิดใช้งาน <strong>{activateTarget?.name}</strong>?
           </p>
           <DialogFooter>
@@ -591,7 +562,7 @@ export default function UsersPage() {
           <DialogHeader>
             <DialogTitle>ลบผู้ใช้ถาวร</DialogTitle>
           </DialogHeader>
-          <p className="text-gray-600">
+          <p className="text-slate-600">
             ยืนยันการลบถาวร <strong>{deleteTarget?.name}</strong>?
             การกระทำนี้ไม่สามารถเลิกได้
           </p>
@@ -612,7 +583,7 @@ export default function UsersPage() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-slate-600">
               เลือกข้อมูลที่ต้องการลบ (ไม่สามารถเลิกได้):
             </p>
             <div className="space-y-2">

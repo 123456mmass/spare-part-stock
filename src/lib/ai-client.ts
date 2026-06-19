@@ -1,5 +1,5 @@
 import sharp from "sharp";
-import { fallbackAiModel, getConfiguredAiModel } from "./ai-model-settings";
+import { fallbackAiModel, getConfiguredAiModel, getConfiguredVisionModel } from "./ai-model-settings";
 
 export interface AiContentBlock {
   type: "text" | "image";
@@ -57,22 +57,22 @@ export async function currentGatewayModel(): Promise<string> {
   return getConfiguredAiModel();
 }
 
-const VISION_FALLBACK_MODEL = "xiaomi-direct/mimo-v2.5-pro";
+const VISION_FALLBACK_MODEL = "umans/umans-kimi-k2.7";
 
 export function visionModel(): string {
   return process.env.SPARE_PART_AI_VISION_MODEL || "";
 }
 
 export async function currentVisionModel(): Promise<string> {
-  // 1. Explicit vision model env
-  const env = visionModel();
-  if (env) return env;
+  // 1. DB-configured vision model (AI settings page) or env override
+  const configured = await getConfiguredVisionModel();
+  if (configured) return configured;
 
   // 2. Try the configured gateway model — but only if provider-prefixed
   //    (bare model names like "mimo-v2.5-pro" won't work for vision)
   try {
-    const configured = await currentGatewayModel();
-    if (configured && configured.includes("/")) return configured;
+    const gw = await currentGatewayModel();
+    if (gw && gw.includes("/")) return gw;
   } catch {
     // DB might not be reachable at startup — fall through
   }
@@ -382,6 +382,7 @@ async function callGateway(content: AiContentBlock[], opts: AiCallOptions, model
       max_tokens: opts.maxTokens ?? 4096,
       temperature: opts.temperature ?? 0,
       messages,
+      stream: false,
     }),
   });
 

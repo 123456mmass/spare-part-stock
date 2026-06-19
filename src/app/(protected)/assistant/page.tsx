@@ -13,9 +13,7 @@ import {
   Check,
   ImagePlus,
   Loader2,
-  Menu,
   MessageSquarePlus,
-  PanelLeftClose,
   Search,
   Send,
   Sparkles,
@@ -37,7 +35,9 @@ type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  attachments?: ImageAttachment[];
   pendingActionIds?: string[];
+  toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>;
 };
 
 type ChatConversation = {
@@ -57,7 +57,7 @@ type ImageAttachment = {
 type StreamEvent =
   | { type: "status"; message: string }
   | { type: "delta"; text: string }
-  | { type: "done"; conversationId?: string; pendingActionIds: string[] }
+  | { type: "done"; conversationId?: string; pendingActionIds: string[]; toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }> }
   | { type: "error"; message: string };
 
 const WELCOME: ChatMessage = {
@@ -85,7 +85,6 @@ export default function AssistantPage() {
   const [sending, setSending] = useState(false);
   const [thinkingStatus, setThinkingStatus] = useState("");
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [currentModel, setCurrentModel] = useState("");
@@ -223,6 +222,7 @@ export default function AssistantPage() {
       id: crypto.randomUUID(),
       role: "user",
       content: trimmed || "วิเคราะห์รูปภาพ",
+      attachments: attachments.length > 0 ? attachments : undefined,
     };
     const assistantId = crypto.randomUUID();
     setMessages((prev) => [
@@ -231,6 +231,9 @@ export default function AssistantPage() {
       { id: assistantId, role: "assistant", content: "" },
     ]);
     setMessage("");
+    // Clear the attachment preview immediately — the images are already
+    // captured in `attachments` (closure) for the request body above.
+    setAttachments([]);
     setSending(true);
     setThinkingStatus("กำลังคิด");
 
@@ -274,7 +277,11 @@ export default function AssistantPage() {
           setMessages((prev) =>
             prev.map((item) =>
               item.id === assistantId
-                ? { ...item, pendingActionIds: event.pendingActionIds || [] }
+                ? {
+                    ...item,
+                    pendingActionIds: event.pendingActionIds || [],
+                    toolCalls: event.toolCalls || [],
+                  }
                 : item,
             ),
           );
@@ -372,25 +379,16 @@ export default function AssistantPage() {
 
   const hasRealMessages = messages.some((item) => item.id !== "welcome");
   return (
-    <div className="-mx-4 -mb-4 flex h-[calc(100vh-5rem)] min-h-[620px] overflow-hidden bg-slate-50 text-slate-950 md:-mx-6 md:-mb-6">
-      <aside
-        className={`${
-          sidebarOpen ? "w-72" : "w-0"
-        } hidden shrink-0 overflow-hidden border-r border-slate-200 bg-white transition-all duration-200 md:block`}
-      >
+    <div className="fixed top-14 bottom-14 left-0 right-0 z-0 flex overflow-hidden bg-slate-50 text-slate-950 md:top-0 md:bottom-0 md:left-64">
+      <aside className="hidden md:flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white">
         <div className="flex h-full flex-col p-3">
-          <div className="mb-4 flex items-center justify-between px-2 py-1">
-            <div className="text-lg font-semibold">SpareGPT</div>
-            <button
-              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-              onClick={() => setSidebarOpen(false)}
-            >
-              <PanelLeftClose className="h-4 w-4" />
-            </button>
+          <div className="mb-4 flex items-center gap-2 px-2 py-1 text-base font-semibold">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-slate-900 to-slate-700 text-amber-300"><Bot className="h-4 w-4" /></span>
+            SpareGPT
           </div>
           <button
             onClick={() => void startNewChat()}
-            className="mb-3 flex items-center gap-3 rounded-xl bg-slate-900 px-3 py-3 text-sm font-medium text-white hover:bg-slate-800"
+            className="mb-3 flex items-center gap-3 rounded-xl btn-dark px-3 py-3 text-sm font-medium"
           >
             <MessageSquarePlus className="h-4 w-4" />
             แชตใหม่
@@ -452,19 +450,9 @@ export default function AssistantPage() {
 
       <main className="relative flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white/95 px-4">
-          <div className="flex items-center gap-2">
-            {!sidebarOpen && (
-              <button
-                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                onClick={() => setSidebarOpen(true)}
-              >
-                <Menu className="h-5 w-5" />
-              </button>
-            )}
-            <div className="flex items-center gap-2 text-sm text-slate-700">
-              <Bot className="h-4 w-4" />
-              AI Assistant
-            </div>
+          <div className="flex items-center gap-2 text-sm text-slate-700">
+            <Bot className="h-4 w-4" />
+            AI Assistant
           </div>
           <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
             <Sparkles className="h-3.5 w-3.5" />
@@ -472,7 +460,7 @@ export default function AssistantPage() {
           </div>
         </header>
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 pb-40 pt-6">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 pb-40 pt-6 scrollbar-thin">
           {!hasRealMessages ? (
             <div className="flex min-h-[65vh] w-full flex-col items-center justify-center text-center">
               <h1 className="mb-8 text-2xl font-semibold text-slate-950 md:text-3xl">
@@ -491,7 +479,7 @@ export default function AssistantPage() {
               </div>
             </div>
           ) : (
-            <div className="w-full space-y-5">
+            <div className="mx-auto max-w-2xl space-y-5">
               {messages
                 .filter((item) => item.id !== "welcome")
                 .map((item) => (
@@ -510,9 +498,9 @@ export default function AssistantPage() {
         </div>
 
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-50 via-slate-50 to-transparent px-4 pb-5 pt-10">
-          <div className="w-full">
+          <div className="mx-auto max-w-2xl">
             {attachments.length > 0 && (
-              <div className="mb-2 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+              <div className="mb-2 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
                 <div className="flex min-w-0 items-center gap-3">
                   {attachments[0].previewUrl && (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -526,7 +514,7 @@ export default function AssistantPage() {
                     <div className="truncate font-medium">
                       {attachments[0].name}
                     </div>
-                    <div className="text-xs text-blue-600">
+                    <div className="text-xs text-amber-600">
                       รูปพร้อมส่งแล้ว
                     </div>
                   </div>
@@ -571,7 +559,7 @@ export default function AssistantPage() {
                 }}
               />
               <button
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full btn-dark disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => void handleSend()}
                 disabled={
                   sending || (!message.trim() && attachments.length === 0)
@@ -619,14 +607,49 @@ function ChatBubble({
         <div
           className={
             isUser
-              ? "rounded-[22px] bg-blue-600 px-5 py-3 text-[15px] leading-7 text-white shadow-sm"
+              ? "rounded-[22px] btn-dark px-5 py-3 text-[15px] leading-7 text-white shadow-sm"
               : "rounded-2xl border border-slate-200 bg-white px-5 py-4 text-[15px] leading-7 text-slate-900 shadow-sm"
           }
         >
           {isUser ? (
-            <div className="whitespace-pre-wrap">{content}</div>
+            <div className="space-y-2">
+              {message.attachments && message.attachments.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {message.attachments.map((att, i) => {
+                    const src = att.previewUrl
+                      || (att.imageBase64
+                        ? `data:${att.mediaType || "image/jpeg"};base64,${att.imageBase64}`
+                        : "");
+                    if (!src) return null;
+                    return (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        key={i}
+                        src={src}
+                        alt={att.name}
+                        className="max-h-40 rounded-lg border border-white/20"
+                      />
+                    );
+                  })}
+                </div>
+              )}
+              <div className="whitespace-pre-wrap">{content}</div>
+            </div>
           ) : (
             <AssistantContent text={content} />
+          )}
+          {!isUser && message.toolCalls && message.toolCalls.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5 border-t border-slate-100 pt-2">
+              {message.toolCalls.map((tc, i) => (
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600"
+                >
+                  <Sparkles className="h-3 w-3 text-amber-500" />
+                  {tc.name}
+                </span>
+              ))}
+            </div>
           )}
           {!isUser &&
             message.pendingActionIds &&
@@ -636,6 +659,7 @@ function ChatBubble({
                   <div key={id} className="flex gap-2">
                     <Button
                       size="sm"
+                      variant="gold"
                       onClick={() => onAction(id, "confirm")}
                       disabled={Boolean(actionBusyId)}
                     >
@@ -786,6 +810,14 @@ function parseStreamEvent(rawEvent: string): StreamEvent | null {
             (item): item is string => typeof item === "string",
           )
         : [],
+      toolCalls: Array.isArray(data.toolCalls)
+        ? data.toolCalls
+            .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null && "name" in item)
+            .map((item) => ({
+              name: String(item.name || ""),
+              arguments: (item.arguments && typeof item.arguments === "object" ? item.arguments : {}) as Record<string, unknown>,
+            }))
+        : undefined,
     };
   }
   if (type === "error")

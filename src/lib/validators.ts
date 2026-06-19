@@ -7,17 +7,18 @@ export const loginSchema = z.object({
 
 export type LoginInput = z.infer<typeof loginSchema>;
 
-export const partSchema = z.object({
+// Base shape shared by create/update
+const partBaseSchema = z.object({
   partNumber: z.string().optional().default("").transform(v => v.trim() || "-").pipe(z.string().min(1).regex(/^[^<>]+$/, "ห้ามมีตัวอักษรพิเศษ < หรือ >")),
   partName: z.string().min(1, "กรุณากรอกชื่ออะไหล่").regex(/^[^<>]+$/, "ห้ามมีตัวอักษรพิเศษ < หรือ >"),
   description: z.string().regex(/^[^<>]*$/, "ห้ามมีตัวอักษรพิเศษ < หรือ >").optional(),
   categoryId: z.string().nullable().transform(v => v === "" || v === null ? null : v).optional(),
   categoryName: z.string().nullable().transform(v => v === "" || v === null ? null : v).optional(),
   subcategory: z.string().nullable().transform(v => v === "" || v === null ? null : v).optional(),
-  plant: z.string().min(1, "กรุณากรอก Block"),
+  plant: z.string().nullable().transform(v => v === "" || v === null ? null : v).optional(),
+  isSpecialToolPart: z.coerce.boolean().default(false),
   buildingId: z.string().min(1, "กรุณาเลือกอาคาร"),
   location: z.string().regex(/^[^<>]*$/, "ห้ามมีตัวอักษรพิเศษ < หรือ >").optional(),
-  quantity: z.coerce.number().min(0, "จำนวนต้องเป็น 0 ขึ้นไป"),
   minimumQuantity: z.coerce.number().min(0, "จำนวนขั้นต่ำต้องเป็น 0 ขึ้นไป"),
   unit: z.string().min(1, "กรุณากรอกหน่วย").regex(/^[^<>]+$/, "ห้ามมีตัวอักษรพิเศษ < หรือ >"),
   barcodeValue: z
@@ -26,8 +27,25 @@ export const partSchema = z.object({
     .optional(),
 });
 
-export const partUpdateSchema = partSchema
-  .omit({ quantity: true })
+// Creation schema: plant is required unless the part is a shared special tool
+export const partSchema = partBaseSchema
+  .merge(
+    z.object({
+      quantity: z.coerce.number().min(0, "จำนวนต้องเป็น 0 ขึ้นไป"),
+    })
+  )
+  .superRefine((data, ctx) => {
+    if (!data.isSpecialToolPart && (!data.plant || data.plant.trim() === "")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "กรุณากรอก Block หรือเลือก Special Tool Part",
+        path: ["plant"],
+      });
+    }
+  });
+
+// Update schema: only enforce plant when explicitly turning off special-tool status
+export const partUpdateSchema = partBaseSchema
   .partial()
   .superRefine((data, ctx) => {
     if (data.buildingId !== undefined && !data.buildingId) {
@@ -35,6 +53,13 @@ export const partUpdateSchema = partSchema
         code: z.ZodIssueCode.custom,
         message: "กรุณาเลือกอาคาร",
         path: ["buildingId"],
+      });
+    }
+    if (data.isSpecialToolPart === false && (!data.plant || data.plant.trim() === "")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "กรุณากรอก Block หรือเลือก Special Tool Part",
+        path: ["plant"],
       });
     }
   });

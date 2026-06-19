@@ -90,7 +90,7 @@ const TREND_PATTERN =
   /(เดือนนี้|สัปดาห์นี้|ปีนี้|แนวโน้ม|สถิติ|ใช้ไป|กี่ครั้ง|usage|trend|ประวัติ|เบิก|movement)/i;
 
 const INVENTORY_PATTERN =
-  /(contactor|breaker|เบรกเกอร์|คอนแทคเตอร์|เบรคเกอร์|relay|รีเลย์|อะไหล่|spare\s*part|motor|มอเตอร์|pump|ปั้ม|valve|วาล์ว|cable|สายไฟ|fuse|ฟิวส์|sensor|เซนเซอร์|switch|สวิตช์|[A-Z]{2,}\d[A-Z\d-]{2,}|ท\.\d{3}|บล็อค\s*\d|บล็อก\s*\d|block\s*\d|อาคาร\s*ท\.?\d{3})/i;
+  /(contactor|breaker|เบรกเกอร์|คอนแทคเตอร์|เบรคเกอร์|relay|รีเลย์|อะไหล่|spare\s*part|motor|มอเตอร์|pump|ปั้ม|valve|วาล์ว|cable|สายไฟ|fuse|ฟิวส์|sensor|เซนเซอร์|switch|สวิตช์|stock|สต็อก|stocks|[A-Z]{2,}\d[A-Z\d-]{2,}|ท\.\d{3}|บล็อค\s*\d|บล็อก\s*\d|block\s*\d|อาคาร\s*ท\.?\d{3})/i;
 
 export function hasSummaryTerms(text: string): boolean {
   return SUMMARY_PATTERN.test(text);
