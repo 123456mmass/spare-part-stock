@@ -46,19 +46,31 @@ export async function POST(request: Request) {
               responseStyle: "web",
             },
             (event) => {
-              controller.enqueue(encoder.encode(sse(event.type, event)));
-            }
+              try {
+                controller.enqueue(encoder.encode(sse(event.type, event)));
+              } catch (enqueueError) {
+                console.error("AI stream enqueue error:", enqueueError);
+              }
+            },
           );
         } catch (error) {
-          controller.enqueue(
-            encoder.encode(
-              sse("error", {
-                message: error instanceof Error ? error.message : "เกิดข้อผิดพลาดในการเรียกผู้ช่วย AI",
-              })
-            )
-          );
+          try {
+            controller.enqueue(
+              encoder.encode(
+                sse("error", {
+                  message: error instanceof Error ? error.message : "เกิดข้อผิดพลาดในการเรียกผู้ช่วย AI",
+                }),
+              ),
+            );
+          } catch (enqueueError) {
+            console.error("AI stream error enqueue failed:", enqueueError);
+          }
         } finally {
-          controller.close();
+          try {
+            controller.close();
+          } catch {
+            // controller may already be closed
+          }
         }
       },
     });

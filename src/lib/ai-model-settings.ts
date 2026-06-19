@@ -20,7 +20,7 @@ export const FALLBACK_AI_MODELS = [
   "cmc/deepseek/deepseek-v4-flash",
   "gh/gpt-5-mini",
   "ag/gemini-3.5-flash-low",
-  "oc/qwen3.6-plus-free",
+  "cmc/Qwen/Qwen3.6-Plus",
   "cu/composer-2.5-fast",
 ];
 
@@ -38,7 +38,14 @@ export async function getConfiguredAiModel(): Promise<string> {
       where: { key: AI_MODEL_SETTING_KEY },
       select: { value: true },
     });
-    return setting?.value || fallbackAiModel();
+    const configured = setting?.value;
+    if (configured && (FALLBACK_AI_MODELS.includes(configured) || configured in MODEL_CAPABILITY_MAP)) {
+      return configured;
+    }
+    if (configured) {
+      console.warn(`Configured AI model ${configured} is unknown or not available; falling back`);
+    }
+    return fallbackAiModel();
   } catch (error) {
     console.error("Failed to load AI model setting:", error);
     return fallbackAiModel();

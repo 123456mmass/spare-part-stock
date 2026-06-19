@@ -459,6 +459,10 @@ export async function runAiAssistantStream(
     reply = "ขออภัย เกิดข้อผิดพลาดในการประมวลผล กรุณาลองใหม่อีกครั้ง";
     await streamTextFallback(reply, onEvent);
   }
+  if (!reply.trim()) {
+    reply = "ขออภัย ผมไม่ได้รับคำตอบจาก AI กรุณาลองใหม่อีกครั้ง";
+    await streamTextFallback(reply, onEvent);
+  }
 
   reply =
     input.responseStyle === "line"
