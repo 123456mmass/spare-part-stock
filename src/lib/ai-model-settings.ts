@@ -18,6 +18,9 @@ export const FALLBACK_AI_MODELS = [
   "umans/umans-glm-5.2",
   "umans/umans-coder",
   "cmc/deepseek/deepseek-v4-flash",
+  "gh/gpt-5-mini",
+  "ag/gemini-3.5-flash-low",
+  "oc/qwen3.6-plus-free",
 ];
 
 export function fallbackAiModel(): string {
@@ -265,6 +268,30 @@ const MODEL_CAPABILITY_MAP: Record<string, ModelCapabilities> = {
     hasThinking: true,
     recommendedMaxTokens: 2000,
     displayName: "Qwen 3.6 Plus (CommandCode)",
+  },
+  // GitHub / OpenAI
+  "gh/gpt-5-mini": {
+    supportsVision: true,
+    supportsTools: true,
+    hasThinking: false,
+    recommendedMaxTokens: 2000,
+    displayName: "GPT-5 Mini",
+  },
+  // Gemini 3.5 Flash (low tier)
+  "ag/gemini-3.5-flash-low": {
+    supportsVision: true,
+    supportsTools: true,
+    hasThinking: false,
+    recommendedMaxTokens: 2000,
+    displayName: "Gemini 3.5 Flash (Low)",
+  },
+  // Qwen 3.6 Plus (free tier)
+  "oc/qwen3.6-plus-free": {
+    supportsVision: false,
+    supportsTools: true,
+    hasThinking: true,
+    recommendedMaxTokens: 2000,
+    displayName: "Qwen 3.6 Plus (Free)",
   },
 };
 
