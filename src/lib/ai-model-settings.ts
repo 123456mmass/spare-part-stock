@@ -21,6 +21,7 @@ export const FALLBACK_AI_MODELS = [
   "gh/gpt-5-mini",
   "ag/gemini-3.5-flash-low",
   "oc/qwen3.6-plus-free",
+  "cu/composer-2.5-fast",
 ];
 
 export function fallbackAiModel(): string {
@@ -292,6 +293,14 @@ const MODEL_CAPABILITY_MAP: Record<string, ModelCapabilities> = {
     hasThinking: true,
     recommendedMaxTokens: 2000,
     displayName: "Qwen 3.6 Plus (Free)",
+  },
+  // Composer / Claude Code (fast tier)
+  "cu/composer-2.5-fast": {
+    supportsVision: false,
+    supportsTools: true,
+    hasThinking: false,
+    recommendedMaxTokens: 2000,
+    displayName: "Composer 2.5 Fast",
   },
 };
 
