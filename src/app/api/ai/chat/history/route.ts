@@ -82,19 +82,31 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(request: NextRequest) {
   try {
     const user = await requireAuth();
-    await prisma.conversation.deleteMany({
-      where: { lineUserId: `web:${user.id}`, lineGroupId: null },
-    });
+    const webLineUserId = `web:${user.id}`;
+    const conversationId = request.nextUrl.searchParams.get("conversationId");
+    if (conversationId) {
+      await prisma.conversation.deleteMany({
+        where: {
+          id: conversationId,
+          lineUserId: webLineUserId,
+          lineGroupId: null,
+        },
+      });
+    } else {
+      await prisma.conversation.deleteMany({
+        where: { lineUserId: webLineUserId, lineGroupId: null },
+      });
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof AuthError) {
       return NextResponse.json({ error: error.message }, { status: error.message === "Forbidden" ? 403 : 401 });
     }
     console.error("AI chat history delete route error:", error);
-    return NextResponse.json({ error: "ไม่สามารถล้างประวัติแชทได้" }, { status: 500 });
+    return NextResponse.json({ error: "ไม่สามารถลบประวัติแชทได้" }, { status: 500 });
   }
 }
 

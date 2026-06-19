@@ -17,6 +17,7 @@ import {
   Search,
   Send,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import { fetchWithAuth as fetch } from "@/lib/api";
@@ -30,7 +31,6 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toaster";
-
 type ChatMessage = {
   id: string;
   role: "user" | "assistant";
@@ -176,6 +176,23 @@ export default function AssistantPage() {
     setMessage("");
     setAttachments([]);
     setThinkingStatus("");
+  }
+
+  async function handleDeleteConversation(id: string, event: React.MouseEvent) {
+    event.stopPropagation();
+    try {
+      const response = await fetch(`/api/ai/chat/history?conversationId=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error("Delete failed");
+      if (conversationId === id) {
+        await startNewChat();
+      }
+      await loadHistory();
+      toast({ title: "ลบประวัติแชทแล้ว" });
+    } catch {
+      toast({ title: "ลบไม่สำเร็จ", variant: "destructive" });
+    }
   }
 
   async function handleModelChange(model: string) {
@@ -410,17 +427,26 @@ export default function AssistantPage() {
               </div>
             ) : (
               conversations.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => void loadHistory(item.id)}
-                  className={`block w-full truncate rounded-lg px-3 py-2 text-left text-sm ${
-                    item.id === conversationId
-                      ? "bg-slate-100 text-slate-950"
-                      : "text-slate-700 hover:bg-slate-100"
-                  }`}
-                >
-                  {item.title}
-                </button>
+                <div key={item.id} className="group flex items-center gap-1">
+                  <button
+                    onClick={() => void loadHistory(item.id)}
+                    className={`block flex-1 truncate rounded-lg px-3 py-2 text-left text-sm ${
+                      item.id === conversationId
+                        ? "bg-slate-100 text-slate-950"
+                        : "text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    {item.title}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => void handleDeleteConversation(item.id, e)}
+                    className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md text-slate-400 hover:text-red-500 hover:bg-red-50 transition-opacity"
+                    title="ลบแชทนี้"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               ))
             )}
           </div>
