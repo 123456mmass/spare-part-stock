@@ -75,15 +75,23 @@ export function Sidebar({ userName, userRole, mustChangePassword, onLogout }: Si
 
   return (
     <>
-      {/* Mobile menu button */}
-      <Button
-        variant="ghost"
-        size="icon"
-        className="fixed top-4 left-4 z-50 md:hidden bg-white shadow-md rounded-lg border"
-        onClick={() => setMobileOpen(!mobileOpen)}
-      >
-        {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-      </Button>
+      {/* Mobile header */}
+      <header className="fixed top-0 left-0 right-0 z-40 h-14 bg-white/95 backdrop-blur border-b border-slate-200 flex items-center px-4 md:hidden">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="mr-3 text-slate-700 hover:bg-slate-100"
+          onClick={() => setMobileOpen(!mobileOpen)}
+        >
+          {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </Button>
+        <div className="flex items-center gap-2">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-slate-900 to-slate-700 text-amber-300">
+            <Boxes className="h-4 w-4" />
+          </div>
+          <span className="text-sm font-semibold text-slate-900">SparePartStock</span>
+        </div>
+      </header>
 
       {/* Mobile overlay */}
       {mobileOpen && (

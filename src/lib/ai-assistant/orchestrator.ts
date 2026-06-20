@@ -389,6 +389,25 @@ async function runDirectStreamRoute(
   return { reply, conversationId, pendingActionIds, toolCalls: [toolCall] };
 }
 
+const RELIABLE_FALLBACK_MODEL =
+  process.env.SPARE_PART_AI_MODEL || process.env.LLM_GATEWAY_MODEL || "umans/umans-kimi-k2.7";
+
+async function callWithModelFallback<T>(
+  label: string,
+  primaryModel: string,
+  fn: (model: string) => Promise<T>,
+): Promise<T> {
+  if (primaryModel === RELIABLE_FALLBACK_MODEL) {
+    return fn(primaryModel);
+  }
+  try {
+    return await fn(primaryModel);
+  } catch (error) {
+    console.warn(`AI ${label} failed with ${primaryModel}, retrying with ${RELIABLE_FALLBACK_MODEL}:`, error);
+    return await fn(RELIABLE_FALLBACK_MODEL);
+  }
+}
+
 export async function runAiAssistantStream(
   input: AiAssistantInput,
   onEvent: (event: StreamEvent) => void | Promise<void>,
@@ -429,11 +448,12 @@ export async function runAiAssistantStream(
   const toolCallResult: AssistantToolCall[] = [];
   let reply = "";
   try {
-    await onEvent({ type: "status", message: "กำลังทำความเข้าใจคำถาม" });
     const activeModel = input.attachments?.length
       ? await currentVisionModel()
       : await currentGatewayModel();
-    const first = await callGateway(messages, true, undefined, input.channel, activeModel);
+    const first = await callWithModelFallback("tool call", activeModel, (model) =>
+      callGateway(messages, true, undefined, input.channel, model),
+    );
     const choice = first.choices?.[0];
     if (!choice?.message) throw new Error("No response from LLM");
 
@@ -446,10 +466,17 @@ export async function runAiAssistantStream(
       toolCallResult.push(...executed.toolCalls);
 
       await onEvent({ type: "status", message: "กำลังเรียบเรียงคำตอบ" });
-      reply = await callGatewayStream(messages, false, async (delta) => {
-        reply += delta;
-        await onEvent({ type: "delta", text: delta });
-      }, activeModel);
+      reply = await callWithModelFallback("answer stream", activeModel, (model) =>
+        callGatewayStream(
+          messages,
+          false,
+          async (delta) => {
+            reply += delta;
+            await onEvent({ type: "delta", text: delta });
+          },
+          model,
+        ),
+      );
     } else {
       reply = messageText(choice.message) || "ขออภัย ไม่สามารถประมวลผลได้";
       await streamTextFallback(sanitizeRawToolMarkup(reply), onEvent);
