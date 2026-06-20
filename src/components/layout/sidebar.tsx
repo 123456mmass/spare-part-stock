@@ -76,7 +76,7 @@ export function Sidebar({ userName, userRole, mustChangePassword, onLogout }: Si
   return (
     <>
       {/* Mobile header */}
-      <header className="fixed top-0 left-0 right-0 z-40 h-14 bg-white/95 backdrop-blur border-b border-slate-200 flex items-center px-4 md:hidden">
+      <header className="sticky top-0 z-30 h-14 bg-white/95 backdrop-blur border-b border-slate-200 flex items-center px-4 md:hidden">
         <Button
           variant="ghost"
           size="icon"
@@ -95,7 +95,7 @@ export function Sidebar({ userName, userRole, mustChangePassword, onLogout }: Si
 
       {/* Mobile overlay */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={() => setMobileOpen(false)} />
+        <div className="fixed inset-0 z-50 bg-black/50 md:hidden" onClick={() => setMobileOpen(false)} />
       )}
 
       {/* Sidebar */}
