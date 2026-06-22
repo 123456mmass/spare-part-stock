@@ -42,9 +42,12 @@ function reverseproxyModel(): string {
 }
 
 export function gatewayBaseUrl(): string {
+  // Prefer LLM_GATEWAY_BASE_URL (the canonical public endpoint) so a stale
+  // SPARE_PART_AI_GATEWAY_URL injected by the PM2 daemon can't override the
+  // value loaded from .env at runtime.
   return (
-    process.env.SPARE_PART_AI_GATEWAY_URL ||
     process.env.LLM_GATEWAY_BASE_URL ||
+    process.env.SPARE_PART_AI_GATEWAY_URL ||
     "http://127.0.0.1:4000"
   ).replace(/\/+$/, "");
 }
