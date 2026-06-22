@@ -1,7 +1,7 @@
 import ExcelJS from "exceljs";
-import sharp from "sharp";
 import path from "path";
 import fs from "fs/promises";
+import { normalizeImage } from "./image-normalize";
 import { prisma } from "./prisma";
 import { generateQRCode } from "./qrcode";
 import { generatePartBarcodeValue } from "./barcode";
@@ -112,14 +112,12 @@ export async function processAndSaveImage(
   const publicPath = `/uploads/images/${fileName}`;
 
   try {
-    // Process image with sharp - resize and convert to webp
-    await sharp(buffer)
-      .resize(800, 800, {
-        fit: "inside",
-        withoutEnlargement: true,
-      })
-      .webp({ quality: 80 })
-      .toFile(filePath);
+    const { buffer: webpBuf } = await normalizeImage(buffer, {
+      format: "webp",
+      maxDimension: 800,
+      quality: 80,
+    });
+    await fs.writeFile(filePath, webpBuf);
 
     return publicPath;
   } catch (error) {

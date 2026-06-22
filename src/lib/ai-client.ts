@@ -1,5 +1,5 @@
-import sharp from "sharp";
 import { fallbackAiModel, getConfiguredAiModel, getConfiguredVisionModel } from "./ai-model-settings";
+import { normalizeImage } from "./image-normalize";
 
 export interface AiContentBlock {
   type: "text" | "image";
@@ -145,10 +145,11 @@ export function parseJsonObject(text: string) {
 }
 
 export async function imageBlockForAi(buffer: Buffer): Promise<AiContentBlock> {
-  const normalized = await sharp(buffer)
-    .resize(1000, 1000, { fit: "inside", withoutEnlargement: true })
-    .jpeg({ quality: 78 })
-    .toBuffer();
+  const { buffer: normalized } = await normalizeImage(buffer, {
+    format: "jpeg",
+    maxDimension: 1000,
+    quality: 78,
+  });
 
   return {
     type: "image",

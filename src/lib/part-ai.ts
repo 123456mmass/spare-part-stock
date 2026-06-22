@@ -1,6 +1,6 @@
 import path from "path";
 import { z } from "zod";
-import sharp from "sharp";
+import { normalizeImage } from "./image-normalize";
 import { prisma } from "./prisma";
 import { generatePartBarcodeValue } from "./barcode";
 import { callPartAi, currentVisionModel, parseJsonObject, type AiContentBlock, type VisionDiagnostics } from "./ai-client";
@@ -387,21 +387,21 @@ export async function suggestPartFromImage(
   if (originalBuffer.length > MAX_AI_IMAGE_SIZE) {
     throw new Error("File must be 5MB or smaller");
   }
-  const resizedBuffer = await sharp(originalBuffer)
-    .resize(1000, 1000, { fit: "inside", withoutEnlargement: true })
-    .jpeg({ quality: 78 })
-    .toBuffer();
+  const { buffer: resizedBuffer } = await normalizeImage(originalBuffer, {
+    format: "jpeg",
+    maxDimension: 1000,
+    quality: 78,
+  });
 
   // Try to read barcode/QR from image before calling AI
   let scannedBarcode: string | null = null;
   try {
     const { readBarcodesFromImageData } = await import("zxing-wasm/reader");
-    const { data: rawPixels, info } = await sharp(originalBuffer)
-      .resize(1200, 1200, { fit: "inside", withoutEnlargement: true })
-      .ensureAlpha()
-      .raw()
-      .toBuffer({ resolveWithObject: true });
-    const imageData = { data: new Uint8ClampedArray(rawPixels.buffer), width: info.width, height: info.height, colorSpace: "srgb" as const };
+    const { buffer: rawPixels, width, height } = await normalizeImage(originalBuffer, {
+      format: "raw",
+      maxDimension: 1200,
+    });
+    const imageData = { data: new Uint8ClampedArray(rawPixels), width, height, colorSpace: "srgb" as const };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const results = await readBarcodesFromImageData(imageData as any, { formats: ["EAN-13", "EAN-8", "Code128", "Code39", "QRCode", "DataMatrix", "ITF"] });
     if (results.length > 0 && results[0].text) {

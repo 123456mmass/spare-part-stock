@@ -31,7 +31,7 @@ const liffCSP = `
 `;
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["sharp"],
+  serverExternalPackages: ["sharp", "heic-decode"],
   async headers() {
     return [
       {

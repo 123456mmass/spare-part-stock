@@ -1,4 +1,4 @@
-import sharp from "sharp";
+import { normalizeImage } from "./image-normalize";
 
 const MAX_INPUT_SIZE = 5 * 1024 * 1024;
 const VOYAGE_ENDPOINT = "https://api.voyageai.com/v1/multimodalembeddings";
@@ -109,10 +109,10 @@ export async function embedImage(
 async function embedImageWithClip(buffer: Buffer): Promise<Float32Array> {
   if (buffer.length > MAX_INPUT_SIZE) throw new Error("image too large");
 
-  const pngBuf = await sharp(buffer)
-    .resize(336, 336, { fit: "cover" })
-    .png()
-    .toBuffer();
+  const { buffer: pngBuf } = await normalizeImage(buffer, {
+    format: "png",
+    cover: { width: 336, height: 336 },
+  });
 
   const { processor, model, RawImage } = await getImageModel();
   const blob = new Blob([new Uint8Array(pngBuf)], { type: "image/png" });
@@ -235,10 +235,11 @@ async function embedImageWithVoyage(
   if (!apiKey) throw new Error("VOYAGE_API_KEY is not configured");
 
   const model = process.env.VOYAGE_MULTIMODAL_MODEL || DEFAULT_VOYAGE_MODEL;
-  const imageBuffer = await sharp(buffer)
-    .resize(1600, 1600, { fit: "inside", withoutEnlargement: true })
-    .jpeg({ quality: 85 })
-    .toBuffer();
+  const { buffer: imageBuffer } = await normalizeImage(buffer, {
+    format: "jpeg",
+    maxDimension: 1600,
+    quality: 85,
+  });
 
   const response = await fetch(VOYAGE_ENDPOINT, {
     method: "POST",

@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import sharp from "sharp";
+import { normalizeImage } from "./image-normalize";
 import { z } from "zod";
 import { prisma } from "./prisma";
 import { generateQRCode } from "./qrcode";
@@ -94,10 +94,11 @@ function parseJsonObject(text: string) {
 }
 
 async function imageBlockForGateway(buffer: Buffer) {
-  const normalized = await sharp(buffer)
-    .resize(1000, 1000, { fit: "inside", withoutEnlargement: true })
-    .jpeg({ quality: 78 })
-    .toBuffer();
+  const { buffer: normalized } = await normalizeImage(buffer, {
+    format: "jpeg",
+    maxDimension: 1000,
+    quality: 78,
+  });
 
   return {
     type: "image",

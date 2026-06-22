@@ -1,4 +1,4 @@
-import sharp from "sharp";
+import { normalizeImage } from "./image-normalize";
 import path from "path";
 import fs from "fs/promises";
 import crypto from "crypto";
@@ -26,10 +26,12 @@ export async function savePartImage(
 
   const filename = `${partId}-${crypto.randomBytes(4).toString("hex")}.webp`;
   await fs.mkdir(UPLOAD_DIR, { recursive: true });
-  await sharp(buffer)
-    .resize(800, 800, { fit: "inside", withoutEnlargement: true })
-    .webp({ quality: 80 })
-    .toFile(path.join(UPLOAD_DIR, filename));
+  const { buffer: webpBuf } = await normalizeImage(buffer, {
+    format: "webp",
+    maxDimension: 800,
+    quality: 80,
+  });
+  await fs.writeFile(path.join(UPLOAD_DIR, filename), webpBuf);
 
   let embedding: Uint8Array<ArrayBuffer> | null = null;
   let embeddingProvider: string | null = null;

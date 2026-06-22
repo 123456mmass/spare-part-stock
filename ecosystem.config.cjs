@@ -1,3 +1,4 @@
+/* eslint-disable */
 // PM2 process definition for the spare-part-stock Next.js app.
 //
 // Loads all variables from .env into the PM2 process env explicitly (with

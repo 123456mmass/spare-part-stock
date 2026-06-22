@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAuthFromRequest } from "@/lib/auth";
 import { savePartImage } from "@/lib/uploads";
 import { corsOptions, withCors } from "@/lib/cors";
+import { UnsupportedImageError } from "@/lib/image-normalize";
 
 export const OPTIONS = corsOptions();
 
@@ -72,6 +73,9 @@ export const POST = withCors(async (
         { error: "PASSWORD_CHANGE_REQUIRED", code: "PASSWORD_CHANGE_REQUIRED", message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน" },
         { status: 403 }
       );
+    }
+    if (error instanceof UnsupportedImageError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
     console.error("Mobile image upload error:", error);
     return NextResponse.json(

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { embedImageWithMetadata, cosineSimilarity, bytesToFloat32 } from "@/lib/embeddings";
+import { UnsupportedImageError } from "@/lib/image-normalize";
 
 const MAX_SIZE = 5 * 1024 * 1024;
 const TOP_K = 5;
@@ -29,6 +30,9 @@ export async function POST(request: Request) {
     try {
       queryEmbedding = await embedImageWithMetadata(buffer, "query");
     } catch (err) {
+      if (err instanceof UnsupportedImageError) {
+        return NextResponse.json({ error: err.message }, { status: 400 });
+      }
       console.error("embedImage failed:", (err as Error).message);
       return NextResponse.json({ error: "ระบบค้นหาด้วยรูปไม่พร้อมใช้งาน" }, { status: 503 });
     }
