@@ -3,7 +3,7 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { fetchWithAuth as fetch } from "@/lib/api";
-import { Sidebar, BottomNav } from "@/components/layout";
+import { Sidebar, BottomNav, AppBootSkeleton } from "@/components/layout";
 
 interface User {
   id: string;
@@ -55,19 +55,11 @@ export default function ProtectedLayout({ children }: { children: ReactNode }) {
   };
 
   if (isLoading || !user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
-      </div>
-    );
+    return <AppBootSkeleton />;
   }
 
   if (user.mustChangePassword && pathname !== "/settings/password") {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
-      </div>
-    );
+    return <AppBootSkeleton />;
   }
 
   return (
