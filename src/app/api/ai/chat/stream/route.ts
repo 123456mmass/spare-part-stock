@@ -33,6 +33,16 @@ export async function POST(request: Request) {
     }
 
     const encoder = new TextEncoder();
+    let closed = false;
+    const abortSignal = request.signal;
+    if (abortSignal.aborted) {
+      closed = true;
+    } else {
+      abortSignal.addEventListener("abort", () => {
+        closed = true;
+      }, { once: true });
+    }
+
     const stream = new ReadableStream({
       async start(controller) {
         try {
@@ -46,32 +56,43 @@ export async function POST(request: Request) {
               responseStyle: "web",
             },
             (event) => {
+              if (closed) return;
               try {
                 controller.enqueue(encoder.encode(sse(event.type, event)));
               } catch (enqueueError) {
                 console.error("AI stream enqueue error:", enqueueError);
+                closed = true;
               }
             },
+            abortSignal,
           );
         } catch (error) {
-          try {
-            controller.enqueue(
-              encoder.encode(
-                sse("error", {
-                  message: error instanceof Error ? error.message : "เกิดข้อผิดพลาดในการเรียกผู้ช่วย AI",
-                }),
-              ),
-            );
-          } catch (enqueueError) {
-            console.error("AI stream error enqueue failed:", enqueueError);
+          if (!closed) {
+            try {
+              controller.enqueue(
+                encoder.encode(
+                  sse("error", {
+                    message: error instanceof Error ? error.message : "เกิดข้อผิดพลาดในการเรียกผู้ช่วย AI",
+                  }),
+                ),
+              );
+            } catch (enqueueError) {
+              console.error("AI stream error enqueue failed:", enqueueError);
+            }
           }
         } finally {
           try {
-            controller.close();
+            if (!closed) controller.close();
           } catch {
             // controller may already be closed
           }
+          closed = true;
         }
+      },
+      cancel() {
+        // Client disconnected — stop enqueuing. The threaded abortSignal
+        // (request.signal) also aborts the upstream gateway fetch.
+        closed = true;
       },
     });
 

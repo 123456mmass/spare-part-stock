@@ -407,6 +407,13 @@ async function runDirectStreamRoute(
 const RELIABLE_FALLBACK_MODEL =
   process.env.SPARE_PART_AI_MODEL || process.env.LLM_GATEWAY_MODEL || "umans/umans-kimi-k2.7";
 
+/** Combine a fetch timeout with an optional upstream abort (e.g. client disconnect). */
+function combinedSignal(timeoutMs: number, abortSignal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  if (!abortSignal) return timeout;
+  return AbortSignal.any([timeout, abortSignal]);
+}
+
 async function callWithModelFallback<T>(
   label: string,
   primaryModel: string,
@@ -418,6 +425,10 @@ async function callWithModelFallback<T>(
   try {
     return await fn(primaryModel);
   } catch (error) {
+    // Client disconnected (abort) — don't waste a fallback retry on a gone user.
+    if (error instanceof Error && (error.name === "AbortError" || /aborted/i.test(error.message))) {
+      throw error;
+    }
     console.warn(`AI ${label} failed with ${primaryModel}, retrying with ${RELIABLE_FALLBACK_MODEL}:`, error);
     return await fn(RELIABLE_FALLBACK_MODEL);
   }
@@ -426,6 +437,7 @@ async function callWithModelFallback<T>(
 export async function runAiAssistantStream(
   input: AiAssistantInput,
   onEvent: (event: StreamEvent) => void | Promise<void>,
+  abortSignal?: AbortSignal,
 ): Promise<AiAssistantResult> {
   const conversationId = await resolveConversationId(input);
   if (conversationId && !input.skipSaveUserMessage) {
@@ -467,7 +479,7 @@ export async function runAiAssistantStream(
       ? await currentVisionModel()
       : await currentGatewayModel();
     const first = await callWithModelFallback("tool call", activeModel, (model) =>
-      callGateway(messages, true, undefined, input.channel, model),
+      callGateway(messages, true, undefined, input.channel, model, abortSignal),
     );
     const choice = first.choices?.[0];
     if (!choice?.message) throw new Error("No response from LLM");
@@ -490,6 +502,7 @@ export async function runAiAssistantStream(
             await onEvent({ type: "delta", text: delta });
           },
           model,
+          abortSignal,
         ),
       );
     } else {
@@ -498,6 +511,15 @@ export async function runAiAssistantStream(
     }
   } catch (error) {
     console.error("AI assistant stream failed:", error);
+    // Client disconnected — don't fabricate/save an error reply for a gone user.
+    if (abortSignal?.aborted) {
+      return {
+        reply: "",
+        conversationId,
+        pendingActionIds,
+        toolCalls: toolCallResult.length > 0 ? toolCallResult : undefined,
+      };
+    }
     reply = "ขออภัย เกิดข้อผิดพลาดในการประมวลผล กรุณาลองใหม่อีกครั้ง";
     await streamTextFallback(reply, onEvent);
   }
@@ -705,13 +727,14 @@ async function callLlmWithTools(
   };
 }
 
-async function callGateway(messages: ChatMessage[], includeTools: boolean, toolChoice?: string, channel?: string, modelId?: string) {
+async function callGateway(messages: ChatMessage[], includeTools: boolean, toolChoice?: string, channel?: string, modelId?: string, abortSignal?: AbortSignal) {
   return callGatewayWithTools(
     messages,
     includeTools ? getAiToolDefinitions() : [],
     toolChoice,
     channel,
     modelId,
+    abortSignal,
   );
 }
 
@@ -721,6 +744,7 @@ async function callGatewayWithTools(
   toolChoice?: string,
   _channel?: string,
   modelId?: string,
+  abortSignal?: AbortSignal,
 ) {
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -731,7 +755,7 @@ async function callGatewayWithTools(
   const response = await fetch(`${gatewayBaseUrl()}/v1/chat/completions`, {
     method: "POST",
     headers,
-    signal: AbortSignal.timeout(90_000),
+    signal: combinedSignal(90_000, abortSignal),
     body: JSON.stringify({
       model: modelId || (await currentGatewayModel()),
       max_tokens: 2000,
@@ -933,6 +957,7 @@ async function callGatewayStream(
   includeTools: boolean,
   onDelta: (delta: string) => void | Promise<void>,
   modelId?: string,
+  abortSignal?: AbortSignal,
 ): Promise<string> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -943,7 +968,7 @@ async function callGatewayStream(
   const response = await fetch(`${gatewayBaseUrl()}/v1/chat/completions`, {
     method: "POST",
     headers,
-    signal: AbortSignal.timeout(60_000),
+    signal: combinedSignal(60_000, abortSignal),
     body: JSON.stringify({
       model: modelId || (await currentGatewayModel()),
       max_tokens: 2000,
