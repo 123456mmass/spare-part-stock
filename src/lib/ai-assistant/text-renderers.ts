@@ -13,6 +13,7 @@ import type {
   TrendResult,
   CleanPart,
 } from "./db-tools";
+import type { WebSearchResult } from "./web-search";
 
 function partStatusLine(p: CleanPart): string {
   const status =
@@ -142,6 +143,24 @@ export function renderTrendsText(result: TrendResult): string {
   return lines.join("\n");
 }
 
+export function renderWebSearchText(result: WebSearchResult): string {
+  const query = result.query || "";
+  if (!result.results || result.results.length === 0) {
+    const note = result.summary ? `\n${result.summary}` : "";
+    return `🔍 ไม่พบข้อมูลจากเว็บสำหรับ "${query}"${note}`.trimEnd();
+  }
+  const lines = [`🔍 ข้อมูลจากเว็บสำหรับ "${query}" (${result.totalCount} ผล):`];
+  if (result.summary && result.summary !== `พบ ${result.results.length} ผลลัพธ์จากเว็บ`) {
+    lines.push("", result.summary);
+  }
+  lines.push("");
+  for (const r of result.results.slice(0, 5)) {
+    lines.push(`• ${r.title} — ${r.sourceDomain}`);
+    if (r.snippet) lines.push(`  ${r.snippet.slice(0, 180)}`);
+  }
+  return lines.join("\n");
+}
+
 /**
  * Format any known tool result into plain text by tool name.
  * Returns null for unknown tools (caller should fall back to LLM).
@@ -163,6 +182,8 @@ export function formatToolResultAsText(
       return renderMovementsText(result as MovementResult);
     case "get_usage_trends":
       return renderTrendsText(result as TrendResult);
+    case "web_search":
+      return renderWebSearchText(result as WebSearchResult);
     default:
       return null;
   }

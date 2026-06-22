@@ -19,6 +19,7 @@ import {
   searchByImageTool,
 } from "./db-tools";
 import { webSearchTool, isWebSearchEnabled } from "./web-search";
+import { renderWebSearchText } from "./text-renderers";
 import type { ToolExecutionContext } from "./types";
 
 export const AI_TOOL_DEFINITIONS = [
@@ -265,7 +266,7 @@ const WEB_SEARCH_TOOL_DEF = {
   type: "function" as const,
   function: {
     name: "web_search",
-    description: "ค้นหาข้อมูลจากเว็บภายนอก เพื่อแนะนำรุ่น/สเปค/ทางเลือกเมื่อไม่มีในคลัง หรือเมื่อผู้ใช้ถามรุ่นที่แนะนำ ใช้เมื่อ search_parts ไม่พบหรือผู้ใช้ขอคำแนะนำการซื้อ",
+    description: "ค้นหาข้อมูลจากเว็บภายนอก ใช้เฉพาะเมื่อผู้ใช้ขอค้นจากอินเทอร์เน็ต/ผู้จำหน่ำยโดยชัดเจรเท่านั้น (เช่น 'ค้นเว็บหา', 'หาผู้จำหน่ำยจากเน็ต') ห้ามใช้แทนการค้นในคลัง หาก search_parts ไม่พบให้บอกว่าไม่พบในระบบ",
     parameters: {
       type: "object",
       properties: {
@@ -493,7 +494,7 @@ export async function executeAiTool(
       }
       case "web_search": {
         const result = await webSearchTool({ query: keyword, maxResults: limit });
-        return { content: JSON.stringify(result), result };
+        return { content: renderWebSearchText(result), result };
       }
       default: {
         return { content: `{"error":"ไม่รู้จัก intent: ${intent}"}` };
@@ -547,7 +548,7 @@ export async function executeAiTool(
       query: typeof args.query === "string" ? args.query : null,
       maxResults: typeof args.maxResults === "number" ? args.maxResults : null,
     });
-    return { content: JSON.stringify(result), result };
+    return { content: renderWebSearchText(result), result };
   }
 
   if (name === "inventory_action") {

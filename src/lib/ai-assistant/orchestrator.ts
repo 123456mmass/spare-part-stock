@@ -66,13 +66,15 @@ const TOOL_EXECUTION_TIMEOUT_MS = 25_000;
 const SYSTEM_PROMPT = `คุณเป็นผู้ช่วยสต็อกอะไหล่ ตอบภาษาไทยกระชับ
 
 กฎ:
-- ถาม stock/part/location/building/block/จำนวนคงเหลือ → เรียก tool search_parts/get_stock_summary/get_low_stock/get_part_detail/list_buildings/web_search
+- ถาม stock/part/location/building/block/จำนวนคงเหลือ → เรียก tool search_parts/get_stock_summary/get_low_stock/get_part_detail/list_buildings/list_blocks
 - ค้นหา/หา/มีไหม [ชื่อ] → search_parts
 - เหลือเท่าไหร่/สรุป/ภาพรวม → get_stock_summary
 - ใกล้หมด/ต่ำกว่าขั้นต่ำ → get_low_stock
-- ถ้าไม่มีในคลังหรือขอคำแนะนำ → web_search
+- ถ้าไม่พบในคลัง → บอกตรงๆ ว่า "ไม่พบในระบบ" อย่าเดา อย่าแนะนำให้ค้นเว็บ
+- web_search ใช้เฉพาะเมื่อผู้ใช้ขอค้นจากอินเทอร์เน็ต/ผู้จำหน่ายโดยชัดเจนเท่านั้น (เช่น "ค้นเว็บหา", "หาผู้จำหน่ายจากเน็ต") ห้ามใช้แทนการค้นในคลัง
 - รับเข้า/เบิกออก/ปรับ/ย้าย/สร้าง → draft tool แล้วให้ผู้ใช้ยืนยัน
-- ห้ามตอบเป็น text เมื่อถามเรื่องสต็อก ห้ามเดา`;
+- ห้ามตอบเป็น text เมื่อถามเรื่องสต็อก ห้ามเดา
+- ห้ามโยน JSON ดิบ ผลลัพธ์ tool ดิบ หรือ URL ปลอมให้ผู้ใช้ — สรุปเป็นข้อความไทยกระชับเสมอ ถ้าไม่มีข้อมูลให้บอกตรงๆ ห้ามแต่งเรื่อง`;
 
 export async function runAiAssistant(
   input: AiAssistantInput,
