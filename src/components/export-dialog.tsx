@@ -30,6 +30,7 @@ type ExportDialogProps = {
 };
 
 type BlockOption = {
+  id: string;
   name: string;
   partCount: number;
 };
@@ -50,8 +51,8 @@ export function ExportDialog({ variant = "default", className }: ExportDialogPro
       .then((data: BlockOption[]) => {
         const sorted = Array.isArray(data)
           ? [...data].sort((a, b) => {
-              const na = Number(a.name);
-              const nb = Number(b.name);
+              const na = Number(a.id);
+              const nb = Number(b.id);
               if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
               return a.name.localeCompare(b.name, "th");
             })
@@ -120,7 +121,7 @@ export function ExportDialog({ variant = "default", className }: ExportDialogPro
               <SelectContent>
                 <SelectItem value="__all__">ทั้งหมด</SelectItem>
                 {blocks.map((block) => (
-                  <SelectItem key={block.name} value={block.name}>
+                  <SelectItem key={block.id} value={block.id}>
                     {block.name} ({block.partCount} รายการ)
                   </SelectItem>
                 ))}

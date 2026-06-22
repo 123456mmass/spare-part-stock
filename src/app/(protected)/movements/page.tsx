@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { fetchWithAuth as fetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -17,7 +18,7 @@ interface Movement {
   quantityChange: number;
   note: string | null;
   createdAt: string;
-  part: { partNumber: string; partName: string };
+  part: { id: string; partNumber: string; partName: string };
   user: { name: string };
 }
 
@@ -142,11 +143,13 @@ export default function MovementsPage() {
               </thead>
               <tbody>
                 {movements.map((movement) => (
-                  <tr key={movement.id}>
+                  <tr key={movement.id} className="transition-colors hover:bg-slate-50">
                     <td className="text-slate-500 whitespace-nowrap">{formatDateTime(movement.createdAt)}</td>
                     <td>
-                      <p className="font-medium">{movement.part.partName}</p>
-                      <p className="mono text-xs text-slate-500">{movement.part.partNumber}</p>
+                      <Link href={`/parts/${movement.part.id}`} className="group inline-block max-w-full rounded-md outline-none focus-visible:ring-2 focus-visible:ring-amber-400">
+                        <p className="font-medium text-slate-900 group-hover:text-amber-700 group-hover:underline">{movement.part.partName}</p>
+                        <p className="mono text-xs text-slate-500 group-hover:text-amber-700">{movement.part.partNumber}</p>
+                      </Link>
                     </td>
                     <td className="text-center">
                       <span className={`bdg ${typeBadgeClass(movement.type)}`}>{typeLabel(movement.type)}</span>

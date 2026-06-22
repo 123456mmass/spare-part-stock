@@ -40,7 +40,7 @@ export async function GET(request: Request) {
       take: limit,
       orderBy: { createdAt: "desc" },
       include: {
-        part: { select: { partNumber: true, partName: true } },
+        part: { select: { id: true, partNumber: true, partName: true } },
         user: { select: { name: true } },
       },
     });

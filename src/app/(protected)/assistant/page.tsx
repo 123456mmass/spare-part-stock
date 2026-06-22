@@ -119,7 +119,7 @@ export default function AssistantPage() {
             id: string;
             role: "user" | "assistant";
             content: string;
-            metadata?: { pendingActionIds?: string[] } | null;
+            metadata?: { pendingActionIds?: string[]; toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }> } | null;
           }) => ({
             id: item.id,
             role: item.role,
@@ -128,6 +128,7 @@ export default function AssistantPage() {
                 ? cleanAssistantText(item.content)
                 : item.content,
             pendingActionIds: item.metadata?.pendingActionIds || [],
+            toolCalls: item.metadata?.toolCalls || [],
           }),
         ),
       );
@@ -336,6 +337,9 @@ export default function AssistantPage() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Action failed");
+      const successMessage =
+        data.message ||
+        (action === "confirm" ? "ทำรายการสำเร็จ" : "ยกเลิกรายการแล้ว");
       setMessages((prev) =>
         prev.map((item) =>
           item.pendingActionIds?.includes(id)
@@ -344,11 +348,10 @@ export default function AssistantPage() {
         ).concat({
           id: crypto.randomUUID(),
           role: "assistant",
-          content:
-            data.message ||
-            (action === "confirm" ? "ทำรายการสำเร็จ" : "ยกเลิกรายการแล้ว"),
+          content: successMessage,
         }),
       );
+      if (conversationId) void loadHistory(conversationId);
     } catch (error) {
       toast({
         title: action === "confirm" ? "ยืนยันไม่สำเร็จ" : "ยกเลิกไม่สำเร็จ",
@@ -399,7 +402,7 @@ export default function AssistantPage() {
 
   const hasRealMessages = messages.some((item) => item.id !== "welcome");
   return (
-    <div className="fixed top-14 bottom-14 left-0 right-0 z-0 flex overflow-hidden bg-slate-50 text-slate-950 md:top-0 md:bottom-0 md:left-64">
+    <div className="fixed top-14 bottom-14 left-0 right-0 z-0 flex overflow-hidden bg-slate-50 text-slate-950 transition-[left] duration-300 md:top-0 md:bottom-0 md:left-[var(--sidebar-width)]">
       <aside className="hidden md:flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white">
         <div className="flex h-full flex-col p-3">
           <div className="mb-4 flex items-center gap-2 px-2 py-1 text-base font-semibold">
@@ -759,13 +762,26 @@ function AssistantContent({ text }: { text: string }) {
 
 function renderInlineMarkdown(text: string): ReactNode[] {
   const nodes: ReactNode[] = [];
-  const regex = /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`)/g;
+  const regex = /(https?:\/\/[^\s)]+|\*\*[^*]+\*\*|__[^_]+__|`[^`]+`)/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(text))) {
     if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
     const token = match[0];
-    if (token.startsWith("`")) {
+    if (token.startsWith("http")) {
+      nodes.push(
+        <a
+          key={`${match.index}-link`}
+          href={token}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex max-w-full items-center rounded bg-blue-50 px-1.5 py-0.5 text-blue-700 underline decoration-blue-300 underline-offset-2 hover:bg-blue-100"
+          title={token}
+        >
+          {formatLinkLabel(token)}
+        </a>,
+      );
+    } else if (token.startsWith("`")) {
       nodes.push(
         <code
           key={`${match.index}-code`}
@@ -788,6 +804,15 @@ function renderInlineMarkdown(text: string): ReactNode[] {
   }
   if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
   return nodes;
+}
+
+function formatLinkLabel(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname.replace(/^www\./, "");
+  } catch {
+    return "เปิดลิงก์";
+  }
 }
 
 function cleanAssistantText(text: string): string {

@@ -77,6 +77,7 @@ export default function PartsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const abortRef = useRef<AbortController | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   const buildQueryString = useCallback((page: number) => {
     const params = new URLSearchParams();
@@ -178,6 +179,21 @@ export default function PartsPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchParts(1);
   }, [fetchParts]);
+
+  useEffect(() => {
+    const node = loadMoreRef.current;
+    if (!node || isLoading || isLoadingMore || currentPage >= totalPages) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && !isLoadingMore && currentPage < totalPages) {
+          void fetchParts(currentPage + 1, true);
+        }
+      },
+      { rootMargin: "360px 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [currentPage, fetchParts, isLoading, isLoadingMore, totalPages]);
 
   return (
     <div className="space-y-6">
@@ -369,12 +385,12 @@ export default function PartsPage() {
       )}
 
       {currentPage < totalPages && (
-        <div className="flex justify-center py-4">
+        <div ref={loadMoreRef} className="flex justify-center py-4">
           <Button variant="outline" onClick={() => fetchParts(currentPage + 1, true)} disabled={isLoadingMore}>
             {isLoadingMore ? (
               <><Loader2 className="h-4 w-4 mr-2 animate-spin" />กำลังโหลด...</>
             ) : (
-              `โหลดเพิ่ม (${parts.length}/${total})`
+              `โหลดเพิ่มอัตโนมัติ (${parts.length}/${total})`
             )}
           </Button>
         </div>

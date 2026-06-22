@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { AuthError, requireAuth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import { confirmPendingAction } from "@/lib/ai-assistant/pending-actions";
 
 type RouteContext = {
@@ -11,6 +12,17 @@ export async function POST(_request: Request, context: RouteContext) {
     const user = await requireAuth();
     const { id } = await context.params;
     const result = await confirmPendingAction({ id, userId: user.id, channel: "web" });
+    if (result.action.conversationId) {
+      await prisma.conversationMessage.create({
+        data: {
+          conversationId: result.action.conversationId,
+          role: "assistant",
+          content: result.message,
+          messageType: "text",
+          metadata: JSON.stringify({ actionId: result.action.id, actionStatus: result.action.status }),
+        },
+      });
+    }
     return NextResponse.json({
       id: result.action.id,
       status: result.action.status,

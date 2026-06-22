@@ -10,21 +10,16 @@ export async function GET() {
   try {
     await requireAuth();
 
-    // Collect distinct plant values from active parts, then sort numerically
-    // where possible ("1", "2", "10" …).
-    const parts = await prisma.part.findMany({
-      where: { isActive: true, plant: { not: null } },
-      select: { plant: true },
-      distinct: ["plant"],
+    const grouped = await prisma.part.groupBy({
+      by: ["plant"],
+      where: { isActive: true, isSpecialToolPart: false, plant: { not: null } },
+      _count: { _all: true },
     });
-    const plants = parts.map((p) => p.plant).filter((v): v is string => Boolean(v));
-
-    const blocks = plants
-      .map((plant) => {
-        // Display label: numeric plants become "Block N"; otherwise keep
-        // the raw value capitalised.
-        const display = /^\d+$/.test(plant) ? `Block ${plant}` : plant;
-        return { id: plant, name: display };
+    const blocks = grouped
+      .filter((item): item is typeof item & { plant: string } => Boolean(item.plant))
+      .map((item) => {
+        const display = /^\d+$/.test(item.plant) ? `Block ${item.plant}` : item.plant;
+        return { id: item.plant, name: display, partCount: item._count._all };
       })
       .sort((a, b) => {
         const aNum = parseInt(a.id, 10);
@@ -36,6 +31,13 @@ export async function GET() {
         if (bIsNum) return 1;
         return a.name.localeCompare(b.name, "th");
       });
+
+    const specialCount = await prisma.part.count({
+      where: { isActive: true, isSpecialToolPart: true },
+    });
+    if (specialCount > 0) {
+      blocks.push({ id: "special", name: "Special Tool Part", partCount: specialCount });
+    }
 
     return NextResponse.json(blocks);
   } catch (error) {

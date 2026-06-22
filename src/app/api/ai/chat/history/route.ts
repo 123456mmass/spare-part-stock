@@ -58,6 +58,30 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    const parsedMessages = conversation.messages.map((message) => {
+      const metadata = message.metadata ? safeJson(message.metadata) : null;
+      return { message, metadata };
+    });
+    const pendingIds = [
+      ...new Set(
+        parsedMessages.flatMap(({ metadata }) =>
+          isRecord(metadata) && Array.isArray(metadata.pendingActionIds)
+            ? metadata.pendingActionIds.filter((id): id is string => typeof id === "string")
+            : [],
+        ),
+      ),
+    ];
+    const activePendingIds = new Set(
+      pendingIds.length > 0
+        ? (
+            await prisma.aiPendingAction.findMany({
+              where: { id: { in: pendingIds }, status: "PENDING", expiresAt: { gt: new Date() } },
+              select: { id: true },
+            })
+          ).map((action) => action.id)
+        : [],
+    );
+
     return NextResponse.json({
       conversationId: conversation.id,
       conversations: conversations.map((item) => ({
@@ -65,13 +89,21 @@ export async function GET(request: NextRequest) {
         title: item.messages[0]?.content || "แชตใหม่",
         updatedAt: item.updatedAt,
       })),
-      messages: conversation.messages.map((message) => ({
-        id: message.id,
-        role: message.role,
-        content: message.content,
-        metadata: message.metadata ? safeJson(message.metadata) : null,
-        createdAt: message.createdAt,
-      })),
+      messages: parsedMessages.map(({ message, metadata }) => {
+        const nextMetadata = isRecord(metadata) ? { ...metadata } : null;
+        if (nextMetadata && Array.isArray(nextMetadata.pendingActionIds)) {
+          nextMetadata.pendingActionIds = nextMetadata.pendingActionIds.filter(
+            (id) => typeof id === "string" && activePendingIds.has(id),
+          );
+        }
+        return {
+          id: message.id,
+          role: message.role,
+          content: message.content,
+          metadata: nextMetadata,
+          createdAt: message.createdAt,
+        };
+      }),
     });
   } catch (error) {
     if (error instanceof AuthError) {
@@ -116,4 +148,8 @@ function safeJson(value: string) {
   } catch {
     return null;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -15,11 +15,16 @@ export async function generatePartsExportWorkbook(options: {
   const plantFilter = options.plant?.trim() || "";
 
   const where: Record<string, unknown> = { isActive: true };
-  if (plantFilter) where.plant = plantFilter;
+  if (plantFilter === "special") {
+    where.isSpecialToolPart = true;
+  } else if (plantFilter) {
+    where.plant = plantFilter;
+    where.isSpecialToolPart = false;
+  }
 
   const parts = await prisma.part.findMany({
     where,
-    include: { category: true },
+    include: { category: true, building: true },
     orderBy: { partNumber: "asc" },
   });
 
@@ -33,6 +38,7 @@ export async function generatePartsExportWorkbook(options: {
       { header: "System", key: "system", width: 20 },
       { header: "Type", key: "type", width: 20 },
       { header: "Material Description", key: "description", width: 50 },
+      { header: "อาคารที่เก็บ", key: "building", width: 18 },
       { header: "Location", key: "location", width: 15 },
       { header: "Unit", key: "unit", width: 8 },
       { header: "Stock On Hand", key: "stock", width: 14 },
@@ -43,10 +49,11 @@ export async function generatePartsExportWorkbook(options: {
       const p = parts[i];
       const row = sheet.addRow({
         no: i + 1,
-        plant: p.plant || "",
+        plant: p.isSpecialToolPart ? "Special Tool Part" : (p.plant || ""),
         system: p.category?.name || "",
         type: p.subcategory || "",
         description: [p.partNumber, p.partName, p.description].filter(Boolean).join(" - "),
+        building: p.building?.name || "",
         location: p.location || "",
         unit: p.unit,
         stock: p.quantity,
@@ -56,7 +63,7 @@ export async function generatePartsExportWorkbook(options: {
       row.getCell("description").alignment = { wrapText: true, vertical: "top" };
 
       if (p.imageUrl) {
-        await addImageIfPresent(workbook, sheet, p.imageUrl, 8, i + 1, 130, 95);
+        await addImageIfPresent(workbook, sheet, p.imageUrl, 9, i + 1, 130, 95);
       }
     }
   } else {
@@ -66,7 +73,8 @@ export async function generatePartsExportWorkbook(options: {
       { header: "Description", key: "description", width: 40 },
       { header: "Category", key: "category", width: 18 },
       { header: "Subcategory", key: "subcategory", width: 15 },
-      { header: "Block", key: "block", width: 12 },
+      { header: "อาคารที่เก็บ", key: "building", width: 18 },
+      { header: "Block", key: "block", width: 18 },
       { header: "Location", key: "location", width: 15 },
       { header: "Quantity", key: "quantity", width: 10 },
       { header: "Min Qty", key: "minimumQuantity", width: 10 },
@@ -83,7 +91,8 @@ export async function generatePartsExportWorkbook(options: {
         description: p.description || "",
         category: p.category?.name || "",
         subcategory: p.subcategory || "",
-        block: p.plant || "",
+        building: p.building?.name || "",
+        block: p.isSpecialToolPart ? "Special Tool Part" : (p.plant || ""),
         location: p.location || "",
         quantity: p.quantity,
         minimumQuantity: p.minimumQuantity,
@@ -93,7 +102,7 @@ export async function generatePartsExportWorkbook(options: {
       }).height = 80;
 
       if (p.imageUrl) {
-        await addImageIfPresent(workbook, sheet, p.imageUrl, 11, i + 1, 100, 75);
+        await addImageIfPresent(workbook, sheet, p.imageUrl, 12, i + 1, 100, 75);
       }
     }
   }

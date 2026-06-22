@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { fetchWithAuth as fetch } from "@/lib/api";
 import { Sidebar, BottomNav } from "@/components/layout";
@@ -18,6 +18,7 @@ export default function ProtectedLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     async function checkAuth() {
@@ -70,9 +71,19 @@ export default function ProtectedLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="app-shell min-h-screen">
-      <Sidebar userName={user.name} userRole={user.role} mustChangePassword={user.mustChangePassword} onLogout={handleLogout} />
-      <main className="md:ml-64 min-h-screen pb-20 md:pb-0">
+    <div
+      className="app-shell min-h-screen"
+      style={{ "--sidebar-width": sidebarCollapsed ? "4rem" : "16rem" } as CSSProperties}
+    >
+      <Sidebar
+        userName={user.name}
+        userRole={user.role}
+        mustChangePassword={user.mustChangePassword}
+        onLogout={handleLogout}
+        collapsed={sidebarCollapsed}
+        onCollapsedChange={setSidebarCollapsed}
+      />
+      <main className="min-h-screen pb-20 transition-[margin] duration-300 md:ml-[var(--sidebar-width)] md:pb-0">
         <div className="pt-14 md:pt-0 p-4 md:p-6">{children}</div>
       </main>
       <BottomNav />
