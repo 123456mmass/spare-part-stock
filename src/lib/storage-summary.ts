@@ -52,7 +52,7 @@ export interface StorageSummary {
     type: string;
     quantityChange: number;
     createdAt: Date;
-    part: { partNumber: string; partName: string };
+    part: { id: string; partNumber: string; partName: string };
     user: { name: string | null };
   }[];
 }
@@ -164,7 +164,7 @@ export async function getStorageSummary(): Promise<StorageSummary> {
         take: 10,
         orderBy: { createdAt: "desc" },
         include: {
-          part: { select: { partNumber: true, partName: true } },
+          part: { select: { id: true, partNumber: true, partName: true } },
           user: { select: { name: true } },
         },
       }),

@@ -51,7 +51,7 @@ export type DashboardViewData = {
     type: string;
     quantityChange: number;
     createdAt: string;
-    part: { partNumber: string; partName: string };
+    part: { id: string; partNumber: string; partName: string };
     user: { name: string | null };
   }[];
 };
@@ -318,7 +318,7 @@ export function DashboardView({ data }: { data: DashboardViewData }) {
           <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-gradient-to-r from-slate-50/80 to-transparent px-5 py-4">
             <div className="flex items-center gap-2.5">
               <span className="h-5 w-1 rounded-full bg-gradient-to-b from-[#d4b06a] to-[#9a7635]" />
-              <h3 className="text-sm font-semibold tracking-tight text-slate-900">การเคลื่อนไหวล่าสุด</h3>
+              <h3 className="text-sm font-semibold tracking-tight text-slate-900">เบิก-รับเข้า-ปรับปรุง ล่าสุด</h3>
             </div>
             <Link href="/movements" className="text-xs text-slate-500 hover:text-slate-900">ดูทั้งหมด</Link>
           </div>
@@ -335,19 +335,23 @@ export function DashboardView({ data }: { data: DashboardViewData }) {
                   const badge = isIn ? "bg-emerald-50 text-emerald-700" : isOut ? "bg-red-50 text-red-700" : "bg-slate-100 text-slate-700";
                   const ring = isIn ? "#a7f3d0" : isOut ? "#fecaca" : "#e2e8f0";
                   return (
-                    <div key={movement.id} className="flex items-start gap-3 px-5 py-3.5">
+                    <Link
+                      key={movement.id}
+                      href={`/parts/${movement.part.id}`}
+                      className="group flex items-start gap-3 px-5 py-3.5 transition-colors hover:bg-slate-50/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                    >
                       <div className={cn("mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border", wrap)}>
                         <Icon className="h-4 w-4" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-slate-900">{movement.part.partNumber}</p>
+                        <p className="truncate text-sm font-medium text-slate-900 group-hover:text-amber-700">{movement.part.partNumber}</p>
                         <p className="truncate text-xs text-slate-500">{movement.part.partName}</p>
                         <p className="mt-0.5 text-[11px] text-slate-400">{movementLabel(movement.type)} · {movement.user.name ?? "ระบบ"} · {formatDistanceToNow(new Date(movement.createdAt), { addSuffix: true, locale: th })}</p>
                       </div>
                       <span className={cn("tnum inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-xs font-semibold", badge)} style={{ boxShadow: `inset 0 0 0 1px ${ring}` }}>
                         {movement.quantityChange >= 0 ? "+" : ""}{movement.quantityChange}
                       </span>
-                    </div>
+                    </Link>
                   );
                 })}
               </div>

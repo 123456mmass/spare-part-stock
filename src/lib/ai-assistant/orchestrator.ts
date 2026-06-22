@@ -167,6 +167,21 @@ function tryDirectToolRouting(
   const text = message.trim();
   if (!text || text.length < 4) return null;
 
+  // Pattern 0: explicit search/list intent — search parts directly.
+  // e.g. "ค้นหา abb circuit breaker 3p 400v 63 at", "หา relay", "มี breaker ไหม"
+  if (/(ค้นหา|หา|เช็ค|ตรวจสอบ|ดู|มีไหม|มี.*ไหม|search|find)/i.test(text) && hasInventoryContent(text)) {
+    const filters = extractInventoryFilters(text);
+    return {
+      name: "search_parts",
+      args: {
+        keyword: filters.keyword || text.replace(/^(ค้นหา|หา|เช็ค|ตรวจสอบ|ดู|search|find)\s*/i, "").trim(),
+        plant: filters.plant,
+        buildingName: filters.buildingName,
+        categoryName: filters.categoryName,
+      },
+    };
+  }
+
   // Pattern 1: "สถานะ/สรุป/เหลือเท่าไหร่ [keyword]" or "[keyword] ใน block X อาคาร Y"
   // e.g. "สถานะอะไหล่เบรกเกอร์เป็นยังไงบ้าง", "contactor ใน block 1 อาคาร ท.003"
   if ((hasSummaryTerms(text) || /ใน.*block|ใน.*อาคาร|plant|building/i.test(text)) && hasInventoryContent(text)) {
