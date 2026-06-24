@@ -79,83 +79,14 @@ const SYSTEM_PROMPT = `คุณเป็นผู้ช่วยสต็อก
 export async function runAiAssistant(
   input: AiAssistantInput,
 ): Promise<AiAssistantResult> {
-  // Deterministic pre-router: skip LLM for common stock query patterns.
-  // This prevents reasoning leaks and tool routing errors from the LLM.
-  const directTool = tryDirectToolRouting(input.message);
-  if (directTool) {
-    const context: ToolExecutionContext = {
-      user: input.user,
-      channel: input.channel,
-      conversationId: undefined,
-    };
-
-    const conversationId = await resolveConversationId(input);
-    if (conversationId && !input.skipSaveUserMessage) {
-      await saveMessage(
-        conversationId,
-        "user",
-        input.message,
-        input.attachments?.length ? "image" : "text",
-        { channel: input.channel, attachments: input.attachments?.map((a) => ({ type: a.type, mediaType: a.mediaType })) },
-      );
-    }
-
-    let content: string;
-    let resultObject: unknown;
-    let pendingActionId: string | undefined;
-    try {
-      const toolResult = await executeAiTool(directTool.name, directTool.args, context);
-      content = toolResult.content;
-      resultObject = toolResult.result;
-      pendingActionId = toolResult.pendingActionId;
-    } catch (error) {
-      console.error(`Direct tool ${directTool.name} failed:`, error);
-      // Fall through to LLM on failure
-      return runAiAssistantViaLlm(input);
-    }
-
-    const toolCall: AssistantToolCall = {
-      name: directTool.name,
-      arguments: directTool.args,
-      result: resultObject ?? content,
-    };
-
-    let reply: string;
-    // For LINE channel, when a Flex card will be rendered, skip the LLM
-    // summary round — the Flex card already shows the answer visually.
-    const skipLlmSummary =
-      input.channel === "line" &&
-      hasFlexRenderer(directTool.name) &&
-      !pendingActionId; // draft actions still need a text explanation
-    try {
-      if (skipLlmSummary) {
-        reply = content; // raw JSON — Flex builder uses resultObject directly
-      } else {
-        // Use LLM only for generating the natural-language summary
-        reply = await generateReplyFromToolResult(content, directTool.name);
-      }
-    } catch {
-      reply = content;
-    }
-
-    reply = input.responseStyle === "line" ? sanitizeLineReply(reply) : sanitizeWebReply(reply);
-
-    if (conversationId) {
-      await saveMessage(conversationId, "assistant", reply, "text", {
-        channel: input.channel,
-        pendingActionIds: pendingActionId ? [pendingActionId] : [],
-      });
-    }
-
-    return {
-      reply,
-      conversationId,
-      pendingActionIds: pendingActionId ? [pendingActionId] : [],
-      toolCalls: [toolCall],
-    };
-  }
-
-  return runAiAssistantViaLlm(input);
+  // LINE and the non-stream web endpoint share the SAME intelligence as the
+  // web stream: delegate to runAiAssistantStream with a no-op event sink.
+  // Every channel now gets the unified SYSTEM_PROMPT, deterministic direct
+  // routing (formatToolResultAsText — no raw JSON), tool-calling with model
+  // fallback, and the vision model for image attachments. The stream
+  // accumulates the full reply + toolCalls (with structured result) so LINE
+  // Flex rendering via result.toolCalls still works.
+  return runAiAssistantStream(input, () => {});
 }
 
 /**
