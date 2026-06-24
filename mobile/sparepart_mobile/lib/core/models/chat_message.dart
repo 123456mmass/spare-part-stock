@@ -15,6 +15,10 @@ class ChatMessage {
   /// Transient: optional status line shown while tools run ("กำลังค้นข้อมูล...").
   final String? status;
 
+  /// Transient: local file paths of images attached to this user message
+  /// (for thumbnail display only — not persisted by the server).
+  final List<String>? localImages;
+
   ChatMessage({
     this.id,
     required this.role,
@@ -23,6 +27,7 @@ class ChatMessage {
     this.createdAt,
     this.streaming = false,
     this.status,
+    this.localImages,
   });
 
   factory ChatMessage.fromJson(Map<String, dynamic> j) {
@@ -46,6 +51,7 @@ class ChatMessage {
     DateTime? createdAt,
     bool? streaming,
     String? status,
+    List<String>? localImages,
   }) {
     return ChatMessage(
       id: id ?? this.id,
@@ -55,6 +61,7 @@ class ChatMessage {
       createdAt: createdAt ?? this.createdAt,
       streaming: streaming ?? this.streaming,
       status: status ?? this.status,
+      localImages: localImages ?? this.localImages,
     );
   }
 

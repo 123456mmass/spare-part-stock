@@ -29,6 +29,7 @@ class _PartListScreenState extends State<PartListScreen> {
   String? _categoryFilter;
   String? _plantFilter;
   String? _buildingIdFilter;
+  bool _specialToolFilter = false;
   List<Map<String, dynamic>> _buildings = [];
 
   @override
@@ -69,6 +70,7 @@ class _PartListScreenState extends State<PartListScreen> {
         stockStatus: status ?? _stockStatusFilter,
         plant: _plantFilter,
         buildingId: _buildingIdFilter,
+        specialTool: _specialToolFilter ? true : null,
         page: page,
       );
       setState(() {
@@ -232,6 +234,10 @@ class _PartListScreenState extends State<PartListScreen> {
                           setState(() => _stockStatusFilter = 'out-of-stock');
                           _fetchParts(page: 1, status: 'out-of-stock');
                         }),
+                        _FilterChip(label: '🔧 Special Tool', selected: _specialToolFilter, onSelected: () {
+                          setState(() => _specialToolFilter = !_specialToolFilter);
+                          _fetchParts(page: 1, status: _stockStatusFilter);
+                        }),
                       ],
                     ),
                   ),
@@ -361,6 +367,15 @@ class _PartListScreenState extends State<PartListScreen> {
                                                   padding: const EdgeInsets.only(top: 4),
                                                   child: Chip(
                                                     label: Text(part.category!.name, style: const TextStyle(fontSize: 11)),
+                                                    visualDensity: VisualDensity.compact,
+                                                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                                  ),
+                                                ),
+                                              if (part.isSpecialToolPart)
+                                                Padding(
+                                                  padding: const EdgeInsets.only(top: 4),
+                                                  child: Chip(
+                                                    label: const Text('🔧 Special Tool', style: TextStyle(fontSize: 11)),
                                                     visualDensity: VisualDensity.compact,
                                                     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                                   ),

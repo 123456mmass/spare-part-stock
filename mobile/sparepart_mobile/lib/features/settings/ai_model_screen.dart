@@ -198,7 +198,7 @@ class _AiModelState extends State<AiModelScreen> {
   String _displayName(String id) {
     final c = _capabilities[id] as Map<String, dynamic>?;
     final name = c?['displayName'] as String?;
-    return (name != null && name.isNotEmpty) ? '$name' : id;
+    return (name != null && name.isNotEmpty) ? name : id;
   }
 
   Widget _capabilityBadges(String id) {

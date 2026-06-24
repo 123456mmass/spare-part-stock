@@ -112,6 +112,7 @@ class ApiClient {
     String? categoryId,
     String? plant,
     String? buildingId,
+    bool? specialTool,
     int page = 1,
     int limit = 20,
   }) async {
@@ -125,6 +126,7 @@ class ApiClient {
       if (categoryId != null) params['categoryId'] = categoryId;
       if (plant != null) params['plant'] = plant;
       if (buildingId != null) params['buildingId'] = buildingId;
+      if (specialTool != null && specialTool) params['specialTool'] = true;
 
       final response = await _dio.get(
         '/parts',

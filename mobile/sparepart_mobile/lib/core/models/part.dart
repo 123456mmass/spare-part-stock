@@ -50,6 +50,7 @@ class Part {
   final String? subcategory;
   final String? plant;
   final String? createdBy;
+  final bool isSpecialToolPart;
   final PartCategory? category;
   final PartBuilding? building;
   final List<StockMovement>? movements;
@@ -69,6 +70,7 @@ class Part {
     this.subcategory,
     this.plant,
     this.createdBy,
+    this.isSpecialToolPart = false,
     this.category,
     this.building,
     this.movements,
@@ -93,6 +95,7 @@ class Part {
       subcategory: json['subcategory'] as String?,
       plant: json['plant'] as String?,
       createdBy: json['createdBy'] as String?,
+      isSpecialToolPart: json['isSpecialToolPart'] as bool? ?? false,
       category: categoryJson != null
           ? PartCategory.fromJson(categoryJson)
           : null,

@@ -18,6 +18,7 @@ const querySchema = z.object({
   stockStatus: z.string().optional(),
   plant: z.string().optional(),
   buildingId: z.string().optional(),
+  specialTool: z.coerce.boolean().optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
@@ -48,9 +49,13 @@ export const GET = withCors(async (request: Request) => {
       );
     }
 
-    const { search, categoryId, subcategory, stockStatus, plant, buildingId, page, limit } = parsed.data;
+    const { search, categoryId, subcategory, stockStatus, plant, buildingId, specialTool, page, limit } = parsed.data;
 
     const where: Prisma.PartWhereInput = { isActive: true };
+
+    if (specialTool) {
+      where.isSpecialToolPart = true;
+    }
 
     if (search) {
       where.OR = [
@@ -145,7 +150,7 @@ export const POST = withCors(async (request: Request) => {
       );
     }
 
-    const { partName, description, categoryId, categoryName, subcategory, plant, buildingId, location, quantity, minimumQuantity, unit, barcodeValue } = parsed.data;
+    const { partName, description, categoryId, categoryName, subcategory, plant, buildingId, location, quantity, minimumQuantity, unit, barcodeValue, isSpecialToolPart } = parsed.data;
     let { partNumber } = parsed.data;
     if (!partNumber || partNumber === "-") {
       partNumber = generatePartNumber();
@@ -170,8 +175,9 @@ export const POST = withCors(async (request: Request) => {
           description,
           categoryId: resolvedCategoryId,
           subcategory: subcategory || null,
-          plant: plant || null,
+          plant: isSpecialToolPart ? null : (plant || null),
           buildingId: buildingId || null,
+          isSpecialToolPart: isSpecialToolPart ?? false,
           createdBy: user.id,
           location,
           quantity: 0,

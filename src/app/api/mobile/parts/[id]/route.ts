@@ -112,6 +112,10 @@ export const PUT = withCors(async (
         ...(data.subcategory !== undefined && { subcategory: data.subcategory }),
         ...(data.plant !== undefined && { plant: data.plant }),
         ...(data.buildingId !== undefined && { buildingId: data.buildingId || null }),
+        ...(data.isSpecialToolPart !== undefined && {
+          isSpecialToolPart: data.isSpecialToolPart,
+          plant: data.isSpecialToolPart ? null : (data.plant ?? null),
+        }),
         ...(shouldUpdateCategory && { categoryId: resolvedCategoryId ?? null }),
       },
       include: { category: true, building: true },

@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
-import '../core/api/api_client.dart';
-import '../core/models/chat_message.dart';
+import '../../core/api/api_client.dart';
+import '../../core/models/chat_message.dart';
 
 /// State controller for the AI assistant chat screen.
 ///
@@ -46,11 +46,23 @@ class AssistantController extends ChangeNotifier {
   }
 
   /// Send a text message and stream the assistant reply.
-  Future<void> send(String text) async {
+  /// [imagePaths] are local file paths shown as thumbnails on the user
+  /// bubble; [attachments] is the base64 payload sent to the API.
+  Future<void> send(
+    String text, {
+    List<String>? imagePaths,
+    List<Map<String, dynamic>>? attachments,
+  }) async {
     final trimmed = text.trim();
-    if (trimmed.isEmpty || sending) return;
+    final hasImages = attachments != null && attachments.isNotEmpty;
+    if ((trimmed.isEmpty && !hasImages) || sending) return;
+    final message = trimmed.isEmpty ? 'วิเคราะห์รูปนี้' : trimmed;
 
-    _messages.add(ChatMessage(role: 'user', content: trimmed));
+    _messages.add(ChatMessage(
+      role: 'user',
+      content: message,
+      localImages: imagePaths,
+    ));
     // Placeholder assistant message that we mutate as tokens stream in.
     final assistant = ChatMessage(
       role: 'assistant',
@@ -65,8 +77,9 @@ class AssistantController extends ChangeNotifier {
     final buffer = StringBuffer();
 
     await api.streamChat(
-      message: trimmed,
+      message: message,
       conversationId: conversationId,
+      attachments: attachments,
       onEvent: (event, data) {
         if (event == 'status') {
           _updateLastAssistant(

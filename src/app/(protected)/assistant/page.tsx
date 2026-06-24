@@ -734,6 +734,12 @@ function AssistantContent({ text }: { text: string }) {
     <div className="space-y-3">
       {blocks.map((block, index) => {
         const lines = block.split(/\n/).filter(Boolean);
+        const table = parseMarkdownTable(lines);
+        if (table) {
+          return (
+            <MarkdownTable key={index} headers={table.headers} rows={table.rows} />
+          );
+        }
         const isList = lines.every((line) =>
           /^\s*(?:[-*•]|\d+[.)])\s+/.test(line),
         );
@@ -756,6 +762,69 @@ function AssistantContent({ text }: { text: string }) {
           </p>
         );
       })}
+    </div>
+  );
+}
+
+function parseMarkdownTable(
+  lines: string[],
+): { headers: string[]; rows: string[][] } | null {
+  if (lines.length < 2) return null;
+  if (!lines[0].includes("|")) return null;
+  // Second line must be the separator: | :--- | --- | etc.
+  if (
+    !/^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(lines[1])
+  )
+    return null;
+  const splitRow = (l: string) =>
+    l
+      .replace(/^\s*\|/, "")
+      .replace(/\|\s*$/, "")
+      .split("|")
+      .map((c) => c.trim());
+  const headers = splitRow(lines[0]);
+  const rows = lines.slice(2).filter((l) => l.includes("|")).map(splitRow);
+  if (headers.length === 0) return null;
+  return { headers, rows };
+}
+
+function MarkdownTable({
+  headers,
+  rows,
+}: {
+  headers: string[];
+  rows: string[][];
+}) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-slate-200">
+      <table className="w-full border-collapse text-[13px] leading-6">
+        <thead>
+          <tr className="bg-slate-50">
+            {headers.map((h, i) => (
+              <th
+                key={i}
+                className="border-b border-slate-200 px-3 py-1.5 text-left font-semibold text-slate-800"
+              >
+                {renderInlineMarkdown(h)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, ri) => (
+            <tr key={ri} className="odd:bg-white even:bg-slate-50/50">
+              {headers.map((_, ci) => (
+                <td
+                  key={ci}
+                  className="border-b border-slate-100 px-3 py-1.5 align-top text-slate-700"
+                >
+                  {renderInlineMarkdown(row[ci] ?? "")}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

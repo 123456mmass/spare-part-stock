@@ -116,3 +116,7 @@ line-app-architecture.html
 AGENTS.md.bak
 test-images/
 test-images.xlsx
+
+# Built Android APK (published to VPS separately, not committed)
+public/apk/*.apk
+public/apk/*.apk.meta

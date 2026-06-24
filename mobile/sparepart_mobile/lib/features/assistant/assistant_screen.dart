@@ -1,4 +1,7 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../../core/api/api_client.dart';
 import '../../core/models/chat_message.dart';
@@ -15,6 +18,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
   late final AssistantController _controller;
   final TextEditingController _input = TextEditingController();
   final ScrollController _scroll = ScrollController();
+  final ImagePicker _imagePicker = ImagePicker();
+  final List<XFile> _pendingImages = [];
   bool _sending = false;
 
   @override
@@ -52,14 +57,98 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   Future<void> _send() async {
     final text = _input.text;
-    if (text.trim().isEmpty) return;
+    final hasImages = _pendingImages.isNotEmpty;
+    if (text.trim().isEmpty && !hasImages) return;
+
+    List<Map<String, dynamic>>? attachments;
+    List<String>? imagePaths;
+    if (hasImages) {
+      attachments = await _buildAttachments();
+      if (attachments == null) return;
+      imagePaths = _pendingImages.map((f) => f.path).toList();
+    }
+
     _input.clear();
+    _pendingImages.clear();
     setState(() => _sending = true);
     try {
-      await _controller.send(text);
+      await _controller.send(
+        text,
+        imagePaths: imagePaths,
+        attachments: attachments,
+      );
     } finally {
       if (mounted) setState(() => _sending = false);
     }
+  }
+
+  Future<List<Map<String, dynamic>>?> _buildAttachments() async {
+    final out = <Map<String, dynamic>>[];
+    try {
+      for (final f in _pendingImages) {
+        final bytes = await f.readAsBytes();
+        final b64 = base64Encode(bytes);
+        final name = f.name.toLowerCase();
+        final mediaType = name.endsWith('.png')
+            ? 'image/png'
+            : name.endsWith('.webp')
+                ? 'image/webp'
+                : name.endsWith('.gif')
+                    ? 'image/gif'
+                    : 'image/jpeg';
+        out.add({
+          'type': 'image',
+          'imageBase64': b64,
+          'mediaType': mediaType,
+        });
+      }
+      return out;
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('อ่านไฟล์รูปไม่ได้')),
+        );
+      }
+      return null;
+    }
+  }
+
+  Future<void> _pickImage() async {
+    final source = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('ถ่ายรูป'),
+              onTap: () => Navigator.pop(ctx, 'camera'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('เลือกจากแกลเลอรี'),
+              onTap: () => Navigator.pop(ctx, 'gallery'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null) return;
+    if (_pendingImages.length >= 3) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('แนบรูปได้สูงสุด 3 รูป')),
+      );
+      return;
+    }
+    final picked = await _imagePicker.pickImage(
+      source: source == 'camera' ? ImageSource.camera : ImageSource.gallery,
+      maxWidth: 1200,
+      maxHeight: 1200,
+      imageQuality: 85,
+    );
+    if (picked == null) return;
+    setState(() => _pendingImages.add(picked));
   }
 
   @override
@@ -164,6 +253,23 @@ class _AssistantScreenState extends State<AssistantScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (m.isUser &&
+                m.localImages != null &&
+                m.localImages!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: m.localImages!
+                      .map((p) => ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.file(File(p),
+                                width: 72, height: 72, fit: BoxFit.cover),
+                          ))
+                      .toList(),
+                ),
+              ),
             if (m.content.isEmpty && m.streaming)
               _streamingRow(m.status)
             else
@@ -247,45 +353,91 @@ class _AssistantScreenState extends State<AssistantScreen> {
   Widget _inputBar() {
     return SafeArea(
       top: false,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          10,
-          6,
-          6,
-          6 + MediaQuery.of(context).viewInsets.bottom * 0,
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _input,
-                minLines: 1,
-                maxLines: 5,
-                textInputAction: TextInputAction.send,
-                decoration: InputDecoration(
-                  hintText: 'ถามอะไรเกี่ยวกับสต็อกก็ได้',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  isDense: true,
-                ),
-                onSubmitted: (_) => _send(),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_pendingImages.isNotEmpty)
+            SizedBox(
+              height: 76,
+              child: ListView.separated(
+                padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+                scrollDirection: Axis.horizontal,
+                itemCount: _pendingImages.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (_, i) {
+                  return Stack(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.file(
+                          File(_pendingImages[i].path),
+                          width: 64,
+                          height: 64,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      Positioned(
+                        right: -2,
+                        top: -2,
+                        child: GestureDetector(
+                          onTap: () =>
+                              setState(() => _pendingImages.removeAt(i)),
+                          child: Container(
+                            decoration: const BoxDecoration(
+                              color: Colors.black54,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.close,
+                                size: 16, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
-            const SizedBox(width: 6),
-            IconButton.filled(
-              onPressed: _sending ? null : _send,
-              icon: _sending
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.send),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
+            child: Row(
+              children: [
+                IconButton(
+                  onPressed: _sending ? null : _pickImage,
+                  icon: const Icon(Icons.image_outlined),
+                  tooltip: 'แนบรูป',
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: _input,
+                    minLines: 1,
+                    maxLines: 5,
+                    textInputAction: TextInputAction.send,
+                    decoration: InputDecoration(
+                      hintText: 'ถามอะไรเกี่ยวกับสต็อกก็ได้',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 10),
+                      isDense: true,
+                    ),
+                    onSubmitted: (_) => _send(),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                IconButton.filled(
+                  onPressed: _sending ? null : _send,
+                  icon: _sending
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.send),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

@@ -43,6 +43,7 @@ class _PartFormScreenState extends State<PartFormScreen> {
   bool _isUploadingImage = false;
   bool _isAiSuggesting = false;
   bool _isScanning = false;
+  bool _isSpecialTool = false;
   String? _error;
   String? _currentImageUrl;
   String? _pendingImagePath;
@@ -61,6 +62,7 @@ class _PartFormScreenState extends State<PartFormScreen> {
       _barcodeController.text = p.barcodeValue ?? '';
       _subcategoryController.text = p.subcategory ?? '';
       _plantController.text = p.plant ?? '';
+      _isSpecialTool = p.isSpecialToolPart;
       _quantityController.text = '${p.quantity}';
       _minimumQuantityController.text = '${p.minimumQuantity}';
       _unitController.text = p.unit;
@@ -127,6 +129,7 @@ class _PartFormScreenState extends State<PartFormScreen> {
           'subcategory': _subcategoryController.text.trim(),
           'plant': _plantController.text.trim(),
           'buildingId': _selectedBuildingId,
+          'isSpecialToolPart': _isSpecialTool,
           'barcodeValue': _barcodeController.text.trim(),
           'minimumQuantity': minimumQuantity,
           'unit': _unitController.text.trim(),
@@ -141,6 +144,7 @@ class _PartFormScreenState extends State<PartFormScreen> {
           'subcategory': _subcategoryController.text.trim(),
           'plant': _plantController.text.trim(),
           'buildingId': _selectedBuildingId,
+          'isSpecialToolPart': _isSpecialTool,
           'barcodeValue': _barcodeController.text.trim(),
           'quantity': quantity,
           'minimumQuantity': minimumQuantity,
@@ -600,11 +604,27 @@ class _PartFormScreenState extends State<PartFormScreen> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _plantController,
-                      decoration: const InputDecoration(
-                        labelText: 'Block (เช่น 1, 2, 3) *',
-                        border: OutlineInputBorder(),
+                      enabled: !_isSpecialTool,
+                      decoration: InputDecoration(
+                        labelText: _isSpecialTool
+                            ? 'Block (ไม่ระบุ สำหรับ Special Tool)'
+                            : 'Block (เช่น 1, 2, 3) *',
+                        border: const OutlineInputBorder(),
                       ),
-                      validator: (v) => (v == null || v.trim().isEmpty) ? 'กรุณากรอก Block' : null,
+                      validator: (v) => (_isSpecialTool ||
+                              (v != null && v.trim().isNotEmpty))
+                          ? null
+                          : 'กรุณากรอก Block',
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Special Tool Part'),
+                      subtitle: const Text('ชิ้นส่วนที่ใช้ร่วมในหลาย Block'),
+                      value: _isSpecialTool,
+                      onChanged: (v) => setState(() {
+                        _isSpecialTool = v;
+                        if (v) _plantController.clear();
+                      }),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
