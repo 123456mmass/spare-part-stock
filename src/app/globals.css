@@ -235,6 +235,12 @@ body {
 .nav-item.active::before { content: ""; position: absolute; left: -0.75rem; top: 30%; bottom: 30%; width: 3px; border-radius: 0 3px 3px 0; background: linear-gradient(180deg,#e8d5a8,#d4b06a); box-shadow: 0 0 10px rgba(212,176,106,0.6); }
 .nav-item.active .ic { color: #e8d5a8; }
 
+/* Mobile web: bigger tap targets + momentum scroll for the slide-in sidebar */
+@media (max-width: 767px) {
+  .nav-item { min-height: 2.75rem; padding: 0.65rem 0.85rem; font-size: 0.9rem; }
+  .side nav { -webkit-overflow-scrolling: touch; }
+}
+
 .hero { background: radial-gradient(900px 320px at 22% -10%, rgba(212,176,106,0.20), transparent 60%), radial-gradient(700px 280px at 100% 0%, rgba(59,89,150,0.25), transparent 55%), linear-gradient(135deg,#080d1a 0%,#0d1730 50%,#11203d 100%); border: 1px solid rgba(212,176,106,0.16); box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 24px 60px -24px rgba(8,13,26,0.7); }
 .hero-grid::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0.5; background-image: linear-gradient(rgba(255,255,255,0.022) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.022) 1px, transparent 1px); background-size: 34px 34px; -webkit-mask-image: radial-gradient(ellipse 80% 60% at 30% 0%, #000 40%, transparent 80%); mask-image: radial-gradient(ellipse 80% 60% at 30% 0%, #000 40%, transparent 80%); }
 .hero-accent { position: absolute; left: 0; top: 1.5rem; bottom: 1.5rem; width: 3px; border-radius: 0 3px 3px 0; background: linear-gradient(180deg,#e8d5a8,#d4b06a 50%,#9a7635); box-shadow: 0 0 18px rgba(212,176,106,0.5); }

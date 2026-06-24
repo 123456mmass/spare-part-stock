@@ -137,7 +137,7 @@ export function Sidebar({ userName, userRole, mustChangePassword, onLogout, coll
         </div>
 
         {/* Navigation */}
-        <nav className={cn("flex-1 overflow-y-auto py-4 space-y-5 scrollbar-thin", collapsed ? "px-2" : "px-3")}>
+        <nav className={cn("flex-1 min-h-0 overflow-y-auto py-4 space-y-5 scrollbar-thin overscroll-contain", collapsed ? "px-2" : "px-3")}>
           {sections.map((section) => (
             <div key={section.label}>
               {!collapsed && <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{section.label}</p>}

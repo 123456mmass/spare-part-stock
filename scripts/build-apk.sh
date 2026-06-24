@@ -14,6 +14,9 @@ RELEASE_DIR="$ROOT_DIR/public/apk"
 
 API_KEY="${API_KEY:-}"
 API_BASE_URL="${API_BASE_URL:-https://spare.birdsphichitchai.dev}"
+# Strip surrounding quotes (e.g. from .env values like KEY="abc")
+API_KEY="${API_KEY#\"}"; API_KEY="${API_KEY%\"}"
+API_BASE_URL="${API_BASE_URL#\"}"; API_BASE_URL="${API_BASE_URL%\"}"
 
 if [ -z "$API_KEY" ]; then
   echo "ERROR: set API_KEY env (the MOBILE_API_KEY value)." >&2
