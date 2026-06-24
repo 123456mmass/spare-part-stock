@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { MobileAppCard } from "@/components/mobile-app-promo";
 import { useState } from "react";
 
 type NavItem = { name: string; href: string; icon: typeof LayoutDashboard; adminOnly?: boolean };
@@ -164,6 +165,7 @@ export function Sidebar({ userName, userRole, mustChangePassword, onLogout, coll
 
         {/* User card */}
         <div className="border-t border-slate-100 p-3">
+          {!mustChangePassword && <MobileAppCard collapsed={collapsed} />}
           <div className={cn("flex items-center gap-3 rounded-xl bg-slate-50/80 p-2.5", collapsed && "justify-center")}>
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-sm font-semibold text-white">
               {userName.charAt(0).toUpperCase()}
