@@ -266,6 +266,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             if (auth.isAdmin) ...[
               Card(
                 child: ListTile(
+                  leading: const Icon(Icons.smart_toy_outlined),
+                  title: const Text('โมเดล AI'),
+                  subtitle: const Text('เลือกโมเดลหลัก / Vision'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push('/ai-model'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Card(
+                child: ListTile(
                   leading: const Icon(Icons.people),
                   title: const Text('จัดการผู้ใช้'),
                   subtitle: const Text('เพิ่ม แก้ไข รีเซ็ตรหัสผ่านผู้ใช้'),

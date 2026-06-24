@@ -17,6 +17,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { ExportDialog } from "@/components/export-dialog";
+import { DownloadAppButton } from "@/components/download-app-button";
 import { cn } from "@/lib/utils";
 
 export type DashboardViewData = {
@@ -115,7 +116,10 @@ export function DashboardView({ data }: { data: DashboardViewData }) {
               <h1 className="text-[28px] font-semibold leading-tight tracking-tight text-white sm:text-[32px]">ภาพรวมคลังอะไหล่</h1>
               <p className="max-w-xl text-sm leading-relaxed text-slate-300/90">สวัสดี, {data.userName} — สรุปสต็อกตามอาคารและ Block ณ วันที่ {today}</p>
             </div>
-            <ExportDialog variant="hero" />
+            <div className="flex items-center gap-2">
+              <DownloadAppButton />
+              <ExportDialog variant="hero" />
+            </div>
           </div>
 
           <div className="flex items-center gap-2.5 flex-wrap">

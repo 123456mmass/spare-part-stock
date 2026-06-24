@@ -13,6 +13,8 @@ import '../features/movements/movement_list_screen.dart';
 import '../features/categories/category_list_screen.dart';
 import '../features/parts/part_form_screen.dart';
 import '../features/admin/user_list_screen.dart';
+import '../features/assistant/assistant_screen.dart';
+import '../features/settings/ai_model_screen.dart';
 import '../features/import/import_export_screen.dart';
 import '../features/blocks/block_list_screen.dart';
 import '../features/buildings/building_list_screen.dart';
@@ -106,6 +108,14 @@ class AppRouter {
         builder: (context, state) => PartFormScreen(
           part: state.extra as Part?,
         ),
+      ),
+      GoRoute(
+        path: '/assistant',
+        builder: (context, state) => const AssistantScreen(),
+      ),
+      GoRoute(
+        path: '/ai-model',
+        builder: (context, state) => const AiModelScreen(),
       ),
       GoRoute(
         path: '/movements',

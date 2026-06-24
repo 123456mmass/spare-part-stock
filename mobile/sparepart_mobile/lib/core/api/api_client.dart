@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:dio/dio.dart';
 import '../config/app_config.dart';
 import '../models/user.dart';
@@ -637,6 +638,185 @@ class ApiClient {
         ),
       );
       return response.data as List<int>;
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  // --- AI Assistant ---
+
+  /// Stream an assistant reply via Server-Sent Events.
+  /// Calls [onEvent] for each SSE event (event name + parsed JSON data),
+  /// [onDone] when the stream closes, [onError] on failure.
+  Future<void> streamChat({
+    required String message,
+    String? conversationId,
+    List<Map<String, dynamic>>? attachments,
+    required void Function(String event, Map<String, dynamic> data) onEvent,
+    void Function(String errorMessage)? onError,
+    void Function()? onDone,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/ai/chat/stream',
+        data: {
+          'message': message,
+          if (conversationId != null) 'conversationId': conversationId,
+          if (attachments != null && attachments.isNotEmpty)
+            'attachments': attachments,
+        },
+        options: Options(
+          headers: _authHeaders,
+          responseType: ResponseType.stream,
+          receiveTimeout: const Duration(minutes: 5),
+          sendTimeout: const Duration(seconds: 30),
+        ),
+      );
+      final body = response.data as ResponseBody;
+      final stream = body.stream;
+
+      final buffer = <int>[];
+      await for (final chunk in stream) {
+        buffer.addAll(chunk);
+        // Find the last "\n\n" boundary (ASCII 0x0a 0x0a). UTF-8 multibyte
+        // sequences never contain 0x0a, so splitting on byte boundaries is safe.
+        int lastBoundary = -1;
+        for (int i = buffer.length - 2; i >= 0; i--) {
+          if (buffer[i] == 0x0a && buffer[i + 1] == 0x0a) {
+            lastBoundary = i;
+            break;
+          }
+        }
+        if (lastBoundary < 0) continue;
+        final complete = buffer.sublist(0, lastBoundary + 2);
+        final remainder = buffer.sublist(lastBoundary + 2);
+        buffer
+          ..clear()
+          ..addAll(remainder);
+        final text = utf8.decode(complete, allowMalformed: true);
+        for (final block in text.split('\n\n')) {
+          if (block.trim().isNotEmpty) _dispatchSseBlock(block, onEvent);
+        }
+      }
+      if (buffer.isNotEmpty) {
+        final text = utf8.decode(buffer, allowMalformed: true);
+        for (final block in text.split('\n\n')) {
+          if (block.trim().isNotEmpty) _dispatchSseBlock(block, onEvent);
+        }
+      }
+      onDone?.call();
+    } on DioException catch (e) {
+      onError?.call(_handleError(e).message);
+    } catch (e) {
+      onError?.call(e.toString());
+    }
+  }
+
+  void _dispatchSseBlock(
+    String block,
+    void Function(String, Map<String, dynamic>) onEvent,
+  ) {
+    String? eventName;
+    final dataLines = <String>[];
+    for (final line in block.split('\n')) {
+      if (line.startsWith('event:')) {
+        eventName = line.substring(6).trim();
+      } else if (line.startsWith('data:')) {
+        dataLines.add(line.substring(5).trim());
+      }
+    }
+    if (eventName == null) return;
+    final dataStr = dataLines.join('\n');
+    Map<String, dynamic> data = const {};
+    if (dataStr.isNotEmpty && dataStr != '[DONE]') {
+      try {
+        data = jsonDecode(dataStr) as Map<String, dynamic>;
+      } catch (_) {
+        data = {'raw': dataStr};
+      }
+    }
+    onEvent(eventName, data);
+  }
+
+  Future<Map<String, dynamic>> getChatHistory({String? conversationId}) async {
+    try {
+      final response = await _dio.get(
+        '/ai/chat/history',
+        queryParameters: {
+          if (conversationId != null) 'conversationId': conversationId,
+        },
+        options: Options(headers: _authHeaders),
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<void> deleteChatHistory({String? conversationId}) async {
+    try {
+      await _dio.delete(
+        '/ai/chat/history',
+        queryParameters: {
+          if (conversationId != null) 'conversationId': conversationId,
+        },
+        options: Options(headers: _authHeaders),
+      );
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<Map<String, dynamic>> confirmAction(String id) async {
+    try {
+      final response = await _dio.post(
+        '/ai/actions/${Uri.encodeComponent(id)}/confirm',
+        options: Options(headers: _authHeaders),
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<Map<String, dynamic>> cancelAction(String id) async {
+    try {
+      final response = await _dio.post(
+        '/ai/actions/${Uri.encodeComponent(id)}/cancel',
+        options: Options(headers: _authHeaders),
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<Map<String, dynamic>> getAiModel() async {
+    try {
+      final response = await _dio.get(
+        '/ai/model',
+        options: Options(headers: _authHeaders),
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<Map<String, dynamic>> setAiModel({
+    String? model,
+    String? visionModel,
+  }) async {
+    try {
+      final response = await _dio.put(
+        '/ai/model',
+        data: {
+          if (model != null) 'model': model,
+          if (visionModel != null) 'visionModel': visionModel,
+        },
+        options: Options(headers: _authHeaders),
+      );
+      return response.data as Map<String, dynamic>;
     } on DioException catch (e) {
       throw _handleError(e);
     }

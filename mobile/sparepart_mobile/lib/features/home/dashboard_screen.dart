@@ -78,6 +78,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
                       children: [
                         _HeroCard(stats: _stats, fmt: _fmt),
+                        const SizedBox(height: 14),
+                        _AssistantEntryCard(),
                         const SizedBox(height: 20),
                         _SectionTitle(icon: Icons.apartment, title: 'สรุปตามอาคาร'),
                         const SizedBox(height: 10),
@@ -362,6 +364,55 @@ class _HeroStat extends StatelessWidget {
           Text(value, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
           Text(label, style: TextStyle(color: Colors.white.withValues(alpha: 0.65), fontSize: 11)),
         ],
+      ),
+    );
+  }
+}
+
+class _AssistantEntryCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFEEF2FF),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => context.go('/assistant'),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFC7D2FE)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                      colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)]),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.smart_toy_outlined,
+                    color: Colors.white, size: 22),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('ผู้ช่วย AI',
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.bold)),
+                    Text('ถามสต็อก / เบิก-รับ / ค้นหาอะไหล่',
+                        style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: Color(0xFF6366F1)),
+            ],
+          ),
+        ),
       ),
     );
   }
