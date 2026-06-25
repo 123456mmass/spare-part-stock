@@ -25,6 +25,8 @@ import {
 } from "@/lib/ai-assistant/pending-actions";
 import { suggestPartFromImage } from "@/lib/part-ai";
 import { generatePartBarcodeValue } from "@/lib/barcode";
+import { createStockMovement } from "@/lib/stock";
+import { notifyLowStock } from "@/lib/notifications";
 import { listBuildings, resolveBuildingIdByName } from "@/lib/buildings";
 import { RateLimitError, rateLimitKey } from "@/lib/rate-limit";
 import {
@@ -1014,23 +1016,50 @@ async function handlePartAddConfirm(userId: string, replyToken: string, sid: str
       categoryId = cat.id;
     }
 
-    const newPart = await prisma.part.create({
-      data: {
-        partNumber,
-        partName,
-        description: String(fs.description || ""),
-        categoryId,
-        subcategory: String(fs.subcategory || ""),
-        plant,
-        buildingId,
-        location: String(fs.location || ""),
-        quantity: Number(fs.quantity ?? 1),
-        minimumQuantity: Number(fs.minimumQuantity ?? 1),
-        unit: String(fs.unit || "pcs"),
-        barcodeValue: String(fs.barcodeValue || "").trim() || generatePartBarcodeValue(partNumber),
-        createdBy: userId,
-      },
+    const initialQuantity = Math.max(0, Number(fs.quantity ?? 1));
+    const minimumQuantity = Math.max(0, Number(fs.minimumQuantity ?? 1));
+
+    // Create the part at quantity 0, then record the initial stock via the
+    // standard createStockMovement path so the ledger stays consistent with
+    // the part quantity and benefits from the atomic guard + validation.
+    const newPart = await prisma.$transaction(async (tx) => {
+      const created = await tx.part.create({
+        data: {
+          partNumber,
+          partName,
+          description: String(fs.description || ""),
+          categoryId,
+          subcategory: String(fs.subcategory || ""),
+          plant,
+          buildingId,
+          location: String(fs.location || ""),
+          quantity: 0,
+          minimumQuantity,
+          unit: String(fs.unit || "pcs"),
+          barcodeValue: String(fs.barcodeValue || "").trim() || generatePartBarcodeValue(partNumber),
+          createdBy: userId,
+        },
+      });
+
+      if (initialQuantity > 0) {
+        await createStockMovement(
+          {
+            partId: created.id,
+            userId,
+            type: "STOCK_IN",
+            quantity: initialQuantity,
+            note: "เพิ่มอะไหล่ใหม่จาก LINE",
+          },
+          tx,
+        );
+      }
+
+      return created;
     });
+
+    // Fire-and-forget low-stock notification; initial stock is unlikely to be
+    // low but keep the invariant that every stock change runs the check.
+    void notifyLowStock(newPart.id);
 
     // Mark as saved with the created partId
     await updateImageSessionSuggestion(session.id, {

@@ -13,6 +13,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No option selected" }, { status: 400 });
     }
 
+    // Audit trail for a destructive operation (admin-only, but logged so the
+    // who/what/when is recoverable from server logs).
+    console.warn(
+      `[clear-db] admin=${user.username}(${user.id}) options=${JSON.stringify({ categories, parts, movements, users })}`,
+    );
+
     await prisma.$transaction(async (tx) => {
       if (movements) {
         await tx.stockMovement.deleteMany({});

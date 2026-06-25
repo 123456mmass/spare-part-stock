@@ -15,6 +15,8 @@ model User {
   role      Role     @default(STAFF)
   isActive           Boolean  @default(true)
   mustChangePassword Boolean  @default(false)
+  // Bumped on password change/reset and deactivation to invalidate existing JWT sessions.
+  tokenVersion       Int      @default(0)
   createdAt          DateTime @default(now())
   updatedAt DateTime @updatedAt
 

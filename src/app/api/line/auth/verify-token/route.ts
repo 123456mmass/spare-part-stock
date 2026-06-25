@@ -59,7 +59,8 @@ export const POST = withCors(async (request: Request) => {
     const { token, expiresAt } = await signSessionToken(
       user.id,
       user.username,
-      user.role
+      user.role,
+      user.tokenVersion
     );
 
     return NextResponse.json({

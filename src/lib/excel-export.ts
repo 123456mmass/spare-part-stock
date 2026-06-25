@@ -2,8 +2,22 @@ import ExcelJS from "exceljs";
 import fs from "fs/promises";
 import path from "path";
 import { prisma } from "@/lib/prisma";
+import { detectImageFormat, normalizeImage } from "@/lib/image-normalize";
 
 const UPLOADS_DIR = path.join(process.cwd(), "public");
+
+type ExcelImageExtension = "jpeg" | "png" | "gif";
+
+async function prepareExcelImage(buffer: Buffer): Promise<{ buffer: Buffer; extension: ExcelImageExtension }> {
+  const format = detectImageFormat(buffer);
+
+  if (format === "JPEG") return { buffer, extension: "jpeg" };
+  if (format === "PNG") return { buffer, extension: "png" };
+  if (format === "GIF") return { buffer, extension: "gif" };
+
+  const normalized = await normalizeImage(buffer, { format: "png", maxDimension: 800 });
+  return { buffer: normalized.buffer, extension: "png" };
+}
 
 export type PartsExportFormat = "standard" | "plant";
 
@@ -132,11 +146,10 @@ async function addImageIfPresent(
   try {
     await fs.access(imgPath);
     const imgBuffer = await fs.readFile(imgPath);
-    const ext = path.extname(imgPath).toLowerCase();
-    const extension = ext === ".png" ? "png" : ext === ".gif" ? "gif" : "jpeg";
+    const image = await prepareExcelImage(imgBuffer);
     const imageId = workbook.addImage({
-      base64: imgBuffer.toString("base64"),
-      extension,
+      base64: image.buffer.toString("base64"),
+      extension: image.extension,
     });
     sheet.addImage(imageId, {
       tl: { col, row },

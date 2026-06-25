@@ -43,7 +43,11 @@ export const PATCH = withCors(async (
     const updateData: Record<string, unknown> = {};
     if (name !== undefined) updateData.name = name;
     if (role !== undefined) updateData.role = role;
-    if (isActive !== undefined) updateData.isActive = isActive;
+    if (isActive !== undefined) {
+      updateData.isActive = isActive;
+      // Revoke existing sessions when an account is deactivated.
+      if (isActive === false) updateData.tokenVersion = { increment: 1 };
+    }
 
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: "ไม่มีข้อมูลที่ต้องแก้ไข" }, { status: 400 });

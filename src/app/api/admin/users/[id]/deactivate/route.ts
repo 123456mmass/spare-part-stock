@@ -35,7 +35,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     const updated = await prisma.user.update({
       where: { id },
-      data: { isActive: false },
+      data: { isActive: false, tokenVersion: { increment: 1 } },
       select: {
         id: true,
         username: true,

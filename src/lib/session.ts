@@ -10,16 +10,38 @@ function getJwtSecret() {
 }
 const COOKIE_NAME = "session_token";
 
+/**
+ * Token purpose claim. Session tokens carry `purpose: "session"`; other tokens
+ * (e.g. LINE export tokens carry `purpose: "line-export"`) are rejected by the
+ * session verifiers below so they cannot be reused as session bearers even if
+ * they happen to be signed with the same secret.
+ */
+const SESSION_PURPOSE = "session";
+
 export interface SessionPayload {
   userId: string;
   username: string;
   role: string;
+  tokenVersion: number;
+  purpose: string;
   expiresAt: Date;
 }
 
-export async function signSessionToken(userId: string, username: string, role: string): Promise<{ token: string; expiresAt: Date }> {
+export async function signSessionToken(
+  userId: string,
+  username: string,
+  role: string,
+  tokenVersion: number
+): Promise<{ token: string; expiresAt: Date }> {
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-  const token = await new SignJWT({ userId, username, role, expiresAt: expiresAt.toISOString() })
+  const token = await new SignJWT({
+    userId,
+    username,
+    role,
+    tokenVersion,
+    purpose: SESSION_PURPOSE,
+    expiresAt: expiresAt.toISOString(),
+  })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("7d")
@@ -28,8 +50,13 @@ export async function signSessionToken(userId: string, username: string, role: s
   return { token, expiresAt };
 }
 
-export async function createSession(userId: string, username: string, role: string) {
-  const { token, expiresAt } = await signSessionToken(userId, username, role);
+export async function createSession(
+  userId: string,
+  username: string,
+  role: string,
+  tokenVersion: number
+) {
+  const { token, expiresAt } = await signSessionToken(userId, username, role, tokenVersion);
 
   const cookieStore = await cookies();
   cookieStore.set(COOKIE_NAME, token, {
@@ -40,7 +67,17 @@ export async function createSession(userId: string, username: string, role: stri
     path: "/",
   });
 
-  return { userId, username, role, expiresAt };
+  return { userId, username, role, tokenVersion, expiresAt };
+}
+
+function isSessionPayload(payload: unknown): payload is SessionPayload {
+  return (
+    !!payload &&
+    typeof payload === "object" &&
+    (payload as { purpose?: unknown }).purpose === SESSION_PURPOSE &&
+    typeof (payload as { userId?: unknown }).userId === "string" &&
+    typeof (payload as { tokenVersion?: unknown }).tokenVersion === "number"
+  );
 }
 
 export async function getSession(): Promise<SessionPayload | null> {
@@ -50,6 +87,7 @@ export async function getSession(): Promise<SessionPayload | null> {
 
   try {
     const { payload } = await jwtVerify(token, getJwtSecret());
+    if (!isSessionPayload(payload)) return null;
     return payload as unknown as SessionPayload;
   } catch {
     return null;
@@ -63,6 +101,7 @@ export async function getSessionFromRequest(request: Request): Promise<SessionPa
     const token = authHeader.slice(7);
     try {
       const { payload } = await jwtVerify(token, getJwtSecret());
+      if (!isSessionPayload(payload)) return null;
       return payload as unknown as SessionPayload;
     } catch {
       return null;

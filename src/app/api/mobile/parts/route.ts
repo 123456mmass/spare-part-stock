@@ -75,7 +75,13 @@ export const GET = withCors(async (request: Request) => {
     }
 
     if (plant) {
-      where.plant = plant === "__none__" ? null : plant;
+      if (plant === "special") {
+        where.isSpecialToolPart = true;
+      } else if (plant === "__none__") {
+        where.plant = null;
+      } else {
+        where.plant = plant;
+      }
     }
 
     if (buildingId) {

@@ -5,8 +5,25 @@ import { prisma } from "@/lib/prisma";
 import ExcelJS from "exceljs";
 import path from "path";
 import fs from "fs/promises";
+import { Prisma } from "@prisma/client";
+import { detectImageFormat, normalizeImage } from "@/lib/image-normalize";
 
 const UPLOADS_DIR = path.join(process.cwd(), "public");
+
+type ExcelImageExtension = "jpeg" | "png" | "gif";
+
+async function prepareExcelImage(buffer: Buffer): Promise<{ buffer: Buffer; extension: ExcelImageExtension }> {
+  const format = detectImageFormat(buffer);
+
+  if (format === "JPEG") return { buffer, extension: "jpeg" };
+  if (format === "PNG") return { buffer, extension: "png" };
+  if (format === "GIF") return { buffer, extension: "gif" };
+
+  // ExcelJS only supports jpeg/png/gif. Uploaded inventory images are commonly WebP,
+  // so convert unsupported-but-decodable formats to PNG before embedding.
+  const normalized = await normalizeImage(buffer, { format: "png", maxDimension: 800 });
+  return { buffer: normalized.buffer, extension: "png" };
+}
 
 export const OPTIONS = corsOptions();
 
@@ -16,8 +33,15 @@ export const GET = withCors(async (request: Request) => {
     const { searchParams } = new URL(request.url);
     const format = searchParams.get("format") || "standard";
     const plantFilter = searchParams.get("plant")?.trim() || "";
-    const where: { isActive: true; plant?: string } = { isActive: true };
-    if (plantFilter) where.plant = plantFilter;
+    const where: Prisma.PartWhereInput = { isActive: true };
+    if (plantFilter === "special") {
+      where.isSpecialToolPart = true;
+    } else if (plantFilter === "__none__") {
+      where.plant = null;
+    } else if (plantFilter) {
+      where.plant = plantFilter;
+      where.isSpecialToolPart = false;
+    }
 
     const parts = await prisma.part.findMany({
       where,
@@ -61,7 +85,8 @@ export const GET = withCors(async (request: Request) => {
           try {
             await fs.access(imgPath);
             const imgBuffer = await fs.readFile(imgPath);
-            const imageId = workbook.addImage({ base64: imgBuffer.toString("base64"), extension: "jpeg" });
+            const image = await prepareExcelImage(imgBuffer);
+            const imageId = workbook.addImage({ base64: image.buffer.toString("base64"), extension: image.extension });
             sheet.addImage(imageId, { tl: { col: 8, row: i + 1 }, ext: { width: 100, height: 75 } });
           } catch { /* skip */ }
         }
@@ -105,7 +130,8 @@ export const GET = withCors(async (request: Request) => {
           try {
             await fs.access(imgPath);
             const imgBuffer = await fs.readFile(imgPath);
-            const imageId = workbook.addImage({ base64: imgBuffer.toString("base64"), extension: "jpeg" });
+            const image = await prepareExcelImage(imgBuffer);
+            const imageId = workbook.addImage({ base64: image.buffer.toString("base64"), extension: image.extension });
             sheet.addImage(imageId, { tl: { col: 11, row: i + 1 }, ext: { width: 100, height: 75 } });
           } catch { /* skip */ }
         }
@@ -126,6 +152,12 @@ export const GET = withCors(async (request: Request) => {
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (error instanceof Error && error.message === "PASSWORD_CHANGE_REQUIRED") {
+      return NextResponse.json(
+        { error: "PASSWORD_CHANGE_REQUIRED", code: "PASSWORD_CHANGE_REQUIRED", message: "กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งาน" },
+        { status: 403 },
+      );
     }
     console.error("Mobile export error:", error);
     return NextResponse.json({ error: "Export failed" }, { status: 500 });

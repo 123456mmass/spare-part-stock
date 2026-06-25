@@ -30,6 +30,7 @@ export async function verifyLineIdToken(idToken: string): Promise<LineIdTokenPay
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: form.toString(),
+    signal: AbortSignal.timeout(10_000),
   });
 
   if (!res.ok) {
@@ -133,6 +134,7 @@ export async function getLineMessageContent(messageId: string): Promise<Buffer> 
 
   const res = await fetch(`https://api-data.line.me/v2/bot/message/${messageId}/content`, {
     headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(30_000),
   });
 
   if (!res.ok) {
@@ -171,6 +173,7 @@ async function sendLineMessages(
       Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({ ...payload, messages: formattedMessages }),
+    signal: AbortSignal.timeout(10_000),
   });
 
   if (!res.ok) {

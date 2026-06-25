@@ -13,6 +13,13 @@ export async function GET() {
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 401 });
     }
+    if (!user.isActive) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    // Invalidate sessions issued before the last password change/reset/deactivation.
+    if (session.tokenVersion !== user.tokenVersion) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     return NextResponse.json({
       user: {

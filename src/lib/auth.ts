@@ -76,6 +76,8 @@ export async function requireAuth() {
   const user = await getUserById(session.userId);
   if (!user) throw new AuthError("Unauthorized");
   if (!user.isActive) throw new AuthError("Unauthorized");
+  // Reject sessions issued before the last password change/reset/deactivation.
+  if (session.tokenVersion !== user.tokenVersion) throw new AuthError("Unauthorized");
   if (user.mustChangePassword) throw new AuthError("PASSWORD_CHANGE_REQUIRED");
   return user;
 }
@@ -86,6 +88,7 @@ export async function requireAuthAllowPasswordChange() {
   const user = await getUserById(session.userId);
   if (!user) throw new AuthError("Unauthorized");
   if (!user.isActive) throw new AuthError("Unauthorized");
+  if (session.tokenVersion !== user.tokenVersion) throw new AuthError("Unauthorized");
   return user;
 }
 
@@ -102,6 +105,7 @@ export async function requireAuthFromRequest(request: Request) {
   const user = await getUserById(session.userId);
   if (!user) throw new AuthError("Unauthorized");
   if (!user.isActive) throw new AuthError("Unauthorized");
+  if (session.tokenVersion !== user.tokenVersion) throw new AuthError("Unauthorized");
   if (user.mustChangePassword) throw new AuthError("PASSWORD_CHANGE_REQUIRED");
   return user;
 }
@@ -113,6 +117,7 @@ export async function requireAuthFromRequestAllowPasswordChange(request: Request
   const user = await getUserById(session.userId);
   if (!user) throw new AuthError("Unauthorized");
   if (!user.isActive) throw new AuthError("Unauthorized");
+  if (session.tokenVersion !== user.tokenVersion) throw new AuthError("Unauthorized");
   return user;
 }
 

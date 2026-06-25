@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRoleFromRequest } from "@/lib/auth";
 import { corsOptions, withCors } from "@/lib/cors";
@@ -30,19 +29,23 @@ export const PATCH = withCors(async (
     });
     return NextResponse.json(building);
   } catch (error) {
+    if (error instanceof Error && error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     if (error instanceof Error && error.message === "Forbidden") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    console.error("Mobile building PATCH error:", error);
     return NextResponse.json({ error: "เกิดข้อผิดพลาด" }, { status: 500 });
   }
 });
 
 export const DELETE = withCors(async (
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) => {
   try {
-    await requireRoleFromRequest(_request, ["ADMIN"]);
+    await requireRoleFromRequest(request, ["ADMIN"]);
     const { id } = await params;
     const partCount = await prisma.part.count({
       where: { buildingId: id, isActive: true },
@@ -56,6 +59,13 @@ export const DELETE = withCors(async (
     await prisma.building.delete({ where: { id } });
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof Error && error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (error instanceof Error && error.message === "Forbidden") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    console.error("Mobile building DELETE error:", error);
     return NextResponse.json({ error: "เกิดข้อผิดพลาด" }, { status: 500 });
   }
 });

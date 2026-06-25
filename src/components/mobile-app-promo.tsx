@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { Smartphone, Download, X, Sparkles } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 export interface ReleaseInfo {
   available: boolean;
@@ -86,24 +85,22 @@ export function MobileAppCard({ collapsed }: { collapsed?: boolean }) {
  */
 export function MobileAppPromoDialog() {
   const info = useReleaseInfo();
-  const [open, setOpen] = useState(false);
+  // "closed this session" flag; persistence is read directly from localStorage
+  // during render (this dialog only mounts client-side after auth resolves, so
+  // there is no SSR/hydration mismatch and no need to setState in an effect).
+  const [closed, setClosed] = useState(false);
 
-  useEffect(() => {
-    if (!info?.available) return;
-    const version = info.version ?? "1";
-    const key = `apk_promo_dismissed_${version}`;
-    try {
-      if (!localStorage.getItem(key)) setOpen(true);
-    } catch {
-      setOpen(true);
-    }
-  }, [info]);
+  const version = info?.version ?? "";
+  const dismissKey = `apk_promo_dismissed_${version || "1"}`;
+  const alreadyDismissed =
+    typeof window !== "undefined" &&
+    localStorage.getItem(dismissKey) === "1";
+
+  const open = Boolean(info?.available) && !closed && !alreadyDismissed;
 
   if (!open || !info?.available) return null;
 
-  const version = info.version ?? "";
   const size = formatSize(info.sizeBytes);
-  const dismissKey = `apk_promo_dismissed_${version}`;
   const href = `/apk/${info.filename ?? "sparepart_mobile.apk"}`;
 
   const close = (forever: boolean) => {
@@ -112,7 +109,7 @@ export function MobileAppPromoDialog() {
         localStorage.setItem(dismissKey, "1");
       } catch {}
     }
-    setOpen(false);
+    setClosed(true);
   };
 
   return (

@@ -16,9 +16,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     const tempPassword = generateTempPassword();
     const hashed = await bcrypt.hash(tempPassword, 12);
+    // Invalidate the target user's existing sessions after a password reset.
     await prisma.user.update({
       where: { id },
-      data: { password: hashed, mustChangePassword: true },
+      data: { password: hashed, mustChangePassword: true, tokenVersion: { increment: 1 } },
     });
 
     return NextResponse.json({ success: true, message: "รีเซ็ตรหัสผ่านสำเร็จ", tempPassword });

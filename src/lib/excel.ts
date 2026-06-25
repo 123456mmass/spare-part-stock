@@ -633,7 +633,8 @@ export async function importPartsFromExcel(
 
     result.success = result.errors.length === 0;
 
-  } catch {
+  } catch (error) {
+    console.error("importPartsFromExcel failed:", error);
     result.errors.push("การอ่านไฟล์ Excel ล้มเหลว กรุณาตรวจสอบรูปแบบไฟล์");
   }
 

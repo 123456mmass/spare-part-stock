@@ -23,7 +23,7 @@ export const POST = withCors(async (request: Request) => {
       );
     }
 
-    const { partName, description, categoryId, categoryName, subcategory, plant, location, quantity, minimumQuantity, unit, barcodeValue } = parsed.data;
+    const { partName, description, categoryId, categoryName, subcategory, plant, isSpecialToolPart, buildingId, location, quantity, minimumQuantity, unit, barcodeValue } = parsed.data;
     let { partNumber } = parsed.data;
     if (!partNumber || partNumber === "-") {
       partNumber = generatePartNumber();
@@ -48,7 +48,9 @@ export const POST = withCors(async (request: Request) => {
           description,
           categoryId: resolvedCategoryId,
           subcategory: subcategory || null,
-          plant: plant || null,
+          plant: isSpecialToolPart ? null : (plant || null),
+          isSpecialToolPart: isSpecialToolPart ?? false,
+          buildingId: buildingId || null,
           createdBy: user.id,
           location,
           quantity: 0,

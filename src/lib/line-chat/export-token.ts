@@ -9,11 +9,14 @@ type LineExportPayload = {
 };
 
 function getExportSecret() {
+  // Use a dedicated signing secret when configured. Otherwise derive a
+  // domain-separated secret from JWT_SECRET so export tokens can never be
+  // verified by the session verifier (and vice versa), even in single-env dev.
   const secret = process.env.LINE_EXPORT_SIGNING_SECRET || process.env.JWT_SECRET;
   if (!secret) {
     throw new Error("JWT_SECRET or LINE_EXPORT_SIGNING_SECRET is not configured");
   }
-  return new TextEncoder().encode(secret);
+  return new TextEncoder().encode(process.env.LINE_EXPORT_SIGNING_SECRET ? secret : `${secret}:line-export`);
 }
 
 function appUrl() {

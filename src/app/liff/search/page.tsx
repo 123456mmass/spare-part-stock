@@ -60,7 +60,13 @@ export default function LiffSearchPage() {
     setSearched(true);
     try {
       const params = new URLSearchParams({ search: q, limit: "20" });
-      if (plant && plant !== "__all__") params.set("plant", plant);
+      if (plant && plant !== "__all__") {
+        if (plant === "SPECIAL PART") {
+          params.set("plant", "special");
+        } else {
+          params.set("plant", plant);
+        }
+      }
 
       const res = await liffFetch(`/api/mobile/parts?${params}`);
       if (!res.ok) throw new Error("Search failed");

@@ -35,7 +35,8 @@ export const POST = withCors(async (
 
     await prisma.user.update({
       where: { id },
-      data: { isActive: false },
+      // Revoke any sessions the deactivated user still holds.
+      data: { isActive: false, tokenVersion: { increment: 1 } },
     });
 
     return NextResponse.json({ success: true });
