@@ -1,16 +1,16 @@
 # Spare Part Stock Management System
 
-ระบบจัดการสต็อกอะไหล่ สำหรับฝ่าย IT ใช้ deploy และบำรุงรักษา.
+ระบบจัดการสต็อกอะไหล่  ใช้ deploy และบำรุงรักษา.
 
 ## ภาพรวมระบบ
 
-- **ตัวเว็บแอป (Next.js)** — deploy บน server ของ EGAT (เครื่องนี้)
+- **ตัวเว็บแอป (Next.js)** — deploy บน server 
 - **AI Gateway** — ทำงานอยู่บนเครื่องอื่น (`https://gateway.birdsphichitchai.dev`) ตัวเว็บแอปจะเรียกผ่าน HTTPS
 - **ฐานข้อมูล** — SQLite (`dev.db`) เก็บในเครื่องเดียวกับเว็บแอป
 - **ข้อมูลผู้ใช้/รูปอะไหล่** — เก็บใน `dev.db` และ `public/uploads/` บนเครื่องเว็บแอป (ไม่ได้อยู่ใน git)
 
 ```
-[Browser] ─HTTPS─> [nginx+Next.js on EGAT] ─HTTPS─> [AI Gateway: gateway.birdsphichitchai.dev]
+[Browser] ─HTTPS─> [nginx+Next.js on ] ─HTTPS─> [AI Gateway: gateway.birdsphichitchai.dev]
                                    │                          (อยู่เครื่องอื่น, ไม่ต้องดูแลฝั่งนี้)
                                    └─> [dev.db + uploads on EGAT]
 ```
