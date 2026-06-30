@@ -12,7 +12,9 @@
     "admin:create": "tsx scripts/create-admin.ts",
     "db:reset-admin": "tsx scripts/reset-db-admin.ts",
     "mobile:gen-key": "tsx scripts/generate-mobile-key.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "update": "git pull --ff-only && npm ci && prisma generate && prisma migrate deploy && npm run build && pm2 restart spare-part-stock --update-env && pm2 save",
+    "deploy": "bash deploy.sh"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
