@@ -86,6 +86,7 @@ test-mobile-ai*.ts
 test-p2002-*.mjs
 test-row.ts
 test-embed.ts
+/test-*.ts
 check-ai-env.ts
 load_env.ts
 get-first-user*.js
@@ -101,6 +102,8 @@ backups/
 codebase.zip
 dev.db.backup-*
 dev.db.bak-*
+dev.db.backup.*
+emulator-window.xml
 
 # Temp data scripts (one-off NBC2 imports/improvements)
 scripts/nbc2-*.xlsx
