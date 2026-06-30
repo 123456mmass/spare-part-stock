@@ -34,13 +34,12 @@
    - `gateway.birdsphichitchai.dev` (AI gateway — สำคัญมาก ถ้าบล็อก AI จะใช้งานไม่ได้)
    - `api.line.me` (LINE Login/LIFF — ถ้าใช้)
 3. โดเมน + SSL (ใช้ Let's Encrypt / certbot ได้)
-4. ไฟล์ข้อมูลที่จัดเตรียมให้ (อยู่ใน **zip package** ไม่อยู่ใน git):
-   - ดาวน์โหลด: https://spare.birdsphichitchai.dev/uploads/spare-part-stock-migrate-ac357db9ae974fb6c7a0034d.zip
+4. ไฟล์ข้อมูลที่จัดเตรียมให้ (อยู่ใน **zip package** ไม่อยู่ใน git — ส่งให้แยก):
    - ภายใน zip มี: `.env` (ค่า config + **secret/API key ทั้งหมด**), `dev.db` (ฐานข้อมูล), `public/uploads/` (รูปอะไหล่)
    - แตก zip แล้ว copy ไฟล์ทั้ง 3 อย่างนี้เข้าโฟลเดอร์แอป
 
 > ไฟล์ `.env` / `dev.db` / `public/uploads/` **ไม่อยู่ใน git** (ถูก gitignore ไว้เพื่อความปลอดภัย) ต้องเอาจาก zip เท่านั้น
-> ⚠️ **zip มี secret จริงทั้งหมด** — เก็บในที่ปลอดภัย หลัง deploy สำเร็จให้ **rotate key** และ **ลบ zip** ทิ้ง
+> ⚠️ **zip มี secret จริงทั้งหมด** — เก็บในที่ปลอดภัย หลัง deploy สำเร็จให้ **rotate key** แล้วลบ zip ทิ้ง
 
 ---
 
